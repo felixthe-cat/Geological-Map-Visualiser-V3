@@ -24,12 +24,56 @@ COLOR_RGB_PALETTE = [
     [70, 130, 180, 255]    # Steel Blue
 ]
 
+def create_grid(min_x, max_x, min_y, max_y, z_level, spacing=50.0, line_radius=0.5):
+    """
+    Creates a 3D grid mesh at a specific Z level using thin cylinders.
+    """
+    grid_meshes = []
+    
+    start_x = np.floor(min_x / spacing) * spacing
+    end_x = np.ceil(max_x / spacing) * spacing
+    start_y = np.floor(min_y / spacing) * spacing
+    end_y = np.ceil(max_y / spacing) * spacing
+    
+    x_lines = np.arange(start_x, end_x + spacing, spacing)
+    y_lines = np.arange(start_y, end_y + spacing, spacing)
+    
+    # Draw lines parallel to Y axis (constant X)
+    for x in x_lines:
+        length = end_y - start_y
+        if length <= 0:
+            continue
+        cyl = trimesh.creation.cylinder(radius=line_radius, height=length, sections=4)
+        R = trimesh.transformations.rotation_matrix(np.radians(90), [1, 0, 0])
+        cyl.apply_transform(R)
+        cyl.apply_translation([x, (start_y + end_y)/2.0, z_level])
+        grid_meshes.append(cyl)
+        
+    # Draw lines parallel to X axis (constant Y)
+    for y in y_lines:
+        length = end_x - start_x
+        if length <= 0:
+            continue
+        cyl = trimesh.creation.cylinder(radius=line_radius, height=length, sections=4)
+        R = trimesh.transformations.rotation_matrix(np.radians(90), [0, 1, 0])
+        cyl.apply_transform(R)
+        cyl.apply_translation([(start_x + end_x)/2.0, y, z_level])
+        grid_meshes.append(cyl)
+        
+    if not grid_meshes:
+        return None
+        
+    grid_mesh = trimesh.util.concatenate(grid_meshes)
+    grid_mesh.visual.face_colors = [180, 180, 180, 100]  # Semi-transparent light grey
+    return grid_mesh
+
 def export_to_glb(geo_model, output_path: str) -> str:
     """
     Extracts surface meshes from the computed GemPy GeoModel, converts them
     to Trimesh objects, and exports them to a single multi-mesh GLB file.
     The meshes are centered around (0,0,0) and rotated from Z-up to Y-up
     for correct horizontal presentation in WebGL.
+    Also adds a local grid and coordinate axis indicator.
     """
     surfaces = [e.name for e in geo_model.structural_frame.structural_elements if e.name != 'basement']
     
@@ -50,6 +94,64 @@ def export_to_glb(geo_model, output_path: str) -> str:
     
     meshes_to_combine = []
     
+    # Calculate grid parameters based on physical scale
+    span_x = max_coords[0] - min_coords[0]
+    span_y = max_coords[1] - min_coords[1]
+    max_span = max(span_x, span_y)
+    
+    if max_span <= 50.0:
+        spacing = 10.0
+        line_radius = 0.05
+    elif max_span <= 250.0:
+        spacing = 50.0
+        line_radius = 0.2
+    elif max_span <= 1000.0:
+        spacing = 100.0
+        line_radius = 0.5
+    else:
+        spacing = 500.0
+        line_radius = 1.5
+        
+    # Homogeneous transformation for rotation from Z-up to Y-up
+    R = np.array([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+    ])
+    
+    # 2. Add grid lines at bottom elevation
+    grid_mesh = create_grid(
+        min_x=min_coords[0], max_x=max_coords[0],
+        min_y=min_coords[1], max_y=max_coords[1],
+        z_level=min_coords[2],
+        spacing=spacing,
+        line_radius=line_radius
+    )
+    
+    if grid_mesh is not None:
+        grid_mesh.apply_translation([-center[0], -center[1], -center[2]])
+        grid_mesh.apply_transform(R)
+        meshes_to_combine.append(grid_mesh)
+        
+    # 3. Add XYZ axes at the corner of the grid
+    start_x = np.floor(min_coords[0] / spacing) * spacing
+    start_y = np.floor(min_coords[1] / spacing) * spacing
+    z_level = min_coords[2]
+    
+    axis_length = max(spacing * 0.6, 5.0)
+    axis_radius = line_radius * 1.5
+    
+    axis_mesh = trimesh.creation.axis(
+        origin_size=axis_radius * 2.5,
+        axis_radius=axis_radius,
+        axis_length=axis_length
+    )
+    axis_mesh.apply_translation([start_x - center[0], start_y - center[1], z_level - center[2]])
+    axis_mesh.apply_transform(R)
+    meshes_to_combine.append(axis_mesh)
+    
+    # 4. Add layer surface meshes
     for i, mesh_data in enumerate(geo_model.solutions.dc_meshes):
         if i >= len(surfaces):
             break
@@ -79,12 +181,6 @@ def export_to_glb(geo_model, output_path: str) -> str:
         t_mesh.metadata = {'name': surface_name}
         
         # Rotate Z-up to Y-up (rotation of -90 degrees around X-axis)
-        R = np.array([
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, -1.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0]
-        ])
         t_mesh.apply_transform(R)
         
         meshes_to_combine.append(t_mesh)
