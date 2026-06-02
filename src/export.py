@@ -28,8 +28,26 @@ def export_to_glb(geo_model, output_path: str) -> str:
     """
     Extracts surface meshes from the computed GemPy GeoModel, converts them
     to Trimesh objects, and exports them to a single multi-mesh GLB file.
+    The meshes are centered around (0,0,0) and rotated from Z-up to Y-up
+    for correct horizontal presentation in WebGL.
     """
     surfaces = [e.name for e in geo_model.structural_frame.structural_elements if e.name != 'basement']
+    
+    # 1. Collect all real-world vertices first to find global bounding box
+    all_vertices = []
+    for mesh_data in geo_model.solutions.dc_meshes:
+        v = geo_model.input_transform.apply_inverse(mesh_data.vertices)
+        if len(v) > 0:
+            all_vertices.append(v)
+            
+    if not all_vertices:
+        raise ValueError("No valid meshes found in GemPy solution to export.")
+        
+    all_vertices = np.concatenate(all_vertices, axis=0)
+    min_coords = all_vertices.min(axis=0)
+    max_coords = all_vertices.max(axis=0)
+    center = (min_coords + max_coords) / 2.0
+    
     meshes_to_combine = []
     
     for i, mesh_data in enumerate(geo_model.solutions.dc_meshes):
@@ -44,8 +62,14 @@ def export_to_glb(geo_model, output_path: str) -> str:
         if len(vertices) == 0 or len(faces) == 0:
             continue
             
+        # Center the vertices around (0, 0, 0)
+        centered_vertices = vertices.copy()
+        centered_vertices[:, 0] -= center[0]
+        centered_vertices[:, 1] -= center[1]
+        centered_vertices[:, 2] -= center[2]
+        
         # Create trimesh
-        t_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        t_mesh = trimesh.Trimesh(vertices=centered_vertices, faces=faces)
         
         # Set color based on palette
         color = COLOR_RGB_PALETTE[i % len(COLOR_RGB_PALETTE)]
@@ -53,6 +77,15 @@ def export_to_glb(geo_model, output_path: str) -> str:
         
         # Assign name to the mesh nodes in glTF
         t_mesh.metadata = {'name': surface_name}
+        
+        # Rotate Z-up to Y-up (rotation of -90 degrees around X-axis)
+        R = np.array([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0]
+        ])
+        t_mesh.apply_transform(R)
         
         meshes_to_combine.append(t_mesh)
         
@@ -116,6 +149,7 @@ def export_to_vtk(geo_model, zip_output_path: str) -> str:
 def export_to_png(geo_model, output_path: str) -> str:
     """
     Renders the model surfaces offscreen and saves a static image screenshot.
+    Also adds a legend for the layers.
     """
     # Start XVFB if on Linux and headless (to avoid PyVista crash on HF spaces)
     if os.name != 'nt':
@@ -147,6 +181,7 @@ def export_to_png(geo_model, output_path: str) -> str:
             pv_mesh, 
             color=color, 
             name=surfaces[i], 
+            label=surfaces[i],  # Label for legend
             opacity=0.85, 
             show_edges=True,
             edge_color='#555555'
@@ -158,6 +193,14 @@ def export_to_png(geo_model, output_path: str) -> str:
         
     plotter.view_isometric()
     plotter.add_axes()
+    
+    # Add a legend on the screenshot
+    plotter.add_legend(
+        bcolor='white',
+        border=True,
+        size=(0.18, 0.18)
+    )
+    
     plotter.screenshot(output_path)
     plotter.close()
     return output_path

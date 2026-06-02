@@ -136,8 +136,30 @@ def generate_model(file_obj, resolution, dip, azimuth):
         export_to_vtk(model, vtk_zip_path)
         export_to_png(model, png_path)
         
+        # Dynamic HTML legend generation matching colors in export.py
+        surfaces = [e.name for e in model.structural_frame.structural_elements if e.name != 'basement']
+        from src.export import COLOR_HEX_PALETTE
+        legend_items = []
+        for i, name in enumerate(surfaces):
+            color = COLOR_HEX_PALETTE[i % len(COLOR_HEX_PALETTE)]
+            legend_items.append(f"""
+            <div style="display: flex; align-items: center; gap: 8px; margin-right: 20px; margin-bottom: 8px;">
+                <span style="display: inline-block; width: 18px; height: 18px; background-color: {color}; border-radius: 4px; border: 1px solid #555;"></span>
+                <span style="font-weight: 600; font-size: 0.95rem; color: #374151; font-family: 'Outfit', sans-serif;">{name}</span>
+            </div>
+            """)
+            
+        legend_html_content = f"""
+        <div style="margin-top: 10px; margin-bottom: 15px; padding: 12px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
+            <h4 style="margin-top: 0; margin-bottom: 10px; color: #1e3c72; font-weight: 700; font-size: 1rem; font-family: 'Outfit', sans-serif;">🏷️ Geological Legend</h4>
+            <div style="display: flex; flex-wrap: wrap;">
+                {"".join(legend_items)}
+            </div>
+        </div>
+        """
+        
         gr.Info("Model ready!")
-        return glb_path, png_path, glb_path, vtk_zip_path, png_path
+        return glb_path, legend_html_content, png_path, glb_path, vtk_zip_path, png_path
         
     except Exception as e:
         raise gr.Error(f"Artifact export failed: {e}")
@@ -148,15 +170,14 @@ def load_demo_ags():
 def load_demo_csv():
     return gr.update(value=SAMPLE_CSV_PATH)
 
+theme_soft = gr.themes.Soft(
+    primary_hue="sky", 
+    secondary_hue="slate", 
+    font=[gr.themes.GoogleFont("Outfit"), "sans-serif"]
+)
+
 # Build Gradio Block Layout
-with gr.Blocks(
-    theme=gr.themes.Soft(
-        primary_hue="sky", 
-        secondary_hue="slate", 
-        font=[gr.themes.GoogleFont("Outfit"), "sans-serif"]
-    ), 
-    css=CUSTOM_CSS
-) as demo:
+with gr.Blocks() as demo:
     
     # 1. Header banner
     with gr.Row():
@@ -239,14 +260,19 @@ with gr.Blocks(
                 height=500
             )
             
+            # Dynamic HTML legend component
+            legend_html = gr.HTML(
+                value="<div style='text-align: center; color: #666; font-family: sans-serif; padding: 10px;'>Upload a file to generate a 3D model and legend.</div>",
+                label="Geological Legend"
+            )
+            
             # Renders and Downloads Panel
             with gr.Row():
                 with gr.Column(scale=1):
                     # Screenshot Render Image
                     render_image = gr.Image(
                         label="Isometric View Render", 
-                        type="filepath",
-                        show_download_button=True
+                        type="filepath"
                     )
                 with gr.Column(scale=1):
                     # Downloads panel
@@ -259,7 +285,7 @@ with gr.Blocks(
             btn_generate.click(
                 fn=generate_model,
                 inputs=[file_input, slider_res, slider_dip, slider_azimuth],
-                outputs=[viewer_3d, render_image, download_glb, download_vtk, download_png]
+                outputs=[viewer_3d, legend_html, render_image, download_glb, download_vtk, download_png]
             )
 
     # 3. Bottom instructions and documentation
@@ -291,5 +317,7 @@ with gr.Blocks(
 if __name__ == "__main__":
     demo.queue().launch(
         server_name="0.0.0.0", 
-        server_port=7860
+        server_port=7860,
+        theme=theme_soft,
+        css=CUSTOM_CSS
     )
