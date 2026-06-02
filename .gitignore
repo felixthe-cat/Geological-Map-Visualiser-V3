@@ -1,0 +1,28 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Temporary data and generated output models
+temp_*.csv
+t_*.csv
+test_sp.csv
+test_ori.csv
+geology_model.glb
+geology_model_vtk.zip
+geology_model_render.png
+test_model_output.glb
+test_model_output.zip
+test_model_output.png
+*.vtk
+
+# IDE configurations
+.vscode/
+.idea/
