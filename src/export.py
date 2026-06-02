@@ -300,3 +300,141 @@ def export_to_png(geo_model, output_path: str) -> str:
     plotter.screenshot(output_path)
     plotter.close()
     return output_path
+
+def export_solids_to_glb(geo_model, output_path: str) -> str:
+    """
+    Extracts solid volume stratum meshes from the computed GemPy GeoModel solutions
+    using PyVista ImageData voxel thresholding. Converts them to Trimesh objects,
+    centers them around (0,0,0), rotates Z-up to Y-up, and exports them to a single GLB file.
+    Also adds a local grid and coordinate axis indicator.
+    """
+    elements = geo_model.structural_frame.structural_elements
+    
+    # 1. Access grid and solutions properties
+    nx, ny, nz = geo_model.grid.regular_grid.resolution
+    extent = geo_model.grid.regular_grid.extent
+    lith = geo_model.solutions.raw_arrays.lith_block
+    
+    # Calculate global bounding box to center the model
+    center = np.array([
+        (extent[0] + extent[1]) / 2.0,
+        (extent[2] + extent[3]) / 2.0,
+        (extent[4] + extent[5]) / 2.0
+    ])
+    
+    # Define PyVista ImageData representing voxel grid
+    grid = pv.ImageData()
+    grid.dimensions = [nx + 1, ny + 1, nz + 1]
+    grid.spacing = [
+        (extent[1] - extent[0]) / nx,
+        (extent[3] - extent[2]) / ny,
+        (extent[5] - extent[4]) / nz
+    ]
+    grid.origin = [extent[0], extent[2], extent[4]]
+    grid.cell_data['lithology'] = lith
+    
+    meshes_to_combine = []
+    
+    # Calculate grid parameters for the floor grid
+    span_x = extent[1] - extent[0]
+    span_y = extent[3] - extent[2]
+    max_span = max(span_x, span_y)
+    
+    if max_span <= 50.0:
+        spacing = 10.0
+        line_radius = 0.05
+    elif max_span <= 250.0:
+        spacing = 50.0
+        line_radius = 0.2
+    elif max_span <= 1000.0:
+        spacing = 100.0
+        line_radius = 0.5
+    else:
+        spacing = 500.0
+        line_radius = 1.5
+        
+    # Homogeneous transformation for rotation from Z-up to Y-up
+    R = np.array([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+    ])
+    
+    # 2. Add grid lines at bottom elevation
+    grid_mesh = create_grid(
+        min_x=extent[0], max_x=extent[1],
+        min_y=extent[2], max_y=extent[3],
+        z_level=extent[4],
+        spacing=spacing,
+        line_radius=line_radius
+    )
+    
+    if grid_mesh is not None:
+        grid_mesh.apply_translation([-center[0], -center[1], -center[2]])
+        grid_mesh.apply_transform(R)
+        meshes_to_combine.append(grid_mesh)
+        
+    # 3. Add XYZ axes at the corner of the grid
+    start_x = np.floor(extent[0] / spacing) * spacing
+    start_y = np.floor(extent[2] / spacing) * spacing
+    z_level = extent[4]
+    
+    axis_length = max(spacing * 0.6, 5.0)
+    axis_radius = line_radius * 1.5
+    
+    axis_mesh = trimesh.creation.axis(
+        origin_size=axis_radius * 2.5,
+        axis_radius=axis_radius,
+        axis_length=axis_length
+    )
+    axis_mesh.apply_translation([start_x - center[0], start_y - center[1], z_level - center[2]])
+    axis_mesh.apply_transform(R)
+    meshes_to_combine.append(axis_mesh)
+    
+    # 4. Extract volumetric meshes for each stratigraphic stratum
+    # Element indices in lith_block are 1-based index (1 = Soil, 2 = Clay, etc.)
+    for val in range(1, len(elements) + 1):
+        element_name = elements[val - 1].name
+        
+        # Isolate voxels matching this lithology value
+        vol = grid.threshold([val, val], scalars="lithology")
+        if vol.n_points == 0 or vol.n_cells == 0:
+            continue
+            
+        # Extract boundaries and triangulate quad faces for trimesh
+        surf = vol.extract_surface(algorithm='dataset_surface').triangulate()
+        vertices = surf.points
+        faces_flat = surf.faces
+        
+        if len(vertices) == 0 or len(faces_flat) == 0:
+            continue
+            
+        faces = faces_flat.reshape(-1, 4)[:, 1:]
+        
+        # Center vertices
+        centered_vertices = vertices.copy()
+        centered_vertices[:, 0] -= center[0]
+        centered_vertices[:, 1] -= center[1]
+        centered_vertices[:, 2] -= center[2]
+        
+        # Create trimesh
+        t_mesh = trimesh.Trimesh(vertices=centered_vertices, faces=faces)
+        
+        # Set colors matching the palette
+        color = COLOR_RGB_PALETTE[(val - 1) % len(COLOR_RGB_PALETTE)]
+        t_mesh.visual.face_colors = color
+        t_mesh.metadata = {'name': element_name}
+        
+        # Rotate Z-up to Y-up
+        t_mesh.apply_transform(R)
+        
+        meshes_to_combine.append(t_mesh)
+        
+    if not meshes_to_combine:
+        raise ValueError("No valid volumetric meshes found to export.")
+        
+    # Create the scene and export to GLB
+    scene = trimesh.Scene(meshes_to_combine)
+    scene.export(output_path, file_type='glb')
+    return output_path

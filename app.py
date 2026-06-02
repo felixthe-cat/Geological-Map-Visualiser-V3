@@ -7,7 +7,7 @@ from src.ingest_ags import ingest_ags
 from src.ingest_csv import ingest_csv
 from src.to_surface_points import generate_surface_and_orientation_points
 from src.model import build_and_compute_model
-from src.export import export_to_glb, export_to_vtk, export_to_png
+from src.export import export_to_glb, export_solids_to_glb, export_to_vtk, export_to_png
 
 # Sample files paths
 SAMPLE_AGS_PATH = os.path.join("examples", "sample.ags")
@@ -82,7 +82,7 @@ CUSTOM_CSS = """
 }
 """
 
-def generate_model(file_obj, resolution, dip, azimuth):
+def generate_model(file_obj, resolution, dip, azimuth, render_mode):
     """
     Main orchestration function running the processing and modeling pipeline.
     """
@@ -125,14 +125,16 @@ def generate_model(file_obj, resolution, dip, azimuth):
     except Exception as e:
         raise gr.Error(f"Modeling engine failed: {e}")
         
-    # 4. Export artifacts (GLB, VTK Zip, PNG Screenshot)
-    gr.Info("Exporting 3D scene & renders...")
+    # 4. Export artifacts (GLBs, VTK Zip, PNG Screenshot)
+    gr.Info("Exporting 3D scenes & renders...")
     try:
-        glb_path = "geology_model.glb"
+        glb_interfaces_path = "geology_model_interfaces.glb"
+        glb_solids_path = "geology_model_solids.glb"
         vtk_zip_path = "geology_model_vtk.zip"
         png_path = "geology_model_render.png"
         
-        export_to_glb(model, glb_path)
+        export_to_glb(model, glb_interfaces_path)
+        export_solids_to_glb(model, glb_solids_path)
         export_to_vtk(model, vtk_zip_path)
         export_to_png(model, png_path)
         
@@ -158,8 +160,10 @@ def generate_model(file_obj, resolution, dip, azimuth):
         </div>
         """
         
+        active_glb = glb_interfaces_path if render_mode == "Interface Contacts" else glb_solids_path
+        
         gr.Info("Model ready!")
-        return glb_path, legend_html_content, png_path, glb_path, vtk_zip_path, png_path
+        return active_glb, legend_html_content, png_path, [glb_interfaces_path, glb_solids_path], vtk_zip_path, png_path
         
     except Exception as e:
         raise gr.Error(f"Artifact export failed: {e}")
@@ -237,6 +241,14 @@ with gr.Blocks() as demo:
                     info="Dip direction compass angle (0° = North, 90° = East)."
                 )
                 
+            # Render Mode Toggle
+            render_mode = gr.Radio(
+                choices=["Interface Contacts", "Volumetric Solids"],
+                value="Interface Contacts",
+                label="3D Render Mode",
+                info="Toggle between thin interface separation surfaces and solid volumetric geological strata blocks."
+            )
+            
             # Submit Button
             btn_generate = gr.Button("🔨 Generate 3D Model", elem_classes="generate-btn")
             
@@ -277,15 +289,28 @@ with gr.Blocks() as demo:
                 with gr.Column(scale=1):
                     # Downloads panel
                     gr.Markdown("### 📥 Download Results")
-                    download_glb = gr.File(label="Download 3D Scene (GLB)")
+                    download_glb = gr.File(label="Download 3D Scenes (GLB)", file_count="multiple")
                     download_vtk = gr.File(label="Download Surfaces Meshes (VTK ZIP)")
                     download_png = gr.File(label="Download Isometric Image (PNG)")
                     
             # Linking generation logic
             btn_generate.click(
                 fn=generate_model,
-                inputs=[file_input, slider_res, slider_dip, slider_azimuth],
+                inputs=[file_input, slider_res, slider_dip, slider_azimuth, render_mode],
                 outputs=[viewer_3d, legend_html, render_image, download_glb, download_vtk, download_png]
+            )
+            
+            # Interactive toggle event
+            def change_render_mode(mode):
+                file_path = "geology_model_interfaces.glb" if mode == "Interface Contacts" else "geology_model_solids.glb"
+                if os.path.exists(file_path):
+                    return file_path
+                return None
+                
+            render_mode.change(
+                fn=change_render_mode,
+                inputs=render_mode,
+                outputs=viewer_3d
             )
 
     # 3. Bottom instructions and documentation

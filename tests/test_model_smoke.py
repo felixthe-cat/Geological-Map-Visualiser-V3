@@ -3,12 +3,13 @@ import pytest
 from src.ingest_ags import ingest_ags
 from src.to_surface_points import generate_surface_and_orientation_points
 from src.model import build_and_compute_model
-from src.export import export_to_glb, export_to_vtk, export_to_png
+from src.export import export_to_glb, export_solids_to_glb, export_to_vtk, export_to_png
 
 def test_end_to_end_pipeline():
     # File paths
     sample_path = os.path.join("examples", "sample.ags")
     glb_out = "test_model_output.glb"
+    glb_solids_out = "test_model_output_solids.glb"
     vtk_out = "test_model_output.zip"
     png_out = "test_model_output.png"
     
@@ -27,10 +28,15 @@ def test_end_to_end_pipeline():
     
     # 4. Exports
     try:
-        # GLB
+        # GLB Interfaces
         glb_path = export_to_glb(model, glb_out)
         assert os.path.exists(glb_path)
         assert os.path.getsize(glb_path) > 0, "Exported GLB is empty"
+
+        # GLB Solids
+        glb_solids_path = export_solids_to_glb(model, glb_solids_out)
+        assert os.path.exists(glb_solids_path)
+        assert os.path.getsize(glb_solids_path) > 0, "Exported Solids GLB is empty"
         
         # VTK
         vtk_path = export_to_vtk(model, vtk_out)
@@ -44,6 +50,6 @@ def test_end_to_end_pipeline():
         
     finally:
         # Cleanup generated test outputs
-        for file in [glb_out, vtk_out, png_out]:
+        for file in [glb_out, glb_solids_out, vtk_out, png_out]:
             if os.path.exists(file):
                 os.remove(file)
