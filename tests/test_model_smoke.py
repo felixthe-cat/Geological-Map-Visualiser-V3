@@ -53,3 +53,59 @@ def test_end_to_end_pipeline():
         for file in [glb_out, glb_solids_out, vtk_out, png_out]:
             if os.path.exists(file):
                 os.remove(file)
+
+def test_custom_visualisation_parameters():
+    sample_path = os.path.join("examples", "sample.ags")
+    glb_out = "test_custom_visual_output.glb"
+    glb_solids_out = "test_custom_visual_solids_output.glb"
+    
+    # Ingest and model
+    loca_df, geol_df = ingest_ags(sample_path)
+    sp_df, ori_df = generate_surface_and_orientation_points(loca_df, geol_df)
+    model = build_and_compute_model(sp_df, ori_df, resolution=[15, 10, 10])
+    
+    clipping_plane = {
+        "enabled": True,
+        "axis": "X",
+        "position_pct": 50.0
+    }
+    
+    try:
+        # Test GLB Interfaces with custom settings
+        path1 = export_to_glb(
+            model, 
+            glb_out,
+            z_scale=2.5,
+            visible_layers=["Soil", "Clay"],
+            opacity=0.6,
+            show_boreholes=True,
+            show_grid=True,
+            clipping_plane=clipping_plane,
+            loca_df=loca_df,
+            geol_df=geol_df,
+            show_contours=True
+        )
+        assert os.path.exists(path1)
+        assert os.path.getsize(path1) > 0
+        
+        # Test GLB Solids with custom settings
+        path2 = export_solids_to_glb(
+            model, 
+            glb_solids_out,
+            z_scale=2.5,
+            visible_layers=["Soil", "Clay"],
+            opacity=0.6,
+            show_boreholes=True,
+            show_grid=True,
+            clipping_plane=clipping_plane,
+            loca_df=loca_df,
+            geol_df=geol_df,
+            show_contours=True
+        )
+        assert os.path.exists(path2)
+        assert os.path.getsize(path2) > 0
+        
+    finally:
+        for file in [glb_out, glb_solids_out]:
+            if os.path.exists(file):
+                os.remove(file)

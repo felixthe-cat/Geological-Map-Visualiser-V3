@@ -80,11 +80,38 @@ CUSTOM_CSS = """
     margin: 0;
     line-height: 1.5;
 }
+#viewer-container {
+    position: relative;
+}
+.screenshot-btn {
+    position: absolute;
+    top: 5px;
+    right: 50px;
+    z-index: 10;
+    min-width: 40px !important;
+    height: 30px !important;
+    padding: 0 8px !important;
+    background-color: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+    font-size: 0.8rem !important;
+    cursor: pointer !important;
+}
+.screenshot-btn:hover {
+    background-color: #f9fafb !important;
+    border-color: #9ca3af !important;
+}
 """
 
-def generate_model(file_obj, resolution, dip, azimuth, render_mode):
+def generate_model(
+    file_obj, resolution, dip, azimuth, render_mode,
+    z_scale, opacity, show_boreholes, show_grid, show_contours,
+    clip_enabled, clip_axis, clip_pct
+):
     """
     Main orchestration function running the processing and modeling pipeline.
+    Computes GemPy model, caches it, and does the initial GLB exports.
     """
     if file_obj is None:
         raise gr.Error("Please upload an AGS or CSV file, or load a sample dataset first.")
@@ -100,7 +127,7 @@ def generate_model(file_obj, resolution, dip, azimuth, render_mode):
         elif filename.endswith('.csv'):
             loca_df, geol_df = ingest_csv(file_path)
         else:
-            raise ValueError("Unsupported file format. Please upload a .ags (Hong Kong CEDD standard) or .csv file.")
+            raise gr.Error("Unsupported file format. Please upload a .ags or .csv file.")
     except Exception as e:
         raise gr.Error(f"Ingestion failed: {e}")
         
@@ -119,13 +146,22 @@ def generate_model(file_obj, resolution, dip, azimuth, render_mode):
     # 3. Build & Compute GemPy geological model
     gr.Info("Reconstructing 3D geological layers with GemPy (implicit interpolation)...")
     try:
-        # Capping resolution parameters to avoid CPU Spaces RAM OOM
         res_grid = [int(resolution), int(resolution), int(resolution)]
         model = build_and_compute_model(sp_df, ori_df, resolution=res_grid)
     except Exception as e:
         raise gr.Error(f"Modeling engine failed: {e}")
         
-    # 4. Export artifacts (GLBs, VTK Zip, PNG Screenshot)
+    # Cached state dictionary
+    cached_state = {
+        "model": model,
+        "loca_df": loca_df,
+        "geol_df": geol_df
+    }
+    
+    # Unique stratum layers (surfaces)
+    surfaces = [e.name for e in model.structural_frame.structural_elements if e.name != 'basement']
+    
+    # 4. Export artifacts using all visualization parameters
     gr.Info("Exporting 3D scenes & renders...")
     try:
         glb_interfaces_path = "geology_model_interfaces.glb"
@@ -133,13 +169,44 @@ def generate_model(file_obj, resolution, dip, azimuth, render_mode):
         vtk_zip_path = "geology_model_vtk.zip"
         png_path = "geology_model_render.png"
         
-        export_to_glb(model, glb_interfaces_path)
-        export_solids_to_glb(model, glb_solids_path)
+        clipping_plane = {
+            "enabled": clip_enabled,
+            "axis": clip_axis,
+            "position_pct": clip_pct
+        }
+        
+        export_to_glb(
+            model, 
+            glb_interfaces_path,
+            z_scale=float(z_scale),
+            visible_layers=surfaces, # show all by default
+            opacity=float(opacity),
+            show_boreholes=show_boreholes,
+            show_grid=show_grid,
+            clipping_plane=clipping_plane,
+            loca_df=loca_df,
+            geol_df=geol_df,
+            show_contours=show_contours
+        )
+        
+        export_solids_to_glb(
+            model, 
+            glb_solids_path,
+            z_scale=float(z_scale),
+            visible_layers=surfaces, # show all by default
+            opacity=float(opacity),
+            show_boreholes=show_boreholes,
+            show_grid=show_grid,
+            clipping_plane=clipping_plane,
+            loca_df=loca_df,
+            geol_df=geol_df,
+            show_contours=show_contours
+        )
+        
         export_to_vtk(model, vtk_zip_path)
         export_to_png(model, png_path)
         
         # Dynamic HTML legend generation matching colors in export.py
-        surfaces = [e.name for e in model.structural_frame.structural_elements if e.name != 'basement']
         from src.export import COLOR_HEX_PALETTE
         legend_items = []
         for i, name in enumerate(surfaces):
@@ -163,16 +230,114 @@ def generate_model(file_obj, resolution, dip, azimuth, render_mode):
         active_glb = glb_interfaces_path if render_mode == "Interface Contacts" else glb_solids_path
         
         gr.Info("Model ready!")
-        return active_glb, legend_html_content, png_path, [glb_interfaces_path, glb_solids_path], vtk_zip_path, png_path
+        return (
+            active_glb, 
+            legend_html_content, 
+            png_path, 
+            [glb_interfaces_path, glb_solids_path], 
+            vtk_zip_path, 
+            png_path, 
+            cached_state,
+            gr.update(choices=surfaces, value=surfaces) # Dynamic layers update
+        )
         
     except Exception as e:
         raise gr.Error(f"Artifact export failed: {e}")
 
-def load_demo_ags():
-    return gr.update(value=SAMPLE_AGS_PATH)
+def update_visualisation(
+    cached_state, render_mode, z_scale, visible_layers, opacity,
+    show_boreholes, show_grid, show_contours, clip_enabled, clip_axis, clip_pct
+):
+    """
+    Fast update function that re-exports the GLB and assets using cached model settings,
+    avoiding recalculation of the GemPy interpolation engine.
+    """
+    if not cached_state or "model" not in cached_state:
+        # Silently return if no model has been generated yet
+        return None, "", None, [], None, None
+        
+    model = cached_state["model"]
+    loca_df = cached_state["loca_df"]
+    geol_df = cached_state["geol_df"]
+    
+    surfaces = [e.name for e in model.structural_frame.structural_elements if e.name != 'basement']
+    
+    glb_interfaces_path = "geology_model_interfaces.glb"
+    glb_solids_path = "geology_model_solids.glb"
+    vtk_zip_path = "geology_model_vtk.zip"
+    png_path = "geology_model_render.png"
+    
+    clipping_plane = {
+        "enabled": clip_enabled,
+        "axis": clip_axis,
+        "position_pct": clip_pct
+    }
+    
+    export_to_glb(
+        model, 
+        glb_interfaces_path,
+        z_scale=float(z_scale),
+        visible_layers=visible_layers,
+        opacity=float(opacity),
+        show_boreholes=show_boreholes,
+        show_grid=show_grid,
+        clipping_plane=clipping_plane,
+        loca_df=loca_df,
+        geol_df=geol_df,
+        show_contours=show_contours
+    )
+    
+    export_solids_to_glb(
+        model, 
+        glb_solids_path,
+        z_scale=float(z_scale),
+        visible_layers=visible_layers,
+        opacity=float(opacity),
+        show_boreholes=show_boreholes,
+        show_grid=show_grid,
+        clipping_plane=clipping_plane,
+        loca_df=loca_df,
+        geol_df=geol_df,
+        show_contours=show_contours
+    )
+    
+    # HTML Legend (show checked layers)
+    from src.export import COLOR_HEX_PALETTE
+    legend_items = []
+    for i, name in enumerate(surfaces):
+        if name not in visible_layers:
+            continue
+        color = COLOR_HEX_PALETTE[i % len(COLOR_HEX_PALETTE)]
+        legend_items.append(f"""
+        <div style="display: flex; align-items: center; gap: 8px; margin-right: 20px; margin-bottom: 8px;">
+            <span style="display: inline-block; width: 18px; height: 18px; background-color: {color}; border-radius: 4px; border: 1px solid #555;"></span>
+            <span style="font-weight: 600; font-size: 0.95rem; color: #374151; font-family: 'Outfit', sans-serif;">{name}</span>
+        </div>
+        """)
+        
+    legend_html_content = f"""
+    <div style="margin-top: 10px; margin-bottom: 15px; padding: 12px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
+        <h4 style="margin-top: 0; margin-bottom: 10px; color: #1e3c72; font-weight: 700; font-size: 1rem; font-family: 'Outfit', sans-serif;">🏷️ Geological Legend</h4>
+        <div style="display: flex; flex-wrap: wrap;">
+            {"".join(legend_items)}
+        </div>
+    </div>
+    """
+    
+    active_glb = glb_interfaces_path if render_mode == "Interface Contacts" else glb_solids_path
+    
+    return active_glb, legend_html_content, png_path, [glb_interfaces_path, glb_solids_path], vtk_zip_path, png_path
 
-def load_demo_csv():
-    return gr.update(value=SAMPLE_CSV_PATH)
+def load_selected_demo(choice):
+    if choice == "Sample AGS (3 Boreholes)":
+        return SAMPLE_AGS_PATH
+    elif choice == "Sample CSV (3 Boreholes)":
+        return SAMPLE_CSV_PATH
+    elif choice == "Complex Site CSV (5 Boreholes, 5 Layers)":
+        return "examples/sample_complex_site.csv"
+    elif choice == "Pinch-out CSV (Lens Layer)":
+        return "examples/sample_pinch_out.csv"
+    return None
 
 theme_soft = gr.themes.Soft(
     primary_hue="sky", 
@@ -182,6 +347,10 @@ theme_soft = gr.themes.Soft(
 
 # Build Gradio Block Layout
 with gr.Blocks() as demo:
+    
+    # State container for GemPy computed model to allow instant visualisation tweaks
+    cached_state = gr.State(None)
+    screenshot_list = gr.State([])
     
     # 1. Header banner
     with gr.Row():
@@ -205,14 +374,20 @@ with gr.Blocks() as demo:
                 type="filepath"
             )
             
-            # Quick Demos Loader Row
+            # Quick Demos Loader Dropdown
             gr.Markdown("💡 **Don't have a file? Load a pre-bundled demo dataset:**")
-            with gr.Row():
-                btn_demo_ags = gr.Button("📂 Load Sample AGS", elem_classes="demo-btn")
-                btn_demo_csv = gr.Button("📄 Load Sample CSV", elem_classes="demo-btn")
-                
-            btn_demo_ags.click(fn=load_demo_ags, outputs=file_input)
-            btn_demo_csv.click(fn=load_demo_csv, outputs=file_input)
+            demo_dropdown = gr.Dropdown(
+                choices=[
+                    "None",
+                    "Sample AGS (3 Boreholes)", 
+                    "Sample CSV (3 Boreholes)", 
+                    "Complex Site CSV (5 Boreholes, 5 Layers)", 
+                    "Pinch-out CSV (Lens Layer)"
+                ],
+                value="None",
+                label="Load Sample Dataset"
+            )
+            demo_dropdown.change(fn=load_selected_demo, inputs=demo_dropdown, outputs=file_input)
             
             # Configuration panel
             with gr.Accordion("⚙️ Model Parameters", open=True):
@@ -241,6 +416,65 @@ with gr.Blocks() as demo:
                     info="Dip direction compass angle (0° = North, 90° = East)."
                 )
                 
+            # Visual styles and toggles panel
+            with gr.Accordion("🎨 Visual Styles & Toggles", open=True):
+                slider_z_scale = gr.Slider(
+                    minimum=1.0, 
+                    maximum=10.0, 
+                    value=1.0, 
+                    step=0.5, 
+                    label="Vertical Exaggeration (Z-Scale)",
+                    info="Stretch the vertical axis to make thin layers legible."
+                )
+                slider_opacity = gr.Slider(
+                    minimum=0.0, 
+                    maximum=1.0, 
+                    value=0.85, 
+                    step=0.05, 
+                    label="Strata Opacity",
+                    info="Adjust transparency of geological strata."
+                )
+                chk_show_boreholes = gr.Checkbox(
+                    value=True, 
+                    label="Render Borehole Cylinders",
+                    info="Display vertical logging segments as colored cylinders."
+                )
+                chk_show_grid = gr.Checkbox(
+                    value=True, 
+                    label="Render Axis Grid & Coordinate Labels",
+                    info="Display floor grid and Easting/Northing/Elevation ticks."
+                )
+                chk_show_contours = gr.Checkbox(
+                    value=True, 
+                    label="Render Topography Contours",
+                    info="Display elevation contour lines on the uppermost surface layer."
+                )
+                checkbox_visible_layers = gr.CheckboxGroup(
+                    label="Visible Strata Layers", 
+                    choices=[], 
+                    value=[],
+                    info="Toggle checkboxes to show or hide specific formations."
+                )
+                
+            # Cross-Section clipping panel
+            with gr.Accordion("✂️ Cross-Section Slicing", open=False):
+                chk_enable_slice = gr.Checkbox(
+                    value=False, 
+                    label="Enable Clipping Plane"
+                )
+                radio_slice_axis = gr.Radio(
+                    choices=["X", "Y", "Z"], 
+                    value="X", 
+                    label="Clipping Axis"
+                )
+                slider_slice_pct = gr.Slider(
+                    minimum=0, 
+                    maximum=100, 
+                    value=50, 
+                    step=5, 
+                    label="Clipping Position (%)"
+                )
+                
             # Render Mode Toggle
             render_mode = gr.Radio(
                 choices=["Interface Contacts", "Volumetric Solids"],
@@ -266,11 +500,13 @@ with gr.Blocks() as demo:
             gr.Markdown("### 📊 3D Interactive Model")
             
             # 3D Viewer Component
-            viewer_3d = gr.Model3D(
-                label="3D Geology Scene (Rotate, zoom & pan)", 
-                interactive=True,
-                height=500
-            )
+            with gr.Group(elem_id="viewer-container"):
+                btn_screenshot = gr.Button("📸 Take Screenshot", elem_classes="screenshot-btn")
+                viewer_3d = gr.Model3D(
+                    label="3D Geology Scene (Rotate, zoom & pan)", 
+                    interactive=True,
+                    height=500
+                )
             
             # Dynamic HTML legend component
             legend_html = gr.HTML(
@@ -292,25 +528,127 @@ with gr.Blocks() as demo:
                     download_glb = gr.File(label="Download 3D Scenes (GLB)", file_count="multiple")
                     download_vtk = gr.File(label="Download Surfaces Meshes (VTK ZIP)")
                     download_png = gr.File(label="Download Isometric Image (PNG)")
+                    download_screenshots = gr.File(
+                        label="Captured Screenshots (Max 10)", 
+                        file_count="multiple",
+                        interactive=False
+                    )
+                    btn_clear_screenshots = gr.Button("🗑️ Clear Screenshots", size="sm")
                     
+            # Hidden textbox to receive base64 screenshot data
+            screenshot_data = gr.Textbox(elem_id="screenshot_data", visible=False)
+
             # Linking generation logic
             btn_generate.click(
                 fn=generate_model,
-                inputs=[file_input, slider_res, slider_dip, slider_azimuth, render_mode],
-                outputs=[viewer_3d, legend_html, render_image, download_glb, download_vtk, download_png]
+                inputs=[
+                    file_input, slider_res, slider_dip, slider_azimuth, render_mode,
+                    slider_z_scale, slider_opacity, chk_show_boreholes, chk_show_grid, chk_show_contours,
+                    chk_enable_slice, radio_slice_axis, slider_slice_pct
+                ],
+                outputs=[
+                    viewer_3d, legend_html, render_image, 
+                    download_glb, download_vtk, download_png,
+                    cached_state, checkbox_visible_layers
+                ]
             )
             
-            # Interactive toggle event
-            def change_render_mode(mode):
-                file_path = "geology_model_interfaces.glb" if mode == "Interface Contacts" else "geology_model_solids.glb"
-                if os.path.exists(file_path):
-                    return file_path
-                return None
+            # Pack inputs for fast visualisation updates
+            visual_inputs = [
+                cached_state, render_mode, slider_z_scale, checkbox_visible_layers, slider_opacity,
+                chk_show_boreholes, chk_show_grid, chk_show_contours, chk_enable_slice, radio_slice_axis, slider_slice_pct
+            ]
+            visual_outputs = [
+                viewer_3d, legend_html, render_image, 
+                download_glb, download_vtk, download_png
+            ]
+            
+            # Interactive visual options release/change events
+            render_mode.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            slider_z_scale.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            checkbox_visible_layers.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            slider_opacity.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            chk_show_boreholes.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            chk_show_grid.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            chk_show_contours.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            chk_enable_slice.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            radio_slice_axis.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+            slider_slice_pct.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+
+            # JS event callback to capture model-viewer canvas to hidden textbox
+            btn_screenshot.click(
+                fn=None,
+                js="""
+                () => {
+                    const viewer = document.querySelector('#viewer-container model-viewer');
+                    if (viewer) {
+                        const dataUrl = viewer.toDataURL("image/png");
+                        const textarea = document.querySelector('#screenshot_data textarea');
+                        if (textarea) {
+                            textarea.value = dataUrl;
+                            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
+                }
+                """,
+                inputs=[],
+                outputs=[]
+            )
+
+            # Python backend helper to save decoded base64 screenshot
+            def save_screenshot(data_url, current_photos):
+                if not data_url or not data_url.startswith("data:image/png;base64,"):
+                    return current_photos, current_photos
                 
-            render_mode.change(
-                fn=change_render_mode,
-                inputs=render_mode,
-                outputs=viewer_3d
+                import base64
+                import time
+                
+                header, encoded = data_url.split(",", 1)
+                data = base64.b64decode(encoded)
+                
+                os.makedirs("screenshots", exist_ok=True)
+                
+                if current_photos is None:
+                    current_photos = []
+                    
+                if len(current_photos) >= 10:
+                    oldest_file = current_photos.pop(0)
+                    if os.path.exists(oldest_file):
+                        try:
+                            os.remove(oldest_file)
+                        except Exception:
+                            pass
+                            
+                filename = f"screenshots/geology_screenshot_{int(time.time())}_{len(current_photos) + 1}.png"
+                with open(filename, "wb") as f:
+                    f.write(data)
+                    
+                current_photos.append(filename)
+                gr.Info(f"Screenshot saved! ({len(current_photos)}/10)")
+                return current_photos, current_photos
+
+            screenshot_data.change(
+                fn=save_screenshot,
+                inputs=[screenshot_data, screenshot_list],
+                outputs=[download_screenshots, screenshot_list]
+            )
+
+            # Python backend helper to clear screenshots
+            def clear_screenshots(current_photos):
+                if current_photos:
+                    for file in current_photos:
+                        if os.path.exists(file):
+                            try:
+                                os.remove(file)
+                            except Exception:
+                                pass
+                gr.Info("Screenshots cleared.")
+                return [], []
+
+            btn_clear_screenshots.click(
+                fn=clear_screenshots,
+                inputs=[screenshot_list],
+                outputs=[download_screenshots, screenshot_list]
             )
 
     # 3. Bottom instructions and documentation
