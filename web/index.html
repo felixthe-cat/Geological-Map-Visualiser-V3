@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geological Map Visualiser — Cloud Portal</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Supabase JS Client library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- Navigation Header -->
+  <header>
+    <div class="logo">
+      <svg width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        <polyline points="2 17 12 22 22 17"></polyline>
+        <polyline points="2 12 12 17 22 12"></polyline>
+      </svg>
+      <span>GeoVisualise 3D</span>
+    </div>
+    <nav>
+      <div id="nav-user-info" class="user-badge" style="display: none;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        <span id="user-email">email@domain.com</span>
+      </div>
+      <button id="btn-logout" class="glass-btn secondary" style="display: none; padding: 0.4rem 0.8rem; font-size: 0.85rem;">Logout</button>
+    </nav>
+  </header>
+
+  <!-- 1. Config Setup Overlay (If Supabase keys are not set in localStorage) -->
+  <div id="setup-view" class="setup-container" style="display: none;">
+    <div class="glass-card">
+      <h2 class="auth-title">⚙️ Supabase Integration</h2>
+      <p class="auth-subtitle">Please enter your Supabase project keys to link this application to your database and storage bucket.</p>
+      
+      <div class="alert-box error" id="setup-error"></div>
+      
+      <div class="auth-form-group">
+        <label for="setup-url">Supabase Project URL</label>
+        <input type="text" id="setup-url" class="glass-input" placeholder="https://xxxxxxxxxxxxxxxxxxxx.supabase.co" required>
+      </div>
+      <div class="auth-form-group">
+        <label for="setup-key">Supabase Anon Key</label>
+        <input type="password" id="setup-key" class="glass-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." required>
+      </div>
+      
+      <button id="btn-save-setup" class="glass-btn" style="width: 100%; margin-top: 1rem;">Connect Project</button>
+    </div>
+  </div>
+
+  <!-- 2. Authentication View (Sign In / Sign Up) -->
+  <div id="auth-view" class="auth-container" style="display: none;">
+    <div class="glass-card">
+      <h2 id="auth-view-title" class="auth-title">Welcome Back</h2>
+      <p id="auth-view-subtitle" class="auth-subtitle">Sign in to your account to view geological models.</p>
+      
+      <div class="alert-box error" id="auth-error"></div>
+      <div class="alert-box success" id="auth-success"></div>
+      
+      <form id="auth-form">
+        <div class="auth-form-group">
+          <label for="auth-email">Email Address</label>
+          <input type="email" id="auth-email" class="glass-input" placeholder="name@company.com" required>
+        </div>
+        <div class="auth-form-group">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" class="glass-input" placeholder="Min. 6 characters" required>
+        </div>
+        
+        <button type="submit" id="btn-auth-submit" class="glass-btn" style="width: 100%; margin-top: 1rem;">Sign In</button>
+      </form>
+      
+      <div class="auth-links">
+        <span id="auth-toggle-msg">Don't have an account?</span>
+        <a href="#" id="link-toggle-auth">Sign Up</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Dashboard View -->
+  <div id="dashboard-view" class="dashboard-container">
+    <div class="welcome-section">
+      <div>
+        <h1 class="welcome-title">Geological Visualiser Dashboard</h1>
+        <p class="welcome-subtitle">Manage borehole logging datasets and explore interactive GemPy structural models.</p>
+      </div>
+      <div>
+        <button id="btn-reset-keys" class="glass-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.85rem;">🔧 Reconfigure Keys</button>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Left Column: Borehole Data manager -->
+      <div class="history-panel glass-card">
+        <h3 class="panel-header">📁 Borehole Logs Manager</h3>
+        
+        <!-- Upload Dropzone -->
+        <div id="dropzone" class="dropzone">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <p style="font-weight: 600; font-size: 0.95rem;">Drag & drop .ags or .csv</p>
+          <p style="font-size: 0.75rem; color: var(--text-muted);">Maximum size: 10MB</p>
+          <input type="file" id="file-uploader" accept=".ags,.csv" style="display: none;">
+        </div>
+
+        <div class="alert-box error" id="upload-error" style="margin-top: 0.5rem;"></div>
+        <div class="alert-box success" id="upload-success" style="margin-top: 0.5rem;"></div>
+
+        <!-- Saved list -->
+        <h4 style="margin-top: 1rem; font-size: 0.95rem; font-weight: 600; color: var(--text-secondary);">Uploaded Files Log</h4>
+        <div id="file-list" class="file-list">
+          <!-- Populated by JavaScript -->
+          <div style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No datasets uploaded yet.</div>
+        </div>
+      </div>
+
+      <!-- Right Column: Visualiser 3D WebGL space -->
+      <div class="viewer-panel glass-card">
+        <h3 class="panel-header" style="margin-bottom: 1rem; z-index: 1;">🏔️ 3D Model Explorer</h3>
+        
+        <!-- Viewer Display -->
+        <div id="viewer-wrapper" style="flex: 1; position: relative;">
+          <!-- Empty State -->
+          <div id="empty-viewer" class="empty-viewer-state">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+            <div>
+              <h4 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.5rem;">Geological Engine Offline</h4>
+              <p style="font-size: 0.9rem; color: var(--text-muted); max-width: 400px; margin: 0 auto;">To activate the 3D viewer, deploy your Gradio app to Hugging Face Spaces and configure its URL in the settings.</p>
+            </div>
+            
+            <div style="display: flex; gap: 10px; width: 100%; max-width: 400px;">
+              <input type="text" id="hf-url-input" class="glass-input" placeholder="https://username-space.hf.space" style="font-size: 0.9rem; padding: 0.5rem 1rem;">
+              <button id="btn-save-hf" class="glass-btn" style="padding: 0.5rem 1rem; font-size: 0.9rem;">Set Space</button>
+            </div>
+          </div>
+
+          <!-- Active iframe (Hidden by default) -->
+          <iframe id="viewer-iframe" style="display: none;"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>Geological Map Visualiser V3 &copy; 2026. Made with Google DeepMind Antigravity.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
