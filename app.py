@@ -340,26 +340,33 @@ def load_selected_demo(choice):
     return None
 
 theme_soft = gr.themes.Soft(
-    primary_hue="sky", 
+    primary_hue="emerald", 
     secondary_hue="slate", 
     font=[gr.themes.GoogleFont("Outfit"), "sans-serif"]
+).set(
+    body_background_fill="#050811",
+    body_background_fill_dark="#050811",
+    block_background_fill="rgba(10, 16, 30, 0.45)",
+    block_background_fill_dark="rgba(10, 16, 30, 0.45)",
+    block_border_width="1px",
+    block_border_color="rgba(255, 255, 255, 0.09)",
+    button_primary_background_fill="#10b981",
+    button_primary_background_fill_dark="#10b981",
+    button_primary_background_fill_hover="#34d399",
+    button_primary_background_fill_hover_dark="#34d399",
+    button_primary_text_color="#050811",
+    button_primary_text_color_dark="#050811"
 )
 
 # Build Gradio Block Layout
-with gr.Blocks() as demo:
+with gr.Blocks(theme=theme_soft) as demo:
     
     # State container for GemPy computed model to allow instant visualisation tweaks
     cached_state = gr.State(None)
     screenshot_list = gr.State([])
     
-    # 1. Header banner
-    with gr.Row():
-        gr.HTML("""
-        <div class='title-container'>
-            <h1>Geological Map Visualiser V3</h1>
-            <p>Construct 3D geological models from CEDD open-data AGS files using GemPy implicit structural modeling.</p>
-        </div>
-        """)
+    # 1. Header banner (Hidden in Vercel iframe, title is displayed on portal page)
+    # Banner removed for seamless embed integration
         
     # 2. Main Interface
     with gr.Row():

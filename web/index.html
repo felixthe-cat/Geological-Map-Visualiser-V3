@@ -164,34 +164,9 @@
           <button id="btn-reset-keys" class="glass-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.8rem;">🔧 Database Credentials</button>
         </div>
 
-        <div class="dashboard-grid">
-          <!-- Left Column: Borehole Log Files Manager -->
-          <div class="history-panel blueprint-card">
-            <h3 class="panel-header">📁 Borehole Logs Manager</h3>
-            
-            <div id="dropzone" class="dropzone">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-              </svg>
-              <p style="font-weight: 600; font-size: 0.85rem; margin-top: 4px;">Drag & drop .ags or .csv</p>
-              <p style="font-size: 0.7rem; color: var(--text-muted);">Max file size: 10MB</p>
-              <input type="file" id="file-uploader" accept=".ags,.csv" style="display: none;">
-            </div>
-
-            <div class="alert-box error" id="upload-error" style="margin-top: 0.5rem;"></div>
-            <div class="alert-box success" id="upload-success" style="margin-top: 0.5rem;"></div>
-
-            <h4 style="margin-top: 1rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Uploaded Files Log</h4>
-            <div id="file-list" class="file-list">
-              <!-- Dynamically populated by JS -->
-              <div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 1rem 0;">No datasets uploaded.</div>
-            </div>
-          </div>
-
-          <!-- Right Column: Interactive 3D Gradio Canvas Viewer -->
-          <div class="viewer-panel blueprint-card" style="padding: 1.5rem;">
+        <div class="dashboard-grid-full">
+          <!-- Interactive 3D Gradio Canvas Viewer (Full Width) -->
+          <div class="viewer-panel blueprint-card" style="padding: 1.5rem; width: 100%;">
             <h3 class="panel-header" style="margin-bottom: 1rem; border: none;">🏔️ 3D Model Explorer</h3>
             
             <div id="viewer-wrapper" style="flex: 1; display: flex; flex-direction: column; position: relative;">
