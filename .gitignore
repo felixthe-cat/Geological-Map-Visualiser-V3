@@ -28,3 +28,6 @@ screenshots/
 # IDE configurations
 .vscode/
 .idea/
+
+.vercel
+.env*.local

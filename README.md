@@ -1,3 +1,12 @@
+---
+title: Geological Map Visualiser V3
+emoji: 🏔️
+colorFrom: sky
+colorTo: slate
+sdk: docker
+pinned: false
+---
+
 # Geological Map Visualiser V3
 
 A web-hosted geotechnical tool that automates the construction of 3D geological models from borehole data (Hong Kong **AGS** files or custom **CSVs**). 
