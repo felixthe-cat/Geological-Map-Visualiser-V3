@@ -1,0 +1,6 @@
+web/
+.vercel/
+.env.local
+*/*.png
+*/*.glb
+*/*.zip
