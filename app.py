@@ -16,18 +16,18 @@ SAMPLE_CSV_PATH = os.path.join("examples", "sample_boreholes.csv")
 # Custom CSS for rich visual aesthetics
 CUSTOM_CSS = """
 .title-container {
-    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-    color: white;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #050811;
     padding: 2.5rem;
     border-radius: 16px;
     margin-bottom: 2rem;
-    box-shadow: 0 10px 30px rgba(42, 82, 152, 0.15);
+    box-shadow: 0 10px 30px rgba(16, 185, 129, 0.15);
 }
 .title-container h1 {
     font-size: 2.75rem;
     font-weight: 800;
     margin: 0;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     letter-spacing: -0.5px;
 }
 .title-container p {
@@ -37,8 +37,8 @@ CUSTOM_CSS = """
     font-weight: 300;
 }
 .generate-btn {
-    background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%) !important;
-    color: white !important;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    color: #050811 !important;
     font-weight: 700 !important;
     border: none !important;
     border-radius: 10px !important;
@@ -49,34 +49,34 @@ CUSTOM_CSS = """
 }
 .generate-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 180, 219, 0.3) !important;
+    box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3) !important;
 }
 .demo-btn {
-    background-color: #f3f4f6 !important;
-    color: #374151 !important;
-    border: 1px solid #d1d5db !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    color: #f8fafc !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
     font-weight: 600 !important;
     transition: all 0.2s ease !important;
 }
 .demo-btn:hover {
-    background-color: #e5e7eb !important;
+    background-color: rgba(255, 255, 255, 0.09) !important;
     transform: translateY(-1px);
 }
 .assumptions-card {
-    border-left: 4px solid #00b4db;
-    background-color: #f0f9ff;
+    border-left: 4px solid #10b981;
+    background-color: rgba(16, 185, 129, 0.05);
     padding: 1.25rem;
     border-radius: 0 12px 12px 0;
     margin-top: 1.5rem;
 }
 .assumptions-card h4 {
     margin-top: 0;
-    color: #0369a1;
+    color: #34d399;
     font-weight: 700;
 }
 .assumptions-card p {
     font-size: 0.95rem;
-    color: #0c4a6e;
+    color: #a7f3d0;
     margin: 0;
     line-height: 1.5;
 }
@@ -91,16 +91,17 @@ CUSTOM_CSS = """
     min-width: 40px !important;
     height: 30px !important;
     padding: 0 8px !important;
-    background-color: #ffffff !important;
-    border: 1px solid #d1d5db !important;
+    background-color: rgba(15, 23, 42, 0.8) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #f8fafc !important;
     border-radius: 6px !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
     font-size: 0.8rem !important;
     cursor: pointer !important;
 }
 .screenshot-btn:hover {
-    background-color: #f9fafb !important;
-    border-color: #9ca3af !important;
+    background-color: rgba(15, 23, 42, 1) !important;
+    border-color: #10b981 !important;
 }
 """
 
@@ -359,7 +360,7 @@ theme_soft = gr.themes.Soft(
 )
 
 # Build Gradio Block Layout
-with gr.Blocks(theme=theme_soft) as demo:
+with gr.Blocks(theme=theme_soft, js="() => { document.documentElement.classList.add('dark'); }") as demo:
     
     # State container for GemPy computed model to allow instant visualisation tweaks
     cached_state = gr.State(None)
