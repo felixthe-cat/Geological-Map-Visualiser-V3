@@ -5,7 +5,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \
-    libgl1-mesa-glx \
+    libglx0 \
     libglapi-mesa \
     libosmesa6 \
     xvfb \
