@@ -1,8 +1,8 @@
 ---
 title: Geological Map Visualiser V3
 emoji: 🏔️
-colorFrom: sky
-colorTo: slate
+colorFrom: blue
+colorTo: gray
 sdk: docker
 pinned: false
 ---
