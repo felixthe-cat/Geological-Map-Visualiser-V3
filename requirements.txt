@@ -1,0 +1,10 @@
+gempy
+gempy_engine
+python-ags4
+pandas
+pyvista
+gradio
+trimesh
+pytest
+openpyxl
+scipy
