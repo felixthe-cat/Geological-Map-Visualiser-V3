@@ -33,100 +33,141 @@ body,
     color: #1a1a0f !important;
 }
 
-/* ── All blocks / panels ── */
-.block, .form, .panel,
-.gr-box, .gr-panel,
-.gap, .tabs, .tabitem {
-    background-color: #f0e9dc !important;
+/* ── Component cards — every block gets a white card with border ── */
+.block {
+    background-color: #fffdf8 !important;
+    border: 1px solid #c8bda8 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06) !important;
+    padding: 1rem !important;
+}
+.block .block {
+    background-color: #f7f2e8 !important;
+    box-shadow: none !important;
+}
+
+/* ── Outer wrappers — transparent so the page bg shows ── */
+.tabs, .tabitem, .gap, .form, .panel, .gr-box, .gr-panel {
+    background-color: transparent !important;
     border-color: #c8bda8 !important;
 }
 
 /* ── Tab bar ── */
 .tab-nav {
     background-color: #e8dfd0 !important;
-    border-bottom: 1px solid #c8bda8 !important;
+    border-bottom: 2px solid #c8bda8 !important;
+    border-radius: 10px 10px 0 0 !important;
+    padding: 0 0.5rem !important;
 }
 .tab-nav button {
     background: transparent !important;
     color: #4a4a38 !important;
-    border-color: transparent !important;
+    border: none !important;
     font-family: 'Space Grotesk', sans-serif !important;
     font-weight: 500 !important;
+    padding: 0.6rem 1rem !important;
 }
-.tab-nav button.selected,
-.tab-nav button:focus {
+.tab-nav button.selected {
     background: #3d6618 !important;
     color: #f5f0e8 !important;
-    border-color: #3d6618 !important;
-    border-radius: 6px 6px 0 0 !important;
+    border-radius: 8px 8px 0 0 !important;
+    font-weight: 700 !important;
 }
 
-/* ── Accordion / label headers ── */
-.label-wrap, span.label-wrap,
+/* ── Accordion headers — gold bar style ── */
+details > summary,
 .block > .label-wrap,
-details > summary {
-    background-color: #e8dfd0 !important;
-    border-color: #c8bda8 !important;
-    color: #1a1a0f !important;
+span.label-wrap {
+    background-color: #f0e4c4 !important;
+    border: 1px solid #c8a84a !important;
+    border-radius: 8px !important;
+    color: #2d2d18 !important;
     font-family: 'Space Grotesk', sans-serif !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
+    padding: 0.55rem 0.85rem !important;
 }
 
-/* ── Text labels above components ── */
-label span, .block label span, .form label span {
-    color: #3d3d25 !important;
+/* ── Component labels (slider names, checkbox labels) ── */
+label > span,
+.block label > span,
+span[data-testid] {
+    color: #2d2d18 !important;
     font-family: 'Space Grotesk', sans-serif !important;
-    font-size: 0.85rem !important;
+    font-size: 0.84rem !important;
     font-weight: 600 !important;
+    background: none !important;
+    padding: 0 !important;
 }
 
-/* ── Inputs, textareas, dropdowns ── */
-input[type="text"], input[type="number"],
-textarea, select,
-.input-wrap, .wrap-inner,
-.svelte-input-text input,
-.block input, .block textarea {
-    background-color: #faf5eb !important;
-    border-color: #c8bda8 !important;
+/* ── Info/hint text below sliders ── */
+.block .info, span.info, .description {
+    color: #6a6a50 !important;
+    font-size: 0.78rem !important;
+}
+
+/* ── Markdown / prose ── */
+.prose, .md, .gr-markdown, .block .prose {
     color: #1a1a0f !important;
     font-family: 'Outfit', sans-serif !important;
 }
-input[type="text"]:focus, input[type="number"]:focus,
-textarea:focus {
+.prose h3, .md h3 { color: #2d5016 !important; font-family: 'Space Grotesk', sans-serif !important; }
+.prose a, .md a    { color: #3d6618 !important; }
+.prose hr, .md hr  { border-color: #c8bda8 !important; }
+
+/* ── Inputs, textareas, number boxes ── */
+input[type="text"], input[type="number"],
+textarea, select,
+.input-wrap, .wrap-inner,
+.block input, .block textarea {
+    background-color: #faf5eb !important;
+    border: 1px solid #c8bda8 !important;
+    border-radius: 8px !important;
+    color: #1a1a0f !important;
+    font-family: 'Outfit', sans-serif !important;
+}
+input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
     border-color: #3d6618 !important;
     box-shadow: 0 0 0 3px rgba(61,102,24,0.15) !important;
+    outline: none !important;
+}
+
+/* ── File upload drop zone ── */
+.upload-container, [data-testid="drop-target"],
+.file-preview-holder, .file-drop-area {
+    background-color: #faf5eb !important;
+    border: 2px dashed #b89a38 !important;
+    border-radius: 10px !important;
+    color: #4a4a38 !important;
 }
 
 /* ── Range sliders ── */
-input[type="range"] {
-    accent-color: #3d6618 !important;
-}
+input[type="range"] { accent-color: #3d6618 !important; }
 
 /* ── Checkboxes / radio buttons ── */
-input[type="checkbox"], input[type="radio"] {
-    accent-color: #3d6618 !important;
-}
+input[type="checkbox"], input[type="radio"] { accent-color: #3d6618 !important; }
 
-/* ── Default buttons ── */
+/* ── Default (secondary) buttons ── */
 button.lg, button.sm, button.secondary {
     background-color: #e8dfd0 !important;
     border: 1px solid #c8bda8 !important;
-    color: #3d3d25 !important;
+    color: #2d2d18 !important;
     font-family: 'Space Grotesk', sans-serif !important;
     font-weight: 600 !important;
+    border-radius: 8px !important;
     transition: background 0.2s !important;
 }
 button.lg:hover, button.sm:hover, button.secondary:hover {
     background-color: #ddd4c0 !important;
 }
 
-/* ── Primary / variant="primary" buttons ── */
+/* ── Primary buttons ── */
 button.primary {
     background: linear-gradient(135deg, #3d6618 0%, #5a8a22 100%) !important;
     border: none !important;
     color: #f5f0e8 !important;
     font-family: 'Space Grotesk', sans-serif !important;
     font-weight: 700 !important;
+    border-radius: 8px !important;
 }
 button.primary:hover {
     box-shadow: 0 6px 18px rgba(61,102,24,0.35) !important;
@@ -134,24 +175,20 @@ button.primary:hover {
 }
 
 /* ── Dropdown options list ── */
-ul.options, .dropdown-arrow,
-.block ul {
+ul.options, .block ul {
     background-color: #faf5eb !important;
-    border-color: #c8bda8 !important;
+    border: 1px solid #c8bda8 !important;
+    border-radius: 8px !important;
     color: #1a1a0f !important;
 }
-ul.options li:hover {
-    background-color: #e8dfd0 !important;
-}
+ul.options li:hover { background-color: #e8dfd0 !important; }
 
-/* ── Markdown / prose text ── */
-.prose, .md, .gr-markdown, .block .prose {
-    color: #1a1a0f !important;
-    font-family: 'Outfit', sans-serif !important;
+/* ── 3D model viewer ── */
+model-viewer, .model3D {
+    background-color: #f7f2e8 !important;
+    border-radius: 10px !important;
+    border: 1px solid #c8bda8 !important;
 }
-.prose h3, .md h3 { color: #2d5016 !important; }
-.prose a, .md a    { color: #3d6618 !important; }
-.prose hr, .md hr  { border-color: #c8bda8 !important; }
 
 /* ── Gradio footer ── */
 footer, .footer {
@@ -159,7 +196,7 @@ footer, .footer {
     border-top: 1px solid #c8bda8 !important;
 }
 
-/* ── Info / warning toasts ── */
+/* ── Toast notifications ── */
 .toast-wrap { font-family: 'Outfit', sans-serif !important; }
 
 /* ── Custom app classes ── */
