@@ -3,213 +3,172 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GeoVisualise 3D — Sub-surface Geological Intelligence</title>
+  <title>GeoVisualise 3D — Interactive Geological Mapping</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Supabase JS Client library -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-  <!-- Navigation Header -->
-  <header>
-    <div class="container">
-      <a href="#" class="logo">
-        <svg width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- ============================================================
+       SECTION 1 — DARK HERO
+       ============================================================ -->
+  <section class="hero-section">
+
+    <!-- Background: terrain SVG + light rays -->
+    <div class="hero-bg">
+      <div class="hero-rays"></div>
+      <svg class="terrain-svg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
+        <!-- Mountain silhouettes -->
+        <path d="M0,900 L0,620 C80,580 160,480 240,420 C320,360 360,400 420,340 C480,280 500,180 560,120 C620,60 660,100 720,80 C780,60 810,140 860,160 C910,180 940,120 1000,160 C1060,200 1080,280 1140,320 C1200,360 1260,300 1320,340 C1380,380 1420,460 1440,500 L1440,900 Z"
+              fill="rgba(20,40,8,0.92)"/>
+        <!-- Second ridge (lighter, closer) -->
+        <path d="M0,900 L0,720 C60,700 120,660 200,640 C280,620 320,660 400,620 C480,580 520,520 600,500 C680,480 720,540 800,520 C880,500 920,440 1000,460 C1080,480 1120,560 1200,580 C1280,600 1360,560 1440,580 L1440,900 Z"
+              fill="rgba(14,28,5,0.96)"/>
+        <!-- Topographic contour lines -->
+        <path d="M80,480 C160,460 240,400 340,380 C440,360 480,420 560,380 C640,340 680,260 740,220 C800,180 840,240 900,260"
+              fill="none" stroke="rgba(154,200,69,0.12)" stroke-width="1.5"/>
+        <path d="M0,560 C100,540 200,500 300,480 C400,460 460,500 540,460 C620,420 660,360 720,320 C780,280 820,340 880,360 C940,380 1000,320 1060,340 C1120,360 1180,420 1260,440 C1320,455 1380,430 1440,440"
+              fill="none" stroke="rgba(154,200,69,0.09)" stroke-width="1"/>
+        <path d="M0,640 C120,620 220,600 340,580 C460,560 520,600 620,560 C720,520 760,480 840,500 C920,520 980,460 1060,480 C1140,500 1200,560 1300,570 C1360,576 1400,555 1440,560"
+              fill="none" stroke="rgba(154,200,69,0.07)" stroke-width="1"/>
+        <!-- Peak glow spot -->
+        <ellipse cx="560" cy="120" rx="80" ry="40" fill="rgba(154,200,69,0.08)"/>
+        <ellipse cx="720" cy="80"  rx="60" ry="30" fill="rgba(184,220,89,0.10)"/>
+      </svg>
+    </div>
+
+    <!-- Centered navigation: links | logo | links -->
+    <nav class="hero-nav">
+      <div class="hero-nav-inner">
+        <a href="#" class="nav-link">About</a>
+        <a href="#" class="nav-link">Docs</a>
+        <a href="#app" class="hero-logo" aria-label="GeoVisualise 3D">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </a>
+        <a href="#app" class="nav-link">Visualiser</a>
+        <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </nav>
+
+    <!-- Hero copy -->
+    <div class="hero-content">
+      <div class="hero-title">
+        <span class="hero-line1">3D Geological</span>
+        <span class="hero-line2">Map Visualiser</span>
+      </div>
+      <p class="hero-subtitle">
+        Reconstruct sub-surface geological profiles from borehole records using implicit structural modelling. Upload an AGS or CSV file and explore in 3D.
+      </p>
+      <a href="#app" class="hero-cta">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 8 16 12 12 16"></polyline>
+          <line x1="8" y1="12" x2="16" y2="12"></line>
+        </svg>
+        Open Visualiser
+      </a>
+    </div>
+
+  </section>
+
+
+  <!-- ============================================================
+       SECTION 2 — APP / CREAM SECTION
+       ============================================================ -->
+  <section id="app" class="app-section">
+
+    <!-- Header row: left label + title / right counter + description -->
+    <div class="app-header">
+
+      <!-- Left column -->
+      <div>
+        <div class="section-chip">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Interactive Tool
+        </div>
+        <h2 class="app-title">
+          Interactive 3D
+          <em>Geological Mapping</em>
+        </h2>
+      </div>
+
+      <!-- Right column: counter + description -->
+      <div>
+        <div class="app-counter-row">
+          <div class="app-counter">01<small>/04</small></div>
+          <p class="app-counter-desc">
+            Upload AGS or CSV borehole data, configure model parameters, and generate a fully interactive 3D geological model. Rotate, zoom, and export GLB or VTK meshes directly in the browser.
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Feature cards row -->
+    <div style="max-width: var(--max-w); margin: 0 auto; padding: 0 var(--pad-h) 3rem;">
+      <div class="feature-cards">
+
+        <div class="feature-card">
+          <span class="feature-card-chip">3D ENGINE</span>
+          <div class="feature-card-visual fv-model"></div>
+          <div class="feature-card-body">
+            <h3>GemPy Implicit Modelling</h3>
+            <p>Kriging-based interpolation reconstructs smooth geological layer boundaries from sparse borehole contacts.</p>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-card-chip">SITE MAP</span>
+          <div class="feature-card-visual fv-map"></div>
+          <div class="feature-card-body">
+            <h3>Interactive Site Map</h3>
+            <p>Plot borehole locations on a Google Hybrid satellite basemap. Query the CSDI database by bounding box.</p>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-card-chip">EXPORT</span>
+          <div class="feature-card-visual fv-data"></div>
+          <div class="feature-card-body">
+            <h3>GLB, VTK &amp; PNG Export</h3>
+            <p>Download high-fidelity 3D scene files, surface meshes, and isometric renders for use in GIS or CAD workflows.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Full-width iframe -->
+    <div class="iframe-wrapper">
+      <iframe
+        id="viewer-iframe"
+        title="GeoVisualise 3D — Geological Map Visualiser"
+        allowfullscreen
+        loading="lazy"
+      ></iframe>
+    </div>
+
+  </section>
+
+
+  <!-- ============================================================
+       FOOTER
+       ============================================================ -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
           <polyline points="2 17 12 22 22 17"></polyline>
           <polyline points="2 12 12 17 22 12"></polyline>
         </svg>
-        <span>GeoVisualise 3D</span>
-      </a>
-      
-      <nav>
-        <div class="nav-links">
-          <a href="#features">Features</a>
-          <a href="#workspace">Console</a>
-        </div>
-        <div id="nav-user-info" class="user-badge" style="display: none;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-          </svg>
-          <span id="user-email">email@domain.com</span>
-        </div>
-        <button id="btn-logout" class="glass-btn secondary" style="display: none; padding: 0.4rem 0.8rem; font-size: 0.8rem;">Logout</button>
-        <a href="#workspace" class="glass-btn" id="btn-header-cta" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Launch Console →</a>
-      </nav>
-    </div>
-  </header>
-
-  <!-- 1. Hero Section -->
-  <section class="container hero">
-    <div class="hero-content">
-      <div class="hero-tag">Earth Intelligence Console</div>
-      <h1 class="hero-title">Developer Tools for sub-surface intelligence</h1>
-      <p class="hero-subtitle">Reconstruct 3D structural geology profiles from raw borehole records in seconds. Build next-gen geotechnical products with cloud-native implicit modeling tools.</p>
-      
-      <div class="hero-input-group">
-        <input type="text" class="glass-input" placeholder="Enter your email to deploy..." readonly value="lawfelix2002@gmail.com">
-        <a href="#workspace" class="glass-btn">Launch Workspace →</a>
+        GeoVisualise 3D
       </div>
-    </div>
-    <div class="hero-visual">
-      <img src="hero_globe.png" alt="Geological Sliced Globe">
-      <div class="hero-glow-ring"></div>
-    </div>
-  </section>
-
-  <!-- 2. Partners Logos Row -->
-  <section class="social-proof">
-    <div class="container">
-      <p>Powered by open standards and modern cloud infrastructure</p>
-      <div class="logo-row">
-        <span>GemPy 3D</span>
-        <span>PyVista</span>
-        <span>Supabase</span>
-        <span>Vercel</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- 3. Features Blueprint Grid -->
-  <section id="features" class="container features-section">
-    <div class="section-label">Capabilities</div>
-    <h2 class="section-title">Made for Geotechnical Developers</h2>
-    
-    <div class="features-grid">
-      <!-- Card 1 -->
-      <div class="blueprint-card">
-        <div class="feature-number">01 / MODELING ENGINE</div>
-        <h3 class="feature-title">GemPy Implicit Reconstruction</h3>
-        <p class="feature-desc">Utilizes kriging-based algorithms to automatically interpolate layer contacts and generate smooth volumetric lithology boundaries from sparse borehole log elevations.</p>
-      </div>
-      <!-- Card 2 -->
-      <div class="blueprint-card">
-        <div class="feature-number">02 / VISUALISATION</div>
-        <h3 class="feature-title">WebGL Interactive Renders</h3>
-        <p class="feature-desc">Export and rotate high-fidelity GLB models in-browser. Fast vertical exaggeration adjustments and clipping plane cuts run instantly without re-solving models.</p>
-      </div>
-      <!-- Card 3 -->
-      <div class="blueprint-card">
-        <div class="feature-number">03 / INGEST STANDARDS</div>
-        <h3 class="feature-title">Flexible Ingestion Pipelines</h3>
-        <p class="feature-desc">Full compatibility with geotechnical engineering AGS data structures and custom fall-back spreadsheet CSV schemas mapped to local grid coordinates.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 4. Interactive Workspace (Supabase & Gradio Frame) -->
-  <section id="workspace" class="workspace-section">
-    <div class="container">
-      <div class="section-label">Interactive Console</div>
-      <h2 class="section-title">Serve Data at Scale, Instantly</h2>
-      
-      <!-- 4.1 Config Setup View (Database keys) -->
-      <div id="setup-view" class="setup-container" style="display: none;">
-        <div class="blueprint-card" style="width: 100%;">
-          <h2 class="auth-title">🔧 Configure database settings</h2>
-          <p class="auth-subtitle">Paste your project API details below to enable cloud logging and storage buckets.</p>
-          
-          <div class="alert-box error" id="setup-error"></div>
-          
-          <div class="auth-form-group">
-            <label for="setup-url">SUPABASE URL</label>
-            <input type="text" id="setup-url" class="glass-input" placeholder="https://xxxxxxxx.supabase.co" required>
-          </div>
-          <div class="auth-form-group">
-            <label for="setup-key">SUPABASE ANON KEY</label>
-            <input type="password" id="setup-key" class="glass-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." required>
-          </div>
-          
-          <button id="btn-save-setup" class="glass-btn" style="width: 100%; margin-top: 1rem;">Connect Database</button>
-        </div>
-      </div>
-
-      <!-- 4.2 Authentication View (Sign in / Sign up) -->
-      <div id="auth-view" class="auth-container" style="display: none;">
-        <div class="blueprint-card" style="width: 100%;">
-          <h2 id="auth-view-title" class="auth-title">Authenticate Console</h2>
-          <p id="auth-view-subtitle" class="auth-subtitle">Sign in to your account to upload and explore geological profiles.</p>
-          
-          <div class="alert-box error" id="auth-error"></div>
-          <div class="alert-box success" id="auth-success"></div>
-          
-          <form id="auth-form">
-            <div class="auth-form-group">
-              <label for="auth-email">EMAIL ADDRESS</label>
-              <input type="email" id="auth-email" class="glass-input" placeholder="name@company.com" required>
-            </div>
-            <div class="auth-form-group">
-              <label for="auth-password">PASSWORD</label>
-              <input type="password" id="auth-password" class="glass-input" placeholder="Min. 6 characters" required>
-            </div>
-            
-            <button type="submit" id="btn-auth-submit" class="glass-btn" style="width: 100%; margin-top: 1rem;">Sign In</button>
-          </form>
-          
-          <div class="auth-links">
-            <span id="auth-toggle-msg">New user?</span>
-            <a href="#" id="link-toggle-auth">Create Account</a>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4.3 Dashboard View -->
-      <div id="dashboard-view" class="dashboard-container" style="display: none; display: flex; flex-direction: column; gap: 2rem;">
-        <div class="dashboard-header">
-          <div class="dashboard-header-left">
-            <h3 style="font-family: var(--font-title); font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">Sub-surface visualiser dashboard</h3>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Deploy modeling jobs, manage data storage buckets, and rotate interactive WebGL layers.</p>
-          </div>
-          <button id="btn-reset-keys" class="glass-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.8rem;">🔧 Database Credentials</button>
-        </div>
-
-        <div class="dashboard-grid-full">
-          <!-- Interactive 3D Gradio Canvas Viewer (Full Width) -->
-          <div class="viewer-panel blueprint-card" style="padding: 1.5rem; width: 100%;">
-            <h3 class="panel-header" style="margin-bottom: 1rem; border: none;">🏔️ 3D Model Explorer</h3>
-            
-            <div id="viewer-wrapper" style="flex: 1; display: flex; flex-direction: column; position: relative;">
-              <!-- Empty State / Setup hf space URL -->
-              <div id="empty-viewer" class="empty-viewer-state">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                  <polyline points="2 17 12 22 22 17"></polyline>
-                  <polyline points="2 12 12 17 22 12"></polyline>
-                </svg>
-                <div style="text-align: center;">
-                  <h4 style="font-family: var(--font-title); font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem;">Geological modeling engine URL required</h4>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 320px; margin: 0 auto 1rem auto;">Enter your Hugging Face Space URL to initialize and control the Gradio modeling API.</p>
-                </div>
-                <div style="display: flex; gap: 8px; width: 100%; max-width: 380px;">
-                  <input type="text" id="hf-url-input" class="glass-input" placeholder="https://username-space.hf.space" style="font-size: 0.85rem; padding: 0.5rem 1rem;">
-                  <button id="btn-save-hf" class="glass-btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Set Space</button>
-                </div>
-              </div>
-
-              <!-- Gradio WebGL Iframe -->
-              <iframe id="viewer-iframe" style="display: none;"></iframe>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 5. Bottom Call to Action and Footer -->
-  <section class="cta-footer">
-    <div class="container">
-      <h2 class="cta-title">Bring sub-surface intelligence to life</h2>
-      <a href="#workspace" class="glass-btn" style="padding: 0.9rem 2.2rem; font-size: 1.05rem;">Launch Console Now</a>
-      <div class="cta-planet-horizon"></div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer>
-    <div class="container">
-      <p>GeoVisualise 3D — Developed using Google DeepMind Antigravity agent systems.</p>
-      <p style="margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.5;">Powered by GemPy & Supabase. Copyright &copy; 2026. All rights reserved.</p>
+      <p>Powered by GemPy &amp; Hugging Face Spaces.</p>
+      <p>Copyright &copy; 2026. All rights reserved.</p>
     </div>
   </footer>
 
