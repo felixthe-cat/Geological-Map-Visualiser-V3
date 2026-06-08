@@ -8,20 +8,168 @@ from src.ingest_csv import ingest_csv
 from src.to_surface_points import generate_surface_and_orientation_points
 from src.model import build_and_compute_model
 from src.export import export_to_glb, export_solids_to_glb, export_to_vtk, export_to_png
+from src.map_view import generate_site_map
+from src import csdi_client
+
+# Path to the local borehole spatial index database
+CSDI_DB_PATH = os.path.join("data", "gi_spatial_index.sqlite")
 
 # Sample files paths
 SAMPLE_AGS_PATH = os.path.join("examples", "sample.ags")
 SAMPLE_CSV_PATH = os.path.join("examples", "sample_boreholes.csv")
 
-# Custom CSS for rich visual aesthetics
+# Custom CSS for rich visual aesthetics — cream/forest-green/gold palette matching Vercel frontend
 CUSTOM_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,700;1,300&family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+/* ── Page foundation ── */
+body,
+.gradio-container,
+.gradio-container > .main,
+.gradio-container > .main > .wrap,
+.gradio-container > .main > .wrap > .contain {
+    background-color: #f0e9dc !important;
+    font-family: 'Outfit', sans-serif !important;
+    color: #1a1a0f !important;
+}
+
+/* ── All blocks / panels ── */
+.block, .form, .panel,
+.gr-box, .gr-panel,
+.gap, .tabs, .tabitem {
+    background-color: #f0e9dc !important;
+    border-color: #c8bda8 !important;
+}
+
+/* ── Tab bar ── */
+.tab-nav {
+    background-color: #e8dfd0 !important;
+    border-bottom: 1px solid #c8bda8 !important;
+}
+.tab-nav button {
+    background: transparent !important;
+    color: #4a4a38 !important;
+    border-color: transparent !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 500 !important;
+}
+.tab-nav button.selected,
+.tab-nav button:focus {
+    background: #3d6618 !important;
+    color: #f5f0e8 !important;
+    border-color: #3d6618 !important;
+    border-radius: 6px 6px 0 0 !important;
+}
+
+/* ── Accordion / label headers ── */
+.label-wrap, span.label-wrap,
+.block > .label-wrap,
+details > summary {
+    background-color: #e8dfd0 !important;
+    border-color: #c8bda8 !important;
+    color: #1a1a0f !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 600 !important;
+}
+
+/* ── Text labels above components ── */
+label span, .block label span, .form label span {
+    color: #3d3d25 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+}
+
+/* ── Inputs, textareas, dropdowns ── */
+input[type="text"], input[type="number"],
+textarea, select,
+.input-wrap, .wrap-inner,
+.svelte-input-text input,
+.block input, .block textarea {
+    background-color: #faf5eb !important;
+    border-color: #c8bda8 !important;
+    color: #1a1a0f !important;
+    font-family: 'Outfit', sans-serif !important;
+}
+input[type="text"]:focus, input[type="number"]:focus,
+textarea:focus {
+    border-color: #3d6618 !important;
+    box-shadow: 0 0 0 3px rgba(61,102,24,0.15) !important;
+}
+
+/* ── Range sliders ── */
+input[type="range"] {
+    accent-color: #3d6618 !important;
+}
+
+/* ── Checkboxes / radio buttons ── */
+input[type="checkbox"], input[type="radio"] {
+    accent-color: #3d6618 !important;
+}
+
+/* ── Default buttons ── */
+button.lg, button.sm, button.secondary {
+    background-color: #e8dfd0 !important;
+    border: 1px solid #c8bda8 !important;
+    color: #3d3d25 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 600 !important;
+    transition: background 0.2s !important;
+}
+button.lg:hover, button.sm:hover, button.secondary:hover {
+    background-color: #ddd4c0 !important;
+}
+
+/* ── Primary / variant="primary" buttons ── */
+button.primary {
+    background: linear-gradient(135deg, #3d6618 0%, #5a8a22 100%) !important;
+    border: none !important;
+    color: #f5f0e8 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 700 !important;
+}
+button.primary:hover {
+    box-shadow: 0 6px 18px rgba(61,102,24,0.35) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ── Dropdown options list ── */
+ul.options, .dropdown-arrow,
+.block ul {
+    background-color: #faf5eb !important;
+    border-color: #c8bda8 !important;
+    color: #1a1a0f !important;
+}
+ul.options li:hover {
+    background-color: #e8dfd0 !important;
+}
+
+/* ── Markdown / prose text ── */
+.prose, .md, .gr-markdown, .block .prose {
+    color: #1a1a0f !important;
+    font-family: 'Outfit', sans-serif !important;
+}
+.prose h3, .md h3 { color: #2d5016 !important; }
+.prose a, .md a    { color: #3d6618 !important; }
+.prose hr, .md hr  { border-color: #c8bda8 !important; }
+
+/* ── Gradio footer ── */
+footer, .footer {
+    background-color: #e8dfd0 !important;
+    border-top: 1px solid #c8bda8 !important;
+}
+
+/* ── Info / warning toasts ── */
+.toast-wrap { font-family: 'Outfit', sans-serif !important; }
+
+/* ── Custom app classes ── */
 .title-container {
-    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-    color: white;
+    background: linear-gradient(135deg, #2d5016 0%, #4a7c20 60%, #6b9a2a 100%);
+    color: #f5f0e8;
     padding: 2.5rem;
     border-radius: 16px;
     margin-bottom: 2rem;
-    box-shadow: 0 10px 30px rgba(42, 82, 152, 0.15);
+    box-shadow: 0 10px 30px rgba(61, 102, 24, 0.25);
 }
 .title-container h1 {
     font-size: 2.75rem;
@@ -32,13 +180,13 @@ CUSTOM_CSS = """
 }
 .title-container p {
     font-size: 1.15rem;
-    opacity: 0.9;
+    opacity: 0.88;
     margin-top: 0.75rem;
     font-weight: 300;
 }
 .generate-btn {
-    background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%) !important;
-    color: white !important;
+    background: linear-gradient(135deg, #3d6618 0%, #5a8a22 100%) !important;
+    color: #f5f0e8 !important;
     font-weight: 700 !important;
     border: none !important;
     border-radius: 10px !important;
@@ -49,34 +197,34 @@ CUSTOM_CSS = """
 }
 .generate-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 180, 219, 0.3) !important;
+    box-shadow: 0 8px 20px rgba(61, 102, 24, 0.35) !important;
 }
 .demo-btn {
-    background-color: #f3f4f6 !important;
-    color: #374151 !important;
-    border: 1px solid #d1d5db !important;
+    background-color: #ede6d8 !important;
+    color: #3d3d25 !important;
+    border: 1px solid #c8bda8 !important;
     font-weight: 600 !important;
     transition: all 0.2s ease !important;
 }
 .demo-btn:hover {
-    background-color: #e5e7eb !important;
+    background-color: #e0d8c8 !important;
     transform: translateY(-1px);
 }
 .assumptions-card {
-    border-left: 4px solid #00b4db;
-    background-color: #f0f9ff;
+    border-left: 4px solid #b89a38;
+    background-color: #faf5eb;
     padding: 1.25rem;
     border-radius: 0 12px 12px 0;
     margin-top: 1.5rem;
 }
 .assumptions-card h4 {
     margin-top: 0;
-    color: #0369a1;
+    color: #3d6618;
     font-weight: 700;
 }
 .assumptions-card p {
     font-size: 0.95rem;
-    color: #0c4a6e;
+    color: #4a4a30;
     margin: 0;
     line-height: 1.5;
 }
@@ -91,8 +239,8 @@ CUSTOM_CSS = """
     min-width: 40px !important;
     height: 30px !important;
     padding: 0 8px !important;
-    background-color: #ffffff !important;
-    border: 1px solid #d1d5db !important;
+    background-color: #faf5eb !important;
+    border: 1px solid #c8bda8 !important;
     border-radius: 6px !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
     font-size: 0.8rem !important;
@@ -219,8 +367,8 @@ def generate_model(
             """)
             
         legend_html_content = f"""
-        <div style="margin-top: 10px; margin-bottom: 15px; padding: 12px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
-            <h4 style="margin-top: 0; margin-bottom: 10px; color: #1e3c72; font-weight: 700; font-size: 1rem; font-family: 'Outfit', sans-serif;">🏷️ Geological Legend</h4>
+        <div style="margin-top: 10px; margin-bottom: 15px; padding: 12px; background-color: #faf5eb; border: 1px solid #d4c9a8; border-radius: 8px;">
+            <h4 style="margin-top: 0; margin-bottom: 10px; color: #3d6618; font-weight: 700; font-size: 1rem; font-family: 'Outfit', sans-serif;">🏷️ Geological Legend</h4>
             <div style="display: flex; flex-wrap: wrap;">
                 {"".join(legend_items)}
             </div>
@@ -340,8 +488,9 @@ def load_selected_demo(choice):
     return None
 
 theme_soft = gr.themes.Soft(
-    primary_hue="sky", 
-    secondary_hue="slate", 
+    primary_hue="green",
+    secondary_hue="yellow",
+    neutral_hue="stone",
     font=[gr.themes.GoogleFont("Outfit"), "sans-serif"]
 )
 
@@ -350,6 +499,7 @@ with gr.Blocks() as demo:
     
     # State container for GemPy computed model to allow instant visualisation tweaks
     cached_state = gr.State(None)
+    csdi_state   = gr.State(None)   # holds csdi_client.query_bbox_*() DataFrame
     screenshot_list = gr.State([])
     
     # 1. Header banner
@@ -361,321 +511,603 @@ with gr.Blocks() as demo:
         </div>
         """)
         
-    # 2. Main Interface
-    with gr.Row():
-        # Left Side: Control Panel
-        with gr.Column(scale=1):
-            gr.Markdown("### 🛠️ Input & Settings")
-            
-            # File Upload widget
-            file_input = gr.File(
-                label="Upload AGS or CSV File", 
-                file_types=[".ags", ".csv"], 
-                type="filepath"
-            )
-            
-            # Quick Demos Loader Dropdown
-            gr.Markdown("💡 **Don't have a file? Load a pre-bundled demo dataset:**")
-            demo_dropdown = gr.Dropdown(
-                choices=[
-                    "None",
-                    "Sample AGS (3 Boreholes)", 
-                    "Sample CSV (3 Boreholes)", 
-                    "Complex Site CSV (5 Boreholes, 5 Layers)", 
-                    "Pinch-out CSV (Lens Layer)"
-                ],
-                value="None",
-                label="Load Sample Dataset"
-            )
-            demo_dropdown.change(fn=load_selected_demo, inputs=demo_dropdown, outputs=file_input)
-            
-            # Configuration panel
-            with gr.Accordion("⚙️ Model Parameters", open=True):
-                slider_res = gr.Slider(
-                    minimum=20, 
-                    maximum=60, 
-                    value=40, 
-                    step=5, 
-                    label="Model Grid Resolution (Voxels³)",
-                    info="Higher resolutions capture finer detail but take longer and use more memory."
-                )
-                slider_dip = gr.Slider(
-                    minimum=0.0, 
-                    maximum=10.0, 
-                    value=1.0, 
-                    step=0.5, 
-                    label="Default Layer Dip (Degrees)",
-                    info="Assumed bedding inclination from horizontal plane."
-                )
-                slider_azimuth = gr.Slider(
-                    minimum=0.0, 
-                    maximum=360.0, 
-                    value=0.0, 
-                    step=10.0, 
-                    label="Default Dip Azimuth (Degrees)",
-                    info="Dip direction compass angle (0° = North, 90° = East)."
-                )
-                
-            # Visual styles and toggles panel
-            with gr.Accordion("🎨 Visual Styles & Toggles", open=True):
-                slider_z_scale = gr.Slider(
-                    minimum=1.0, 
-                    maximum=10.0, 
-                    value=1.0, 
-                    step=0.5, 
-                    label="Vertical Exaggeration (Z-Scale)",
-                    info="Stretch the vertical axis to make thin layers legible."
-                )
-                slider_opacity = gr.Slider(
-                    minimum=0.0, 
-                    maximum=1.0, 
-                    value=0.85, 
-                    step=0.05, 
-                    label="Strata Opacity",
-                    info="Adjust transparency of geological strata."
-                )
-                chk_show_boreholes = gr.Checkbox(
-                    value=True, 
-                    label="Render Borehole Cylinders",
-                    info="Display vertical logging segments as colored cylinders."
-                )
-                chk_show_grid = gr.Checkbox(
-                    value=True, 
-                    label="Render Axis Grid & Coordinate Labels",
-                    info="Display floor grid and Easting/Northing/Elevation ticks."
-                )
-                chk_show_contours = gr.Checkbox(
-                    value=True, 
-                    label="Render Topography Contours",
-                    info="Display elevation contour lines on the uppermost surface layer."
-                )
-                checkbox_visible_layers = gr.CheckboxGroup(
-                    label="Visible Strata Layers", 
-                    choices=[], 
-                    value=[],
-                    info="Toggle checkboxes to show or hide specific formations."
-                )
-                
-            # Cross-Section clipping panel
-            with gr.Accordion("✂️ Cross-Section Slicing", open=False):
-                chk_enable_slice = gr.Checkbox(
-                    value=False, 
-                    label="Enable Clipping Plane"
-                )
-                radio_slice_axis = gr.Radio(
-                    choices=["X", "Y", "Z"], 
-                    value="X", 
-                    label="Clipping Axis"
-                )
-                slider_slice_pct = gr.Slider(
-                    minimum=0, 
-                    maximum=100, 
-                    value=50, 
-                    step=5, 
-                    label="Clipping Position (%)"
-                )
-                
-            # Render Mode Toggle
-            render_mode = gr.Radio(
-                choices=["Interface Contacts", "Volumetric Solids"],
-                value="Interface Contacts",
-                label="3D Render Mode",
-                info="Toggle between thin interface separation surfaces and solid volumetric geological strata blocks."
-            )
-            
-            # Submit Button
-            btn_generate = gr.Button("🔨 Generate 3D Model", elem_classes="generate-btn")
-            
-            # Geological Caveat card
-            gr.HTML("""
-            <div class='assumptions-card'>
-                <h4>⚠️ Geological Modeling Assumption</h4>
-                <p>Boreholes only provide stratigraphic interface elevations (contacts) and do not record structural dip. 
-                The model assumes sub-horizontal layering using the configured Default Dip values unless customized orientation data is provided.</p>
-            </div>
-            """)
-            
-        # Right Side: Visualiser Panel
-        with gr.Column(scale=2):
-            gr.Markdown("### 📊 3D Interactive Model")
-            
-            # 3D Viewer Component
-            with gr.Group(elem_id="viewer-container"):
-                btn_screenshot = gr.Button("📸 Take Screenshot", elem_classes="screenshot-btn")
-                viewer_3d = gr.Model3D(
-                    label="3D Geology Scene (Rotate, zoom & pan)", 
-                    interactive=True,
-                    height=500
-                )
-            
-            # Dynamic HTML legend component
-            legend_html = gr.HTML(
-                value="<div style='text-align: center; color: #666; font-family: sans-serif; padding: 10px;'>Upload a file to generate a 3D model and legend.</div>",
-                label="Geological Legend"
-            )
-            
-            # Renders and Downloads Panel
+    # -- Tab container -----------------------------------------------
+    with gr.Tabs():
+
+        # ============================================================
+        with gr.Tab("\U0001f528 3D Model Builder"):
+
+            # 2. Main Interface
             with gr.Row():
+                # Left Side: Control Panel
                 with gr.Column(scale=1):
-                    # Screenshot Render Image
-                    render_image = gr.Image(
-                        label="Isometric View Render", 
+                    gr.Markdown("### 🛠️ Input & Settings")
+
+                    # File Upload widget
+                    file_input = gr.File(
+                        label="Upload AGS or CSV File", 
+                        file_types=[".ags", ".csv"], 
                         type="filepath"
                     )
-                with gr.Column(scale=1):
-                    # Downloads panel
-                    gr.Markdown("### 📥 Download Results")
-                    download_glb = gr.File(label="Download 3D Scenes (GLB)", file_count="multiple")
-                    download_vtk = gr.File(label="Download Surfaces Meshes (VTK ZIP)")
-                    download_png = gr.File(label="Download Isometric Image (PNG)")
-                    download_screenshots = gr.File(
-                        label="Captured Screenshots (Max 10)", 
-                        file_count="multiple",
-                        interactive=False
+
+                    # Quick Demos Loader Dropdown
+                    gr.Markdown("💡 **Don't have a file? Load a pre-bundled demo dataset:**")
+                    demo_dropdown = gr.Dropdown(
+                        choices=[
+                            "None",
+                            "Sample AGS (3 Boreholes)", 
+                            "Sample CSV (3 Boreholes)", 
+                            "Complex Site CSV (5 Boreholes, 5 Layers)", 
+                            "Pinch-out CSV (Lens Layer)"
+                        ],
+                        value="None",
+                        label="Load Sample Dataset"
                     )
-                    btn_clear_screenshots = gr.Button("🗑️ Clear Screenshots", size="sm")
-                    
-            # Hidden textbox to receive base64 screenshot data
-            screenshot_data = gr.Textbox(elem_id="screenshot_data", visible=False)
+                    demo_dropdown.change(fn=load_selected_demo, inputs=demo_dropdown, outputs=file_input)
 
-            # Linking generation logic
-            btn_generate.click(
-                fn=generate_model,
-                inputs=[
-                    file_input, slider_res, slider_dip, slider_azimuth, render_mode,
-                    slider_z_scale, slider_opacity, chk_show_boreholes, chk_show_grid, chk_show_contours,
-                    chk_enable_slice, radio_slice_axis, slider_slice_pct
-                ],
-                outputs=[
-                    viewer_3d, legend_html, render_image, 
-                    download_glb, download_vtk, download_png,
-                    cached_state, checkbox_visible_layers
-                ]
-            )
-            
-            # Pack inputs for fast visualisation updates
-            visual_inputs = [
-                cached_state, render_mode, slider_z_scale, checkbox_visible_layers, slider_opacity,
-                chk_show_boreholes, chk_show_grid, chk_show_contours, chk_enable_slice, radio_slice_axis, slider_slice_pct
-            ]
-            visual_outputs = [
-                viewer_3d, legend_html, render_image, 
-                download_glb, download_vtk, download_png
-            ]
-            
-            # Interactive visual options release/change events
-            render_mode.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            slider_z_scale.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            checkbox_visible_layers.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            slider_opacity.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            chk_show_boreholes.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            chk_show_grid.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            chk_show_contours.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            chk_enable_slice.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            radio_slice_axis.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
-            slider_slice_pct.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    # Configuration panel
+                    with gr.Accordion("⚙️ Model Parameters", open=True):
+                        slider_res = gr.Slider(
+                            minimum=20, 
+                            maximum=60, 
+                            value=40, 
+                            step=5, 
+                            label="Model Grid Resolution (Voxels³)",
+                            info="Higher resolutions capture finer detail but take longer and use more memory."
+                        )
+                        slider_dip = gr.Slider(
+                            minimum=0.0, 
+                            maximum=10.0, 
+                            value=1.0, 
+                            step=0.5, 
+                            label="Default Layer Dip (Degrees)",
+                            info="Assumed bedding inclination from horizontal plane."
+                        )
+                        slider_azimuth = gr.Slider(
+                            minimum=0.0, 
+                            maximum=360.0, 
+                            value=0.0, 
+                            step=10.0, 
+                            label="Default Dip Azimuth (Degrees)",
+                            info="Dip direction compass angle (0° = North, 90° = East)."
+                        )
 
-            # JS event callback to capture model-viewer canvas to hidden textbox
-            btn_screenshot.click(
-                fn=None,
-                js="""
-                () => {
-                    const viewer = document.querySelector('#viewer-container model-viewer');
-                    if (viewer) {
-                        const dataUrl = viewer.toDataURL("image/png");
-                        const textarea = document.querySelector('#screenshot_data textarea');
-                        if (textarea) {
-                            textarea.value = dataUrl;
-                            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    # Visual styles and toggles panel
+                    with gr.Accordion("🎨 Visual Styles & Toggles", open=True):
+                        slider_z_scale = gr.Slider(
+                            minimum=1.0, 
+                            maximum=10.0, 
+                            value=1.0, 
+                            step=0.5, 
+                            label="Vertical Exaggeration (Z-Scale)",
+                            info="Stretch the vertical axis to make thin layers legible."
+                        )
+                        slider_opacity = gr.Slider(
+                            minimum=0.0, 
+                            maximum=1.0, 
+                            value=0.85, 
+                            step=0.05, 
+                            label="Strata Opacity",
+                            info="Adjust transparency of geological strata."
+                        )
+                        chk_show_boreholes = gr.Checkbox(
+                            value=True, 
+                            label="Render Borehole Cylinders",
+                            info="Display vertical logging segments as colored cylinders."
+                        )
+                        chk_show_grid = gr.Checkbox(
+                            value=True, 
+                            label="Render Axis Grid & Coordinate Labels",
+                            info="Display floor grid and Easting/Northing/Elevation ticks."
+                        )
+                        chk_show_contours = gr.Checkbox(
+                            value=True, 
+                            label="Render Topography Contours",
+                            info="Display elevation contour lines on the uppermost surface layer."
+                        )
+                        checkbox_visible_layers = gr.CheckboxGroup(
+                            label="Visible Strata Layers", 
+                            choices=[], 
+                            value=[],
+                            info="Toggle checkboxes to show or hide specific formations."
+                        )
+
+                    # Cross-Section clipping panel
+                    with gr.Accordion("✂️ Cross-Section Slicing", open=False):
+                        chk_enable_slice = gr.Checkbox(
+                            value=False, 
+                            label="Enable Clipping Plane"
+                        )
+                        radio_slice_axis = gr.Radio(
+                            choices=["X", "Y", "Z"], 
+                            value="X", 
+                            label="Clipping Axis"
+                        )
+                        slider_slice_pct = gr.Slider(
+                            minimum=0, 
+                            maximum=100, 
+                            value=50, 
+                            step=5, 
+                            label="Clipping Position (%)"
+                        )
+
+                    # Render Mode Toggle
+                    render_mode = gr.Radio(
+                        choices=["Interface Contacts", "Volumetric Solids"],
+                        value="Interface Contacts",
+                        label="3D Render Mode",
+                        info="Toggle between thin interface separation surfaces and solid volumetric geological strata blocks."
+                    )
+
+                    # Submit Button
+                    btn_generate = gr.Button("🔨 Generate 3D Model", elem_classes="generate-btn")
+
+                    # Geological Caveat card
+                    gr.HTML("""
+                    <div class='assumptions-card'>
+                        <h4>⚠️ Geological Modeling Assumption</h4>
+                        <p>Boreholes only provide stratigraphic interface elevations (contacts) and do not record structural dip. 
+                        The model assumes sub-horizontal layering using the configured Default Dip values unless customized orientation data is provided.</p>
+                    </div>
+                    """)
+
+                # Right Side: Visualiser Panel
+                with gr.Column(scale=2):
+                    gr.Markdown("### 📊 3D Interactive Model")
+
+                    # 3D Viewer Component
+                    with gr.Group(elem_id="viewer-container"):
+                        btn_screenshot = gr.Button("📸 Take Screenshot", elem_classes="screenshot-btn")
+                        viewer_3d = gr.Model3D(
+                            label="3D Geology Scene (Rotate, zoom & pan)", 
+                            interactive=True,
+                            height=500
+                        )
+
+                    # Dynamic HTML legend component
+                    legend_html = gr.HTML(
+                        value="<div style='text-align: center; color: #666; font-family: sans-serif; padding: 10px;'>Upload a file to generate a 3D model and legend.</div>",
+                        label="Geological Legend"
+                    )
+
+                    # Renders and Downloads Panel
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            # Screenshot Render Image
+                            render_image = gr.Image(
+                                label="Isometric View Render", 
+                                type="filepath"
+                            )
+                        with gr.Column(scale=1):
+                            # Downloads panel
+                            gr.Markdown("### 📥 Download Results")
+                            download_glb = gr.File(label="Download 3D Scenes (GLB)", file_count="multiple")
+                            download_vtk = gr.File(label="Download Surfaces Meshes (VTK ZIP)")
+                            download_png = gr.File(label="Download Isometric Image (PNG)")
+                            download_screenshots = gr.File(
+                                label="Captured Screenshots (Max 10)", 
+                                file_count="multiple",
+                                interactive=False
+                            )
+                            btn_clear_screenshots = gr.Button("🗑️ Clear Screenshots", size="sm")
+
+                    # Hidden textbox to receive base64 screenshot data
+                    screenshot_data = gr.Textbox(elem_id="screenshot_data", visible=False)
+
+                    # Linking generation logic
+                    btn_generate.click(
+                        fn=generate_model,
+                        inputs=[
+                            file_input, slider_res, slider_dip, slider_azimuth, render_mode,
+                            slider_z_scale, slider_opacity, chk_show_boreholes, chk_show_grid, chk_show_contours,
+                            chk_enable_slice, radio_slice_axis, slider_slice_pct
+                        ],
+                        outputs=[
+                            viewer_3d, legend_html, render_image, 
+                            download_glb, download_vtk, download_png,
+                            cached_state, checkbox_visible_layers
+                        ]
+                    )
+
+                    # Pack inputs for fast visualisation updates
+                    visual_inputs = [
+                        cached_state, render_mode, slider_z_scale, checkbox_visible_layers, slider_opacity,
+                        chk_show_boreholes, chk_show_grid, chk_show_contours, chk_enable_slice, radio_slice_axis, slider_slice_pct
+                    ]
+                    visual_outputs = [
+                        viewer_3d, legend_html, render_image, 
+                        download_glb, download_vtk, download_png
+                    ]
+
+                    # Interactive visual options release/change events
+                    render_mode.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    slider_z_scale.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    checkbox_visible_layers.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    slider_opacity.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    chk_show_boreholes.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    chk_show_grid.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    chk_show_contours.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    chk_enable_slice.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    radio_slice_axis.change(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+                    slider_slice_pct.release(fn=update_visualisation, inputs=visual_inputs, outputs=visual_outputs)
+
+                    # JS event callback to capture model-viewer canvas to hidden textbox
+                    btn_screenshot.click(
+                        fn=None,
+                        js="""
+                        () => {
+                            const viewer = document.querySelector('#viewer-container model-viewer');
+                            if (viewer) {
+                                const dataUrl = viewer.toDataURL("image/png");
+                                const textarea = document.querySelector('#screenshot_data textarea');
+                                if (textarea) {
+                                    textarea.value = dataUrl;
+                                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
+                            }
                         }
-                    }
-                }
-                """,
-                inputs=[],
-                outputs=[]
+                        """,
+                        inputs=[],
+                        outputs=[]
+                    )
+
+                    # Python backend helper to save decoded base64 screenshot
+                    def save_screenshot(data_url, current_photos):
+                        if not data_url or not data_url.startswith("data:image/png;base64,"):
+                            return current_photos, current_photos
+
+                        import base64
+                        import time
+
+                        header, encoded = data_url.split(",", 1)
+                        data = base64.b64decode(encoded)
+
+                        os.makedirs("screenshots", exist_ok=True)
+
+                        if current_photos is None:
+                            current_photos = []
+
+                        if len(current_photos) >= 10:
+                            oldest_file = current_photos.pop(0)
+                            if os.path.exists(oldest_file):
+                                try:
+                                    os.remove(oldest_file)
+                                except Exception:
+                                    pass
+
+                        filename = f"screenshots/geology_screenshot_{int(time.time())}_{len(current_photos) + 1}.png"
+                        with open(filename, "wb") as f:
+                            f.write(data)
+
+                        current_photos.append(filename)
+                        gr.Info(f"Screenshot saved! ({len(current_photos)}/10)")
+                        return current_photos, current_photos
+
+                    screenshot_data.change(
+                        fn=save_screenshot,
+                        inputs=[screenshot_data, screenshot_list],
+                        outputs=[download_screenshots, screenshot_list]
+                    )
+
+                    # Python backend helper to clear screenshots
+                    def clear_screenshots(current_photos):
+                        if current_photos:
+                            for file in current_photos:
+                                if os.path.exists(file):
+                                    try:
+                                        os.remove(file)
+                                    except Exception:
+                                        pass
+                        gr.Info("Screenshots cleared.")
+                        return [], []
+
+                    btn_clear_screenshots.click(
+                        fn=clear_screenshots,
+                        inputs=[screenshot_list],
+                        outputs=[download_screenshots, screenshot_list]
+                    )
+
+            # 3. Bottom instructions and documentation
+            with gr.Row():
+                gr.Markdown("""
+                ---
+                ### 📖 Guide & Source Data References
+
+                #### How to acquire Hong Kong AGS data:
+                1. Visit the **[Hong Kong Government Data Portal](https://data.gov.hk/en-data/dataset/hk-cedd-csu-cedd-gi-lt)**.
+                2. Browse or search for Ground Investigation (GI) records.
+                3. Download the `.ags` data files.
+                4. Alternatively, use the **[Geotechnical Information Infrastructure (CSDI G-Info)](https://ginfo.cedd.gov.hk/)** to download borehole records for specific locations.
+
+                #### Fallback CSV Data Schema:
+                If you have custom borehole data, you can upload a CSV file with the following columns:
+                * `borehole_id` - Unique name for the borehole location (e.g. *BH-01*)
+                * `x` - Metric Grid coordinate Easting (e.g. *HK1980 Easting*)
+                * `y` - Metric Grid coordinate Northing (e.g. *HK1980 Northing*)
+                * `surface` - Name of the geological layer/strata contact (e.g. *Soil*, *Clay*, *Granite*)
+                * `top_depth` - Depth to the top of the layer from the ground surface (meters)
+                * `base_depth` - Depth to the base of the layer from the ground surface (meters)
+                * `ground_level` - Elevation of the borehole collar above sea level (meters)
+
+                *Ensure all spatial coordinates (x, y, ground_level) and depths are measured in consistent metric units (meters).*
+                """)
+
+
+        # ============================================================
+        with gr.Tab("\U0001f5fa\ufe0f Site Map"):
+
+            gr.HTML("""
+            <div style="padding:1.25rem 1.5rem;background:linear-gradient(135deg,#2d5016,#4a7c20);
+                        border-radius:12px;margin-bottom:1rem;color:#f5f0e8;">
+              <h3 style="margin:0 0 0.4rem 0;font-family:'Outfit',sans-serif;font-weight:700;font-size:1.3rem;">
+                \U0001f5fa\ufe0f Interactive Site Map
+              </h3>
+              <p style="margin:0;opacity:0.88;font-size:0.92rem;">
+                Visualise your project boreholes on a Google Hybrid satellite map of Hong Kong.
+                Load a model in the <b>3D Model Builder</b> tab first, then click <b>Refresh Map</b>
+                to plot borehole locations. Use the layer switcher (top-right) to toggle basemaps.
+              </p>
+            </div>
+            """)
+
+            with gr.Row():
+                with gr.Column(scale=3):
+                    btn_refresh_map = gr.Button(
+                        "\U0001f504 Refresh Map from Current Session",
+                        variant="primary",
+                        elem_classes="generate-btn",
+                    )
+                with gr.Column(scale=1):
+                    gr.HTML("""
+                    <div style="font-size:0.8rem;color:#6b7280;padding:0.5rem 0;">
+                      <b>Layer switcher</b> top-right &nbsp;|
+                      <b>Measure tool</b> top-left &nbsp;|
+                      <b>Cursor coords</b> bottom-left
+                    </div>
+                    """)
+
+            # Map display - initially shows HK with no boreholes
+            map_html_component = gr.HTML(
+                value=generate_site_map(),
+                label="Interactive Site Map",
             )
 
-            # Python backend helper to save decoded base64 screenshot
-            def save_screenshot(data_url, current_photos):
-                if not data_url or not data_url.startswith("data:image/png;base64,"):
-                    return current_photos, current_photos
-                
-                import base64
-                import time
-                
-                header, encoded = data_url.split(",", 1)
-                data = base64.b64decode(encoded)
-                
-                os.makedirs("screenshots", exist_ok=True)
-                
-                if current_photos is None:
-                    current_photos = []
-                    
-                if len(current_photos) >= 10:
-                    oldest_file = current_photos.pop(0)
-                    if os.path.exists(oldest_file):
-                        try:
-                            os.remove(oldest_file)
-                        except Exception:
-                            pass
-                            
-                filename = f"screenshots/geology_screenshot_{int(time.time())}_{len(current_photos) + 1}.png"
-                with open(filename, "wb") as f:
-                    f.write(data)
-                    
-                current_photos.append(filename)
-                gr.Info(f"Screenshot saved! ({len(current_photos)}/10)")
-                return current_photos, current_photos
+            gr.HTML("""
+            <div style="margin-top:1.25rem;padding:1rem 1.25rem;
+                        background:#faf5eb;border-left:4px solid #b89a38;
+                        border-radius:0 8px 8px 0;font-size:0.88rem;color:#3d3d25;">
+              <b>CSDI GI Data (Hong Kong Government)</b><br>
+              CEDD publishes Ground Investigation records via the
+              <a href="https://portal.csdi.gov.hk/geoportal/?datasetId=cedd_rcd_1636517845149_16420"
+                 target="_blank" style="color:#3d6618;font-weight:600;">CSDI GeoPortal</a>.
+              The portal's OGC WFS API supports bounding-box queries,
+              enabling the planned Bounding Box Borehole Selector (next phase).
+            </div>
+            """)
 
-            screenshot_data.change(
-                fn=save_screenshot,
-                inputs=[screenshot_data, screenshot_list],
-                outputs=[download_screenshots, screenshot_list]
+            def _refresh_map(state, csdi_results):
+                loca = state.get("loca_df") if state else None
+                geol = state.get("geol_df") if state else None
+                csdi = csdi_results if (csdi_results is not None and not csdi_results.empty) else None
+                return generate_site_map(loca, geol, csdi)
+
+            btn_refresh_map.click(
+                fn=_refresh_map,
+                inputs=[cached_state, csdi_state],
+                outputs=[map_html_component],
             )
 
-            # Python backend helper to clear screenshots
-            def clear_screenshots(current_photos):
-                if current_photos:
-                    for file in current_photos:
-                        if os.path.exists(file):
-                            try:
-                                os.remove(file)
-                            except Exception:
-                                pass
-                gr.Info("Screenshots cleared.")
-                return [], []
+            # ── CSDI Database Sync ────────────────────────────────────────
+            with gr.Accordion("\U0001f5c4\ufe0f CSDI Borehole Database (HK Government)", open=False):
+                _n_local = csdi_client.count_local(CSDI_DB_PATH)
+                _last_sync = csdi_client.get_last_sync(CSDI_DB_PATH)
+                _sync_status_txt = (
+                    f"\U0001f7e2 Database ready: {_n_local:,} boreholes loaded."
+                    f"  Last sync: {_last_sync}"
+                    if _n_local > 0
+                    else "\U0001f534 Database is empty. Click \"Sync Now\" to download all HK borehole locations."
+                )
 
-            btn_clear_screenshots.click(
-                fn=clear_screenshots,
-                inputs=[screenshot_list],
-                outputs=[download_screenshots, screenshot_list]
-            )
+                csdi_sync_status = gr.Textbox(
+                    value=_sync_status_txt,
+                    label="Database Status",
+                    interactive=False,
+                    lines=2,
+                )
 
-    # 3. Bottom instructions and documentation
-    with gr.Row():
-        gr.Markdown("""
-        ---
-        ### 📖 Guide & Source Data References
-        
-        #### How to acquire Hong Kong AGS data:
-        1. Visit the **[Hong Kong Government Data Portal](https://data.gov.hk/en-data/dataset/hk-cedd-csu-cedd-gi-lt)**.
-        2. Browse or search for Ground Investigation (GI) records.
-        3. Download the `.ags` data files.
-        4. Alternatively, use the **[Geotechnical Information Infrastructure (CSDI G-Info)](https://ginfo.cedd.gov.hk/)** to download borehole records for specific locations.
-        
-        #### Fallback CSV Data Schema:
-        If you have custom borehole data, you can upload a CSV file with the following columns:
-        * `borehole_id` - Unique name for the borehole location (e.g. *BH-01*)
-        * `x` - Metric Grid coordinate Easting (e.g. *HK1980 Easting*)
-        * `y` - Metric Grid coordinate Northing (e.g. *HK1980 Northing*)
-        * `surface` - Name of the geological layer/strata contact (e.g. *Soil*, *Clay*, *Granite*)
-        * `top_depth` - Depth to the top of the layer from the ground surface (meters)
-        * `base_depth` - Depth to the base of the layer from the ground surface (meters)
-        * `ground_level` - Elevation of the borehole collar above sea level (meters)
-        
-        *Ensure all spatial coordinates (x, y, ground_level) and depths are measured in consistent metric units (meters).*
-        """)
-        
+                gr.HTML("""
+                <div style="font-size:0.82rem;color:#6b7280;margin:-0.4rem 0 0.6rem 0;">
+                  Downloads all borehole <b>locations</b> (coordinates + metadata) into a local SQLite file
+                  (~15-30 MB). Only AGS files for your selected boreholes are fetched on-demand.
+                  This sync may take <b>2-5 minutes</b> — progress updates appear in the status box.
+                  Re-run monthly to pick up new CEDD records.
+                </div>
+                """)
+
+                with gr.Row():
+                    btn_sync_csdi = gr.Button(
+                        "\U0001f504 Sync CSDI Database Now",
+                        variant="secondary",
+                    )
+                    btn_count_csdi = gr.Button(
+                        "\U0001f4ca Check Record Count",
+                        variant="secondary",
+                        size="sm",
+                    )
+
+                def _do_sync():
+                    import os
+                    os.makedirs("data", exist_ok=True)
+                    messages = []
+                    def _cb(msg):
+                        messages.append(msg)
+                    n, final_msg = csdi_client.sync_spatial_index(
+                        CSDI_DB_PATH, progress_cb=_cb
+                    )
+                    last = csdi_client.get_last_sync(CSDI_DB_PATH)
+                    return (
+                        f"\U0001f7e2 Sync complete: {n:,} boreholes stored.  "
+                        f"Last sync: {last}\n\nProgress log:\n"
+                        + "\n".join(messages[-20:])
+                    )
+
+                btn_sync_csdi.click(
+                    fn=_do_sync,
+                    inputs=[],
+                    outputs=[csdi_sync_status],
+                )
+
+                def _do_count():
+                    n = csdi_client.count_local(CSDI_DB_PATH)
+                    last = csdi_client.get_last_sync(CSDI_DB_PATH)
+                    if n > 0:
+                        return f"\U0001f7e2 {n:,} borehole records in local database.  Last sync: {last}"
+                    return "\U0001f534 Database is empty — click Sync to download."
+
+                btn_count_csdi.click(
+                    fn=_do_count,
+                    inputs=[],
+                    outputs=[csdi_sync_status],
+                )
+
+            # ── Bounding Box Borehole Search ──────────────────────────────
+            with gr.Accordion("\U0001f50d Bounding Box Search", open=True):
+
+                gr.HTML("""
+                <div style="font-size:0.82rem;color:#475569;margin-bottom:0.75rem;">
+                  Enter your site bounding box to find nearby CEDD boreholes.
+                  Use <b>cursor coordinates</b> shown on the map (bottom-left) to read WGS84 values,
+                  or enter <b>HK1980 Grid</b> Easting/Northing directly.
+                  Results appear as <span style="color:#475569;font-weight:700;">&#9898; grey dots</span>
+                  on the map alongside your
+                  <span style="color:#1e3c72;font-weight:700;">&#11044; blue session boreholes</span>.
+                </div>
+                """)
+
+                bbox_mode = gr.Radio(
+                    choices=["HK1980 Grid (Easting / Northing)", "WGS84 (Latitude / Longitude)"],
+                    value="HK1980 Grid (Easting / Northing)",
+                    label="Coordinate System",
+                )
+
+                with gr.Row():
+                    bbox_e_min = gr.Number(label="West  (E min / Lon min)", value=None, precision=2)
+                    bbox_n_min = gr.Number(label="South (N min / Lat min)", value=None, precision=2)
+                    bbox_e_max = gr.Number(label="East  (E max / Lon max)", value=None, precision=2)
+                    bbox_n_max = gr.Number(label="North (N max / Lat max)", value=None, precision=2)
+
+                gr.HTML("""
+                <div style="font-size:0.78rem;color:#94a3b8;margin-top:-0.25rem;">
+                  HK1980 example — Kowloon: E 831000 / 834000, N 818000 / 821000
+                  &nbsp;|&nbsp; WGS84 example — Kowloon: Lat 22.30 / 22.33, Lon 114.15 / 114.18
+                </div>
+                """)
+
+                with gr.Row():
+                    btn_search_bbox = gr.Button(
+                        "\U0001f50d Search Boreholes in Area",
+                        variant="primary",
+                    )
+                    btn_clear_bbox = gr.Button("\u2715 Clear Results", variant="secondary", size="sm")
+
+                bbox_result_info = gr.Textbox(
+                    value="",
+                    label="Search Result",
+                    interactive=False,
+                    lines=1,
+                    visible=False,
+                )
+
+                bbox_table = gr.Dataframe(
+                    value=pd.DataFrame(),
+                    label="Boreholes Found in Area",
+                    interactive=False,
+                    wrap=True,
+                    visible=False,
+                )
+
+                def _search_bbox(mode, e_min, n_min, e_max, n_max):
+                    """Query the local SQLite index and return results + updated map."""
+                    if not all(v is not None for v in [e_min, n_min, e_max, n_max]):
+                        gr.Warning("Please fill in all four bounding box coordinates.")
+                        return (
+                            gr.update(visible=True, value="Please fill all four coordinate fields."),
+                            gr.update(visible=False, value=pd.DataFrame()),
+                            None,
+                        )
+
+                    n_db = csdi_client.count_local(CSDI_DB_PATH)
+                    if n_db == 0:
+                        gr.Warning("Local CSDI database is empty. Please sync first.")
+                        return (
+                            gr.update(visible=True, value="Database empty — click Sync in the CSDI Database section above."),
+                            gr.update(visible=False, value=pd.DataFrame()),
+                            None,
+                        )
+
+                    if "HK1980" in mode:
+                        df = csdi_client.query_bbox_hk1980(
+                            CSDI_DB_PATH,
+                            float(e_min), float(n_min), float(e_max), float(n_max),
+                        )
+                    else:
+                        df = csdi_client.query_bbox_wgs84(
+                            CSDI_DB_PATH,
+                            float(n_min), float(e_min),   # sw_lat=n_min, sw_lng=e_min
+                            float(n_max), float(e_max),   # ne_lat=n_max, ne_lng=e_max
+                        )
+
+                    if df.empty:
+                        info = "No boreholes found in the specified area."
+                        return (
+                            gr.update(visible=True, value=info),
+                            gr.update(visible=False, value=pd.DataFrame()),
+                            None,
+                        )
+
+                    # Select display columns
+                    disp_cols = [c for c in [
+                        "statno", "stattype", "repno",
+                        "e_coord", "n_coord", "grdlevel", "depth",
+                        "sdate", "edate",
+                    ] if c in df.columns]
+                    disp_df = df[disp_cols].copy()
+                    disp_df.columns = [
+                        c.upper().replace("_COORD","").replace("GRD","COLLAR_").replace("STAT","BH_")
+                        for c in disp_cols
+                    ]
+
+                    info = f"\U0001f7e2 Found {len(df):,} boreholes. Showing on map as grey dots. Click Refresh Map."
+                    return (
+                        gr.update(visible=True, value=info),
+                        gr.update(visible=True, value=disp_df),
+                        df,   # stored in csdi_state
+                    )
+
+                btn_search_bbox.click(
+                    fn=_search_bbox,
+                    inputs=[bbox_mode, bbox_e_min, bbox_n_min, bbox_e_max, bbox_n_max],
+                    outputs=[bbox_result_info, bbox_table, csdi_state],
+                )
+
+                def _clear_bbox():
+                    return (
+                        gr.update(visible=False, value=""),
+                        gr.update(visible=False, value=pd.DataFrame()),
+                        None,
+                        gr.update(value=None), gr.update(value=None),
+                        gr.update(value=None), gr.update(value=None),
+                    )
+
+                btn_clear_bbox.click(
+                    fn=_clear_bbox,
+                    inputs=[],
+                    outputs=[bbox_result_info, bbox_table, csdi_state,
+                             bbox_e_min, bbox_n_min, bbox_e_max, bbox_n_max],
+                )
+
+    # -- End of Tabs --------------------------------------------------
+
 # Entry point
 if __name__ == "__main__":
     demo.queue().launch(
