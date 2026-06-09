@@ -8,3 +8,5 @@ trimesh
 pytest
 openpyxl
 scipy
+folium
+pyproj

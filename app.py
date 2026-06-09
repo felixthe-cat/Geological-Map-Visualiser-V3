@@ -202,7 +202,7 @@ footer, .footer {
 /* ── Custom app classes ── */
 .title-container {
     background: linear-gradient(135deg, #2d5016 0%, #4a7c20 60%, #6b9a2a 100%);
-    color: #f5f0e8;
+    color: #f5f0e8 !important;
     padding: 2.5rem;
     border-radius: 16px;
     margin-bottom: 2rem;
@@ -214,12 +214,14 @@ footer, .footer {
     margin: 0;
     font-family: 'Outfit', sans-serif;
     letter-spacing: -0.5px;
+    color: #f5f0e8 !important;
 }
 .title-container p {
     font-size: 1.15rem;
     opacity: 0.88;
     margin-top: 0.75rem;
     font-weight: 300;
+    color: #f5f0e8 !important;
 }
 .generate-btn {
     background: linear-gradient(135deg, #3d6618 0%, #5a8a22 100%) !important;
@@ -583,7 +585,7 @@ with gr.Blocks() as demo:
                     demo_dropdown.change(fn=load_selected_demo, inputs=demo_dropdown, outputs=file_input)
 
                     # Configuration panel
-                    with gr.Accordion("⚙️ Model Parameters", open=True):
+                    with gr.Accordion("⚙️ Model Parameters", open=False):
                         slider_res = gr.Slider(
                             minimum=20, 
                             maximum=60, 
@@ -610,7 +612,7 @@ with gr.Blocks() as demo:
                         )
 
                     # Visual styles and toggles panel
-                    with gr.Accordion("🎨 Visual Styles & Toggles", open=True):
+                    with gr.Accordion("🎨 Visual Styles & Toggles", open=False):
                         slider_z_scale = gr.Slider(
                             minimum=1.0, 
                             maximum=10.0, 
@@ -876,7 +878,7 @@ with gr.Blocks() as demo:
             gr.HTML("""
             <div style="padding:1.25rem 1.5rem;background:linear-gradient(135deg,#2d5016,#4a7c20);
                         border-radius:12px;margin-bottom:1rem;color:#f5f0e8;">
-              <h3 style="margin:0 0 0.4rem 0;font-family:'Outfit',sans-serif;font-weight:700;font-size:1.3rem;">
+              <h3 style="margin:0 0 0.4rem 0;font-family:'Outfit',sans-serif;font-weight:700;font-size:1.3rem;color:#f5f0e8 !important;">
                 \U0001f5fa\ufe0f Interactive Site Map
               </h3>
               <p style="margin:0;opacity:0.88;font-size:0.92rem;">
