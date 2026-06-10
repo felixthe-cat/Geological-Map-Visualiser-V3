@@ -199,29 +199,185 @@ footer, .footer {
 /* ── Toast notifications ── */
 .toast-wrap { font-family: 'Outfit', sans-serif !important; }
 
-/* ── Custom app classes ── */
-.title-container {
-    background: linear-gradient(135deg, #2d5016 0%, #4a7c20 60%, #6b9a2a 100%);
-    color: #f5f0e8 !important;
-    padding: 2.5rem;
+/* ── App hero header — mirrors Vercel landing design ── */
+.hf-app-hero {
+    display: grid;
+    grid-template-columns: 1fr 1.85fr;
+    gap: 3rem;
+    align-items: start;
+    background-color: #f0e9dc;
+    background-image: radial-gradient(circle, rgba(100,80,40,0.10) 1px, transparent 1px);
+    background-size: 26px 26px;
+    padding: 2.5rem 2rem 2rem;
     border-radius: 16px;
-    margin-bottom: 2rem;
-    box-shadow: 0 10px 30px rgba(61, 102, 24, 0.25);
+    border: 1px solid #c8bda8 !important;
+    margin-bottom: 0.5rem;
+    box-shadow: none !important;
 }
-.title-container h1 {
-    font-size: 2.75rem;
-    font-weight: 800;
-    margin: 0;
-    font-family: 'Outfit', sans-serif;
+@media (max-width: 860px) { .hf-app-hero { grid-template-columns: 1fr; gap: 1.5rem; } }
+
+.hf-section-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,0.055);
+    border: 1px solid rgba(0,0,0,0.11) !important;
+    color: #4a4a38 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px;
+    padding: 0.28rem 0.75rem !important;
+    border-radius: 999px !important;
+    margin-bottom: 1.2rem;
+    box-shadow: none !important;
+}
+
+.hf-app-title {
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: clamp(1.7rem, 2.6vw, 2.5rem) !important;
+    font-weight: 700 !important;
+    color: #1a1a0f !important;
+    line-height: 1.15 !important;
     letter-spacing: -0.5px;
-    color: #f5f0e8 !important;
+    margin: 0 !important;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
 }
-.title-container p {
-    font-size: 1.15rem;
-    opacity: 0.88;
-    margin-top: 0.75rem;
-    font-weight: 300;
-    color: #f5f0e8 !important;
+.hf-app-title em {
+    font-family: 'Cormorant Garamond', Georgia, serif !important;
+    font-style: italic !important;
+    font-weight: 600 !important;
+    font-size: 1.08em !important;
+    display: block;
+    color: #4a4a38 !important;
+    margin-top: 0.1em;
+    background: none !important;
+    padding: 0 !important;
+    border: none !important;
+}
+
+.hf-counter-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.25rem;
+    padding-top: 0.25rem;
+}
+.hf-counter {
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    color: #1a1a0f !important;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.hf-counter small {
+    font-size: 1rem !important;
+    font-weight: 400 !important;
+    color: #8a8a70 !important;
+}
+.hf-counter-desc {
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 0.88rem !important;
+    color: #4a4a38 !important;
+    line-height: 1.65 !important;
+    margin: 0 !important;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+/* ── Feature cards row (Vercel-style dark cards) ── */
+.hf-feature-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+@media (max-width: 1100px) { .hf-feature-cards { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px)  { .hf-feature-cards { grid-template-columns: 1fr; } }
+
+.hf-feature-card {
+    position: relative;
+    background: #0e1b06 !important;
+    border-radius: 14px !important;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
+    border: none !important;
+    padding: 0 !important;
+}
+.hf-feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 36px rgba(0,0,0,0.22) !important;
+}
+.hf-feature-card-chip {
+    position: absolute;
+    top: 0.8rem;
+    left: 0.8rem;
+    z-index: 2;
+    display: inline-flex;
+    padding: 0.22rem 0.62rem;
+    background: rgba(0,0,0,0.42);
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    border-radius: 999px !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    color: rgba(255,255,255,0.80) !important;
+    letter-spacing: 0.3px;
+    backdrop-filter: blur(6px);
+    box-shadow: none !important;
+}
+.hf-feature-card-visual {
+    height: 170px;
+    flex-shrink: 0;
+}
+.hf-fv-model {
+    background:
+        radial-gradient(ellipse 80% 65% at 42% 100%, rgba(75,138,22,0.95) 0%, transparent 62%),
+        radial-gradient(ellipse 55% 45% at 72% 90%, rgba(55,108,15,0.75) 0%, transparent 55%),
+        linear-gradient(180deg, #0a1804 0%, #182e08 55%, #0d2005 100%);
+}
+.hf-fv-map {
+    background:
+        radial-gradient(ellipse 75% 55% at 50% 100%, rgba(18,75,105,0.95) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 40% at 22% 85%, rgba(12,55,80,0.75) 0%, transparent 55%),
+        linear-gradient(180deg, #050b10 0%, #0a1c28 55%, #060e18 100%);
+}
+.hf-fv-data {
+    background:
+        radial-gradient(ellipse 78% 55% at 55% 100%, rgba(118,88,18,0.95) 0%, transparent 62%),
+        radial-gradient(ellipse 55% 40% at 25% 85%, rgba(92,68,10,0.75) 0%, transparent 55%),
+        linear-gradient(180deg, #0d0a04 0%, #221808 55%, #180e02 100%);
+}
+.hf-feature-card-body {
+    padding: 1rem 1rem 1.1rem;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+.hf-feature-card-body h3 {
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.98rem !important;
+    font-weight: 600 !important;
+    color: rgba(255,255,255,0.92) !important;
+    margin-bottom: 0.4rem !important;
+    background: none !important;
+}
+.hf-feature-card-body p {
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 0.78rem !important;
+    color: rgba(255,255,255,0.48) !important;
+    line-height: 1.55 !important;
+    margin: 0 !important;
+    background: none !important;
 }
 .generate-btn {
     background: linear-gradient(135deg, #3d6618 0%, #5a8a22 100%) !important;
@@ -540,13 +696,62 @@ with gr.Blocks() as demo:
     cached_state = gr.State(None)
     csdi_state   = gr.State(None)   # holds csdi_client.query_bbox_*() DataFrame
     screenshot_list = gr.State([])
+    # Hidden bridge: receives drawn-shape bbox JSON from the Leaflet map JS
+    draw_bbox_data = gr.Textbox(elem_id="draw_bbox_data", visible=False)
     
-    # 1. Header banner
+    # 1. Header banner — Vercel-inspired layout
     with gr.Row():
         gr.HTML("""
-        <div class='title-container'>
-            <h1>Geological Map Visualiser V3</h1>
-            <p>Construct 3D geological models from CEDD open-data AGS files using GemPy implicit structural modeling.</p>
+        <div class='hf-app-hero'>
+          <div>
+            <div class='hf-section-chip'>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Interactive Tool
+            </div>
+            <h1 class='hf-app-title'>
+              Interactive 3D
+              <em>Geological Mapping</em>
+            </h1>
+          </div>
+          <div>
+            <div class='hf-counter-row'>
+              <div class='hf-counter'>01<small>/04</small></div>
+              <p class='hf-counter-desc'>
+                Upload AGS or CSV borehole data, configure model parameters, and generate a fully
+                interactive 3D geological model. Rotate, zoom, and export GLB or VTK meshes directly
+                in the browser.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class='hf-feature-cards' style='margin-top:1rem;'>
+          <div class='hf-feature-card'>
+            <span class='hf-feature-card-chip'>3D ENGINE</span>
+            <div class='hf-feature-card-visual hf-fv-model'></div>
+            <div class='hf-feature-card-body'>
+              <h3>GemPy Implicit Modelling</h3>
+              <p>Kriging-based interpolation reconstructs smooth geological layer boundaries from sparse borehole contacts.</p>
+            </div>
+          </div>
+          <div class='hf-feature-card'>
+            <span class='hf-feature-card-chip'>SITE MAP</span>
+            <div class='hf-feature-card-visual hf-fv-map'></div>
+            <div class='hf-feature-card-body'>
+              <h3>Interactive Site Map</h3>
+              <p>Plot borehole locations on a Google Hybrid satellite basemap. Query the CSDI database by bounding box.</p>
+            </div>
+          </div>
+          <div class='hf-feature-card'>
+            <span class='hf-feature-card-chip'>EXPORT</span>
+            <div class='hf-feature-card-visual hf-fv-data'></div>
+            <div class='hf-feature-card-body'>
+              <h3>GLB, VTK &amp; PNG Export</h3>
+              <p>Download high-fidelity 3D scene files, surface meshes, and isometric renders for use in GIS or CAD workflows.</p>
+            </div>
+          </div>
         </div>
         """)
         
@@ -1143,6 +1348,30 @@ with gr.Blocks() as demo:
                     inputs=[],
                     outputs=[bbox_result_info, bbox_table, csdi_state,
                              bbox_e_min, bbox_n_min, bbox_e_max, bbox_n_max],
+                )
+
+                # ── Draw-tool → auto-fill bbox inputs ──────────────────
+                def _on_draw_bbox(json_str):
+                    """Parse WGS84 bounding box written by the Leaflet draw listener."""
+                    import json as _json
+                    if not json_str:
+                        return (gr.update(),) * 5
+                    try:
+                        d = _json.loads(json_str)
+                        return (
+                            "WGS84 (Latitude / Longitude)",  # bbox_mode
+                            d["lon_min"],   # W → E min / Lon min
+                            d["lat_min"],   # S → N min / Lat min
+                            d["lon_max"],   # E → E max / Lon max
+                            d["lat_max"],   # N → N max / Lat max
+                        )
+                    except Exception:
+                        return (gr.update(),) * 5
+
+                draw_bbox_data.change(
+                    fn=_on_draw_bbox,
+                    inputs=[draw_bbox_data],
+                    outputs=[bbox_mode, bbox_e_min, bbox_n_min, bbox_e_max, bbox_n_max],
                 )
 
     # -- End of Tabs --------------------------------------------------

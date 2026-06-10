@@ -28,7 +28,7 @@ import pandas as pd
 
 try:
     import folium
-    from folium.plugins import MeasureControl, MousePosition, MiniMap
+    from folium.plugins import Draw, MeasureControl, MousePosition, MiniMap
     HAS_FOLIUM = True
 except ImportError:
     HAS_FOLIUM = False
@@ -406,7 +406,22 @@ def generate_site_map(
 
         csdi_group.add_to(m)
 
-    # Distance / area measurement tool (top-left)
+    # Draw tool (topleft) — polygon & rectangle for bbox capture
+    Draw(
+        export=False,
+        position="topleft",
+        draw_options={
+            "polyline":     False,
+            "polygon":      {"allowIntersection": False, "showArea": True},
+            "circle":       False,
+            "marker":       False,
+            "circlemarker": False,
+            "rectangle":    {"showArea": True},
+        },
+        edit_options={"edit": False, "remove": True},
+    ).add_to(m)
+
+    # Distance / area measurement tool (topleft, stacks below Draw)
     MeasureControl(
         position="topleft",
         primary_length_unit="meters",
@@ -436,13 +451,46 @@ def generate_site_map(
     folium.LayerControl(position="topright", collapsed=False).add_to(m)
 
     # ------------------------------------------------------------------ #
-    #  6. Return embeddable HTML                                          #
+    #  6. Return embeddable HTML with draw → bbox bridge                  #
     # ------------------------------------------------------------------ #
-    # Wrap in a full-height container so the iframe fills the Gradio panel
+    map_var = m.get_name()
     raw_html = m._repr_html_()
+
+    # JS listener: when a shape is drawn (polygon or rectangle), compute its
+    # bounding box in WGS84 and write it as JSON to the hidden Gradio textbox
+    # (#draw_bbox_data), which triggers the Python handler to fill the four
+    # coordinate inputs and switch the mode to WGS84.
+    draw_listener_js = f"""
+<script>
+(function waitForMap() {{
+    if (typeof {map_var} !== 'undefined') {{
+        {map_var}.on('draw:created', function(e) {{
+            var layer = e.layer;
+            {map_var}.addLayer(layer);
+            var bounds = layer.getBounds();
+            var payload = JSON.stringify({{
+                lat_min: bounds.getSouth(),
+                lon_min: bounds.getWest(),
+                lat_max: bounds.getNorth(),
+                lon_max: bounds.getEast()
+            }});
+            var ta = document.querySelector('#draw_bbox_data textarea');
+            if (ta) {{
+                ta.value = payload;
+                ta.dispatchEvent(new Event('input', {{bubbles: true}}));
+            }}
+        }});
+    }} else {{
+        setTimeout(waitForMap, 150);
+    }}
+}})();
+</script>
+"""
+
     return (
         f'<div style="width:100%;height:600px;border-radius:12px;overflow:hidden;'
         f'border:1px solid #e2e8f0;box-shadow:0 4px 20px rgba(0,0,0,0.1);">'
         f'{raw_html}'
+        f'{draw_listener_js}'
         f'</div>'
     )
