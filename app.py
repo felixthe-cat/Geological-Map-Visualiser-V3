@@ -1105,7 +1105,7 @@ with gr.Blocks() as demo:
                     gr.HTML("""
                     <div style="font-size:0.8rem;color:#6b7280;padding:0.5rem 0;">
                       <b>Layer switcher</b> top-right &nbsp;|
-                      <b>Measure tool</b> top-left &nbsp;|
+                      <b>Draw rectangle</b> top-left &nbsp;|
                       <b>Cursor coords</b> bottom-left
                     </div>
                     """)
@@ -1218,13 +1218,17 @@ with gr.Blocks() as demo:
             with gr.Accordion("\U0001f50d Bounding Box Search", open=True):
 
                 gr.HTML("""
-                <div style="font-size:0.82rem;color:#475569;margin-bottom:0.75rem;">
-                  Enter your site bounding box to find nearby CEDD boreholes.
-                  Use <b>cursor coordinates</b> shown on the map (bottom-left) to read WGS84 values,
-                  or enter <b>HK1980 Grid</b> Easting/Northing directly.
-                  Results appear as <span style="color:#475569;font-weight:700;">&#9898; grey dots</span>
-                  on the map alongside your
-                  <span style="color:#1e3c72;font-weight:700;">&#11044; blue session boreholes</span>.
+                <div style="font-size:0.84rem;color:#1e293b;margin-bottom:0.85rem;
+                            padding:0.75rem 1rem;background:#f0f9ff;
+                            border-left:4px solid #0ea5e9;border-radius:0 8px 8px 0;">
+                  <b>&#9654; Draw a rectangle on the map to auto-fill these fields:</b><br>
+                  <span style="color:#475569;">
+                    Use the <b>&#9645; rectangle tool</b> in the top-left toolbar of the map above.
+                    Draw any rectangle over your site — the four coordinates below will fill in
+                    automatically. Then click <b>Search Boreholes in Area</b>.<br><br>
+                    Or type coordinates directly using HK1980 Grid or WGS84 (use the cursor
+                    coordinates shown at the bottom-left of the map).
+                  </span>
                 </div>
                 """)
 
@@ -1375,6 +1379,42 @@ with gr.Blocks() as demo:
                 )
 
     # -- End of Tabs --------------------------------------------------
+
+    # Page-level JS: relay postMessage bbox events from Leaflet iframe
+    # → hidden #draw_bbox_data textarea → Python .change() handler
+    demo.load(
+        fn=None,
+        js="""
+        () => {
+            window.addEventListener('message', function(e) {
+                if (!e.data || e.data.type !== 'leaflet_bbox') return;
+                var data = e.data;
+                var json = JSON.stringify({
+                    lat_min: data.lat_min,
+                    lon_min: data.lon_min,
+                    lat_max: data.lat_max,
+                    lon_max: data.lon_max
+                });
+                var attempt = 0;
+                (function tryWrite() {
+                    var el = document.getElementById('draw_bbox_data');
+                    if (!el && attempt < 30) {
+                        attempt++;
+                        setTimeout(tryWrite, 200);
+                        return;
+                    }
+                    if (!el) return;
+                    var ta = el.querySelector('textarea');
+                    if (ta) {
+                        ta.value = json;
+                        ta.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                })();
+            });
+            return [];
+        }
+        """,
+    )
 
 # Entry point
 if __name__ == "__main__":

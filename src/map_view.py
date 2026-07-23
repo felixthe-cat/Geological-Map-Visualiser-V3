@@ -453,32 +453,32 @@ def generate_site_map(
     # ------------------------------------------------------------------ #
     #  6. Return embeddable HTML with draw → bbox bridge                  #
     # ------------------------------------------------------------------ #
+    #  7. Bbox draw listener — inside the srcdoc iframe via postMessage  #
+    # ------------------------------------------------------------------ #
+    # The Folium map is rendered as an <iframe srcdoc="...">.
+    # The Leaflet map JS variable (map_var) only exists INSIDE that iframe.
+    # We inject the draw:created listener directly into the iframe's HTML so
+    # it can reference the map variable, then use window.parent.postMessage()
+    # to relay the bbox to the parent Gradio page.
+    # A demo.load() JS listener in app.py catches the message and writes the
+    # value to the hidden #draw_bbox_data textbox, which triggers the
+    # Python .change() handler to populate the four coordinate inputs.
     map_var = m.get_name()
-    raw_html = m._repr_html_()
-
-    # JS listener: when a shape is drawn (polygon or rectangle), compute its
-    # bounding box in WGS84 and write it as JSON to the hidden Gradio textbox
-    # (#draw_bbox_data), which triggers the Python handler to fill the four
-    # coordinate inputs and switch the mode to WGS84.
-    draw_listener_js = f"""
+    inner_js = f"""
 <script>
 (function waitForMap() {{
     if (typeof {map_var} !== 'undefined') {{
         {map_var}.on('draw:created', function(e) {{
             var layer = e.layer;
             {map_var}.addLayer(layer);
-            var bounds = layer.getBounds();
-            var payload = JSON.stringify({{
-                lat_min: bounds.getSouth(),
-                lon_min: bounds.getWest(),
-                lat_max: bounds.getNorth(),
-                lon_max: bounds.getEast()
-            }});
-            var ta = document.querySelector('#draw_bbox_data textarea');
-            if (ta) {{
-                ta.value = payload;
-                ta.dispatchEvent(new Event('input', {{bubbles: true}}));
-            }}
+            var b = layer.getBounds();
+            window.parent.postMessage({{
+                type: 'leaflet_bbox',
+                lat_min: b.getSouth(),
+                lon_min: b.getWest(),
+                lat_max: b.getNorth(),
+                lon_max: b.getEast()
+            }}, '*');
         }});
     }} else {{
         setTimeout(waitForMap, 150);
@@ -486,11 +486,13 @@ def generate_site_map(
 }})();
 </script>
 """
+    m.get_root().html.add_child(folium.Element(inner_js))
+
+    raw_html = m._repr_html_()
 
     return (
         f'<div style="width:100%;height:600px;border-radius:12px;overflow:hidden;'
         f'border:1px solid #e2e8f0;box-shadow:0 4px 20px rgba(0,0,0,0.1);">'
         f'{raw_html}'
-        f'{draw_listener_js}'
         f'</div>'
     )
