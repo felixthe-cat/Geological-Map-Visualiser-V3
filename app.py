@@ -689,6 +689,32 @@ theme_soft = gr.themes.Soft(
     font=[gr.themes.GoogleFont("Outfit"), "sans-serif"]
 )
 
+def build_model_from_csv(csv_text, resolution, dip, azimuth):
+    """Headless API endpoint for the JS frontend (web/builder.js).
+
+    Accepts raw CSV text instead of a file upload — this deliberately avoids the
+    gr.File `file_types` gate, which rejects API-client uploads under Gradio 6.x.
+    Writes the text to a temp .csv and reuses the full generate_model pipeline,
+    returning just the GLB 3D scene(s).
+    """
+    import tempfile
+    if not csv_text or not csv_text.strip():
+        raise gr.Error("No CSV data received.")
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8")
+    tmp.write(csv_text)
+    tmp.close()
+
+    class _Upload:  # mimic the file object generate_model expects (.name)
+        def __init__(self, name):
+            self.name = name
+
+    outputs = generate_model(
+        _Upload(tmp.name), resolution, dip, azimuth, "Interface Separation Surfaces",
+        1, 1, True, True, False, False, "X", 50
+    )
+    return outputs[3]  # download_glb (GLB file path[s])
+
+
 # Build Gradio Block Layout
 with gr.Blocks() as demo:
     
@@ -947,10 +973,26 @@ with gr.Blocks() as demo:
                             chk_enable_slice, radio_slice_axis, slider_slice_pct
                         ],
                         outputs=[
-                            viewer_3d, legend_html, render_image, 
+                            viewer_3d, legend_html, render_image,
                             download_glb, download_vtk, download_png,
                             cached_state, checkbox_visible_layers
-                        ]
+                        ],
+                        api_name="build_model"  # stable endpoint for the JS frontend (web/builder.js)
+                    )
+
+                    # Headless CSV-text endpoint for the JS frontend (no file-upload gate).
+                    # Called by web/builder.js "Send to Hugging Face".
+                    csv_api_in = gr.Textbox(visible=False)
+                    res_api_in = gr.Number(value=50, visible=False)
+                    dip_api_in = gr.Number(value=2, visible=False)
+                    az_api_in = gr.Number(value=90, visible=False)
+                    glb_api_out = gr.File(visible=False)
+                    btn_api = gr.Button(visible=False)
+                    btn_api.click(
+                        fn=build_model_from_csv,
+                        inputs=[csv_api_in, res_api_in, dip_api_in, az_api_in],
+                        outputs=glb_api_out,
+                        api_name="build_model_csv"
                     )
 
                     # Pack inputs for fast visualisation updates
