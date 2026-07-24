@@ -715,6 +715,29 @@ def build_model_from_csv(csv_text, resolution, dip, azimuth):
     return outputs[3]  # download_glb (GLB file path[s])
 
 
+def fetch_stratigraphy_api(repnos_json):
+    """Headless endpoint for the JS site map: given a JSON array of CEDD report
+    numbers (REPNO), byte-range fetch each report's AGS from the GEO Open Data
+    archive and return its logged stratigraphy. See src/ags_open_data.py.
+
+    Returns JSON: {repno: {station_id: {x, y, gl, layers:[{surface, top, base}]}}}
+    Reports with no AGS/GEOL data are simply omitted.
+    """
+    import json
+    from src.ags_open_data import get_stratigraphy
+    try:
+        repnos = json.loads(repnos_json) if repnos_json else []
+    except Exception:
+        raise gr.Error("Invalid repnos JSON.")
+    if not isinstance(repnos, list):
+        raise gr.Error("repnos must be a JSON array of report numbers.")
+    repnos = [str(r).strip() for r in repnos if str(r).strip()][:200]  # cap per request
+    try:
+        return json.dumps(get_stratigraphy(repnos))
+    except Exception as e:
+        raise gr.Error(f"Stratigraphy fetch failed: {e}")
+
+
 # Build Gradio Block Layout
 with gr.Blocks() as demo:
     
@@ -993,6 +1016,17 @@ with gr.Blocks() as demo:
                         inputs=[csv_api_in, res_api_in, dip_api_in, az_api_in],
                         outputs=glb_api_out,
                         api_name="build_model_csv"
+                    )
+
+                    # Stratigraphy endpoint for the JS site map (CEDD AGS open data).
+                    strat_api_in = gr.Textbox(visible=False)
+                    strat_api_out = gr.Textbox(visible=False)
+                    btn_strat_api = gr.Button(visible=False)
+                    btn_strat_api.click(
+                        fn=fetch_stratigraphy_api,
+                        inputs=strat_api_in,
+                        outputs=strat_api_out,
+                        api_name="fetch_stratigraphy"
                     )
 
                     # Pack inputs for fast visualisation updates
