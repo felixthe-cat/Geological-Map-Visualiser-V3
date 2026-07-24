@@ -202,6 +202,96 @@ img   { display: block; max-width: 100%; }
 }
 .hero-cta svg { flex-shrink: 0; }
 
+.hero-actions {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.hero-cta-primary {
+  background: rgba(154,200,69,0.16);
+  border-color: rgba(154,200,69,0.5);
+  color: rgba(245,240,232,0.96);
+}
+.hero-cta-primary:hover {
+  background: rgba(154,200,69,0.26);
+  border-color: rgba(154,200,69,0.7);
+}
+
+
+/* ============================================================
+   ABOUT / DESCRIPTION SECTION
+   ============================================================ */
+.about-section {
+  background-color: var(--cream);
+  background-image: radial-gradient(circle, rgba(100,80,40,0.13) 1px, transparent 1px);
+  background-size: 26px 26px;
+  padding: 5.5rem var(--pad-h) 6rem;
+}
+.about-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  text-align: center;
+}
+.about-title {
+  font-family: var(--font-sans);
+  font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin: 0.4rem 0 1.1rem;
+}
+.about-lead {
+  font-family: var(--font-body);
+  font-size: clamp(0.95rem, 1.6vw, 1.1rem);
+  color: var(--ink-2);
+  line-height: 1.7;
+  max-width: 640px;
+  margin: 0 auto 2.6rem;
+}
+.about-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  text-align: left;
+}
+@media (max-width: 720px) { .about-cards { grid-template-columns: 1fr; } }
+.about-card {
+  display: block;
+  background: var(--card, #fffdf8);
+  border: 1px solid rgba(0,0,0,0.11);
+  border-radius: 16px;
+  padding: 1.6rem 1.5rem;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  box-shadow: 0 3px 16px rgba(0,0,0,0.05);
+}
+.about-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+  border-color: rgba(61,102,24,0.35);
+}
+.about-card h3 {
+  font-family: var(--font-sans);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 0.5rem;
+}
+.about-card p {
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+.about-card-cta {
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--forest);
+}
+
 
 /* ============================================================
    APP SECTION

@@ -48,8 +48,8 @@
             <polyline points="2 12 12 17 22 12"></polyline>
           </svg>
         </a>
-        <a href="#app" class="nav-link">Visualiser</a>
         <a href="builder.html" class="nav-link">2D Builder</a>
+        <a href="viewer.html" class="nav-link">3D Viewer</a>
         <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
       </div>
     </nav>
@@ -63,35 +63,53 @@
       <p class="hero-subtitle">
         Reconstruct sub-surface geological profiles from borehole records using implicit structural modelling. Upload an AGS or CSV file and explore in 3D.
       </p>
-      <a href="#app" class="hero-cta">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <polyline points="12 8 16 12 12 16"></polyline>
-          <line x1="8" y1="12" x2="16" y2="12"></line>
-        </svg>
-        Open Visualiser
-      </a>
+      <div class="hero-actions">
+        <a href="builder.html" class="hero-cta">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="18" rx="1"></rect>
+            <path d="M14 7h7M14 12h7M14 17h7"></path>
+          </svg>
+          2D Log &amp; Cross-Section Builder
+        </a>
+        <a href="viewer.html" class="hero-cta hero-cta-primary">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+          3D Geological Map Visualiser
+        </a>
+      </div>
     </div>
 
   </section>
 
 
   <!-- ============================================================
-       SECTION 2 — APP / CREAM SECTION
+       SECTION 2 — DESCRIPTION
        ============================================================ -->
-  <section id="app" class="app-section">
-
-    <!-- Full-width iframe -->
-    <div class="iframe-wrapper">
-      <iframe
-        id="viewer-iframe"
-        title="GeoVisualise 3D — Geological Map Visualiser"
-        allowfullscreen
-        loading="lazy"
-        scrolling="no"
-      ></iframe>
+  <section id="about" class="about-section">
+    <div class="about-inner">
+      <span class="section-chip">Free · Open-source · Hong Kong CEDD open data</span>
+      <h2 class="about-title">From borehole records to an interactive geological model — in your browser.</h2>
+      <p class="about-lead">
+        Geological Map Visualiser turns Hong Kong ground-investigation data (AGS or CSV) into
+        publication-ready borehole logs, 2D cross-sections and full 3D geological models —
+        a free alternative to Leapfrog and RockWorks.
+      </p>
+      <div class="about-cards">
+        <a href="builder.html" class="about-card">
+          <h3>2D Log &amp; Cross-Section Builder</h3>
+          <p>Enter boreholes layer-by-layer with a live log preview, then generate interpolated cross-sections. Runs instantly in your browser.</p>
+          <span class="about-card-cta">Open 2D Builder →</span>
+        </a>
+        <a href="viewer.html" class="about-card">
+          <h3>3D Geological Map Visualiser</h3>
+          <p>Implicit 3D modelling with GemPy — rotate, slice and export interactive geological surfaces and volumetric strata. Powered by Hugging Face Spaces.</p>
+          <span class="about-card-cta">Open 3D Viewer →</span>
+        </a>
+      </div>
     </div>
-
   </section>
 
 

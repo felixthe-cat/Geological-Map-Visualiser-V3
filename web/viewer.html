@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Geological Map Visualiser — GeoVisualise</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .viewer-topbar{
+      display:flex; align-items:center; gap:1.25rem;
+      padding:1rem var(--pad-h);
+      background:var(--hero-bg);
+      position:sticky; top:0; z-index:30;
+      border-bottom:1px solid rgba(245,240,232,0.08);
+    }
+    .viewer-topbar .brand{
+      display:flex; align-items:center; gap:8px;
+      font-family:var(--font-sans); font-weight:600; font-size:0.95rem;
+      color:rgba(245,240,232,0.9);
+    }
+    .viewer-topbar .brand svg{ stroke:var(--hero-green); }
+    .viewer-topbar .spacer{ flex:1; }
+    .viewer-topbar a{ font-family:var(--font-sans); font-size:0.85rem; color:rgba(245,240,232,0.6); transition:color .2s; }
+    .viewer-topbar a:hover{ color:rgba(245,240,232,0.95); }
+    .viewer-note{
+      max-width:var(--max-w); margin:0 auto; padding:1rem var(--pad-h) 0;
+      font-family:var(--font-body); font-size:0.85rem; color:var(--ink-2);
+    }
+  </style>
+</head>
+<body>
+  <div class="viewer-topbar">
+    <a href="index.html" class="brand">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        <polyline points="2 17 12 22 22 17"></polyline>
+        <polyline points="2 12 12 17 22 12"></polyline>
+      </svg>
+      GeoVisualise 3D
+    </a>
+    <span class="spacer"></span>
+    <a href="index.html">← Home</a>
+    <a href="builder.html">2D Builder</a>
+  </div>
+
+  <section class="app-section">
+    <p class="viewer-note">
+      Interactive 3D geological modelling powered by GemPy on Hugging Face Spaces. Upload an AGS or CSV file,
+      or load a sample, then rotate, slice and export the model. (The Space may take a few seconds to wake from sleep.)
+    </p>
+    <div class="iframe-wrapper">
+      <iframe
+        id="viewer-iframe"
+        title="GeoVisualise 3D — Geological Map Visualiser"
+        allowfullscreen
+        loading="lazy"
+        scrolling="no"
+      ></iframe>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
+        </svg>
+        GeoVisualise 3D
+      </div>
+      <p>Powered by GemPy &amp; Hugging Face Spaces.</p>
+      <p>Copyright &copy; 2026. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
