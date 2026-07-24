@@ -21,6 +21,8 @@ const HK1980 =
   '+units=m +no_defs';
 
 const BOREHOLE_INDEX = 'data/boreholes.csv';
+const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';   // stratigraphy backend (CEDD AGS)
+const MAX_IMPORT = 40;                                       // boreholes pushed to the builder
 
 let map = null, drawnLayer = null, resultLayer = null;
 let INDEX = null;              // [{repno,statno,lat,lon,e,n,gl,depth}]
@@ -137,18 +139,47 @@ function plotResults(hits){
   }
 }
 
+// ---- stratigraphy from CEDD AGS open data (via HF Space) -------------
+async function fetchStratigraphy(repnos){
+  const { Client } = await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
+  const app = await Client.connect(HF_SPACE);
+  const res = await app.predict('/fetch_stratigraphy', [JSON.stringify(repnos)]);
+  return JSON.parse((res.data && res.data[0]) || '{}');
+}
+
 // ---- export to builders ---------------------------------------------
-function loadInto2D(){
+async function loadInto2D(){
   if (!lastResults.length){ setStatus('Search an area first.','err'); return; }
-  const picked = lastResults.slice(0, 25); // sensible cap for the builder
-  const boreholes = picked.map((b,i)=>({
-    id: (b.statno || b.repno || `CSDI-${i+1}`).toString().trim() || `CSDI-${i+1}`,
-    x: b.e ?? 0, y: b.n ?? 0, gl: b.gl ?? 0,
-    layers: []                       // CSDI provides locations only — no stratigraphy
-  }));
+  const picked = lastResults.slice(0, MAX_IMPORT);
+  const repnos = [...new Set(picked.map(b=>String(b.repno)).filter(Boolean))];
+
+  setStatus(`Fetching logged stratigraphy for ${repnos.length} report(s) from CEDD AGS open data…`,'busy');
+  let strat = {};
+  try { strat = await fetchStratigraphy(repnos); }
+  catch(e){ setStatus('Stratigraphy fetch failed ('+(e?.message||e)+'). Loading collars only.','err'); }
+
+  let withStrata = 0;
+  const boreholes = picked.map((b,i)=>{
+    const id = (b.statno || b.repno || `CSDI-${i+1}`).toString().trim() || `CSDI-${i+1}`;
+    const rep = strat[String(b.repno)];
+    const hit = rep ? (rep[id] || rep[String(b.statno).trim()]) : null;
+    let x = b.e ?? 0, y = b.n ?? 0, gl = b.gl ?? 0, layers = [];
+    if (hit && Array.isArray(hit.layers) && hit.layers.length){
+      layers = hit.layers.map(L=>({ surface:L.surface||'?', top:+L.top, base:+L.base }))
+                         .filter(L=>Number.isFinite(L.top) && Number.isFinite(L.base));
+      if (Number.isFinite(hit.x)) x = hit.x;      // prefer the logged collar values
+      if (Number.isFinite(hit.y)) y = hit.y;
+      if (Number.isFinite(hit.gl)) gl = hit.gl;
+      if (layers.length) withStrata++;
+    }
+    return { id, x, y, gl, layers };
+  });
+
   if (onLoadTo2D) onLoadTo2D(boreholes);
-  setStatus(`Loaded ${boreholes.length} borehole collar(s) into the 2D Builder. `+
-            `CSDI publishes locations only, so add the stratigraphy layers for each borehole.`,'ok');
+  const collarOnly = boreholes.length - withStrata;
+  setStatus(`Loaded ${boreholes.length} borehole(s) into the 2D Builder — `+
+            `${withStrata} with real logged stratigraphy from CEDD AGS`+
+            (collarOnly ? `, ${collarOnly} collar-only (older reports have no digital AGS)` : '')+'.','ok');
 }
 
 // ---- init ------------------------------------------------------------
