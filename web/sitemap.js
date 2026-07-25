@@ -50,7 +50,8 @@ const toast = {
 let map = null, drawnLayer = null, resultLayer = null;
 let INDEX = null;              // [{repno,statno,stattype,lat,lon,e,n,gl,depth}]
 let lastResults = [];
-let lastLoaded = [];           // boreholes with logs from the last load (for AGS export)
+let lastLoaded = [];           // boreholes with logs from the last load
+let lastRepnos = [];           // CEDD report numbers behind that load (for the original-AGS download)
 let lastBounds = null;         // {latMin,latMax,lngMin,lngMax,eMin,eMax,nMin,nMax} of the drawn rectangle
 let onLoadTo2D = null;
 
@@ -288,43 +289,43 @@ async function loadInto2D(){
     }))
   };
   lastLoaded = boreholes;
+  lastRepnos = Object.keys(strat).length ? Object.keys(strat) : repnos;
   const dlBtn = document.getElementById('map-download-ags');
-  if (dlBtn){ dlBtn.disabled = false; dlBtn.title = `Download ${boreholes.length} borehole(s) as AGS4`; }
+  if (dlBtn){ dlBtn.disabled = false; dlBtn.title = `Download the original CEDD AGS file(s) for ${lastRepnos.length} report(s)`; }
 
   if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
   setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
                 (skipped ? ` (${skipped} with no geological log skipped)` : '')+'.','ok');
 }
 
-// ---- AGS4 export of the extracted stratigraphy (task 4) --------------------
-// A minimal, valid AGS4 file (LOCA + GEOL groups) built from what we extracted —
-// classified stratum + decomposition grade. Not the byte-original archive file,
-// but the data the tool pulled, usable in other AGS-aware software.
-function agsField(s){ return '"'+String(s==null?'':s).replace(/"/g,'""')+'"'; }
-function buildAGS4(boreholes){
-  const L=[];
-  L.push(['GROUP','LOCA'].map(agsField).join(','));
-  L.push(['HEADING','LOCA_ID','LOCA_NATE','LOCA_NATN','LOCA_GL'].map(agsField).join(','));
-  L.push(['UNIT','','m','m','m'].map(agsField).join(','));
-  L.push(['TYPE','X','2DP','2DP','2DP'].map(agsField).join(','));
-  for (const b of boreholes) L.push(['DATA',b.id,b.x,b.y,b.gl].map(agsField).join(','));
-  L.push('');
-  L.push(['GROUP','GEOL'].map(agsField).join(','));
-  L.push(['HEADING','LOCA_ID','GEOL_TOP','GEOL_BASE','GEOL_LEG','GEOL_GEOL','GEOL_DESC'].map(agsField).join(','));
-  L.push(['UNIT','','m','m','','',''].map(agsField).join(','));
-  L.push(['TYPE','X','2DP','2DP','X','X','X'].map(agsField).join(','));
-  for (const b of boreholes) for (const l of b.layers)
-    L.push(['DATA',b.id,l.top,l.base,l.surface,(l.grade||''),
-            l.surface+(l.grade?` (Grade ${l.grade})`:'')].map(agsField).join(','));
-  return L.join('\r\n')+'\r\n';
-}
-function downloadAgs(){
-  if (!lastLoaded.length){ setLoadStatus('Load boreholes into the 2D Builder first.','err'); return; }
-  const blob=new Blob([buildAGS4(lastLoaded)],{type:'text/plain'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`geovis_extracted_${new Date().toISOString().slice(0,10)}.ags`;
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+// ---- ORIGINAL AGS download (unaltered CEDD file) ---------------------------
+// The backend byte-range fetches the `GI_AGS/<REPNO>.zip` entries straight out
+// of the GEO Open Data archive and verifies them against CEDD's own CRC-32
+// before serving — nothing is parsed, classified or re-encoded on the way.
+// One report -> that report's original .zip; several -> a STORED container zip
+// holding the original .zip files. See test_raw_ags.py for the byte-level proof.
+async function downloadAgs(){
+  if (!lastRepnos.length){ setLoadStatus('Load boreholes into the 2D Builder first.','err'); return; }
+  toast.show(`Fetching the original CEDD AGS file(s) for ${lastRepnos.length} report(s)…`);
+  setLoadStatus(`Fetching ${lastRepnos.length} original AGS report file(s) from the CEDD archive…`,'busy');
+  try {
+    const { Client } = await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
+    const app = await Client.connect(HF_SPACE);
+    const res = await app.predict('/fetch_raw_ags', [JSON.stringify(lastRepnos)]);
+    const f = (res.data && res.data[0]) || {};
+    const url = f.url || f.path || f;
+    if (!url) throw new Error('backend returned no file');
+    const name = f.orig_name || String(url).split('/').pop() || 'CEDD_AGS_original.zip';
+    // fetch → blob so the browser saves it (a cross-origin <a download> would navigate)
+    const blob = await (await fetch(url)).blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    setLoadStatus(`✓ Downloaded ${name} — the original CEDD AGS file(s), unaltered `+
+                  `(CRC-verified against the archive).`,'ok');
+  } catch(e){
+    setLoadStatus('Original AGS download failed: '+(e?.message||e)+'. Please retry.','err');
+  } finally { toast.hide(); }
 }
 
 // ---- init ------------------------------------------------------------
@@ -341,10 +342,8 @@ export async function initSiteMap(opts={}){
     { maxZoom:20, attribution:'Google Hybrid' });
   const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { maxZoom:19, attribution:'© OpenStreetMap' });
-  const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    { maxZoom:19, attribution:'© Esri' });
   google.addTo(map);
-  L.control.layers({ 'Google Hybrid':google, 'OpenStreetMap':osm, 'Esri Imagery':esri }).addTo(map);
+  L.control.layers({ 'Google Hybrid':google, 'OpenStreetMap':osm }).addTo(map);
 
   drawnLayer = new L.FeatureGroup().addTo(map);
   resultLayer = new L.FeatureGroup().addTo(map);

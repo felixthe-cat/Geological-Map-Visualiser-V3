@@ -1,6 +1,6 @@
 // Self-check for the cross-section projection. Run: node web/test_section_geom.mjs
 import assert from 'node:assert';
-import { sectionStations } from './section_geom.js';
+import { sectionStations, interpolateSeries, interpolateHorizons } from './section_geom.js';
 
 // A→B along the x-axis, 0..100 m. C sits on it, D is 500 m off to the side.
 const holes = [
@@ -23,4 +23,41 @@ assert.deepStrictEqual(tight.stations.map(s=>s.id), ['A','C'], 'tol=3m excludes 
 // Degenerate (zero-length) line yields nothing to draw.
 assert.strictEqual(sectionStations({e:0,n:0}, {e:0,n:0}, holes).stations.length, 0, 'zero-length line -> no stations');
 
-console.log('ok — section projection checks pass');
+// ---- interpolation methods ------------------------------------------------
+const xs = [0, 100, 200, 300];
+const ys = [10, 12,  4,   6];
+const xq = Array.from({length:61}, (_,i)=>i*5);
+
+for (const method of ['linear','mono','nearest']){
+  const v = interpolateSeries(xs, ys, xq, method);
+  // every method must pass exactly through the logged boreholes
+  xs.forEach((x,i)=>assert(Math.abs(v[xq.indexOf(x)] - ys[i]) < 1e-9, method+' must honour the data at x='+x));
+  // and never leave the data range (no invented peaks/troughs)
+  assert(Math.min(...v) >= Math.min(...ys)-1e-9 && Math.max(...v) <= Math.max(...ys)+1e-9,
+    method+' overshot the data range');
+}
+// linear is exactly the midpoint; nearest holds the left value until halfway
+assert(Math.abs(interpolateSeries(xs,ys,[50],'linear')[0] - 11) < 1e-9);
+assert.strictEqual(interpolateSeries(xs,ys,[49],'nearest')[0], 10);
+assert.strictEqual(interpolateSeries(xs,ys,[51],'nearest')[0], 12);
+// mono is smooth: it leaves the local max (x=100) flat, so at x=125 it still
+// sits well above the straight line, and it is symmetric about the midpoint.
+const mono125 = interpolateSeries(xs,ys,[125],'mono')[0];
+assert(mono125 > interpolateSeries(xs,ys,[125],'linear')[0] + 0.5, 'mono should curve away from linear');
+assert(Math.abs(interpolateSeries(xs,ys,[150],'mono')[0] - 8) < 1e-9, 'mono is flat-ended at a local max');
+
+// stacked horizons must never cross, whatever the method — BH2 has a pinched-out
+// middle stratum (zero thickness), the classic case that makes splines invert.
+const horizons = [[20, 15,  9, 2], [18, 12, 12, 5], [25, 20, 11, 0]];
+for (const method of ['linear','mono','nearest']){
+  const curves = interpolateHorizons([0,100,200], horizons, xq.filter(x=>x<=200), method);
+  for (let k=0;k<curves.length-1;k++)
+    for (let q=0;q<curves[k].length;q++)
+      assert(curves[k][q] >= curves[k+1][q] - 1e-9,
+        `${method}: horizon ${k} crossed below ${k+1} at q=${q}`);
+  // and still honour each borehole's own logged horizons
+  horizons.forEach((h,s)=>h.forEach((e,k)=>
+    assert(Math.abs(curves[k][s*20] - e) < 1e-9, `${method}: horizon ${k} wrong at station ${s}`)));
+}
+
+console.log('ok — section projection + interpolation checks pass');

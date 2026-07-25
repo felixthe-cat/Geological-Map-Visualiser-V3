@@ -4,47 +4,12 @@
 // Ships the same dataset to the GemPy Hugging Face Space (two-way pipeline).
 // ================================================================
 
-import { sectionStations } from './section_geom.js';
+import { sectionStations, interpolateHorizons } from './section_geom.js';
+import { stateToProjectCSV, projectCSVToState, csvToBoreholes } from './project_csv.js';
 
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
 const HF_URL   = 'https://ferxxxxx-geological-map-visualiser-v3.hf.space';
 document.getElementById('hf-open').href = HF_URL;
-
-// ---- sample datasets (CSV) ------------------------------------------
-const SAMPLES = {
-  simple: `borehole_id,x,y,surface,top_depth,base_depth,ground_level
-BH-1,840000,820000,Soil,0,5,15
-BH-1,840000,820000,Clay,5,15,15
-BH-1,840000,820000,Bedrock,15,20,15
-BH-2,840100,820050,Soil,0,8,12
-BH-2,840100,820050,Clay,8,18,12
-BH-2,840100,820050,Bedrock,18,25,12
-BH-3,840200,820100,Soil,0,4,18
-BH-3,840200,820100,Clay,4,12,18
-BH-3,840200,820100,Bedrock,12,30,18`,
-  hk: `borehole_id,x,y,surface,top_depth,base_depth,ground_level
-BH-A,835000,817000,Fill,0,3,28
-BH-A,835000,817000,CDG,3,14,28
-BH-A,835000,817000,HDG,14,22,28
-BH-A,835000,817000,Granite,22,32,28
-BH-B,835080,817030,Fill,0,2,25
-BH-B,835080,817030,CDG,2,11,25
-BH-B,835080,817030,HDG,11,20,25
-BH-B,835080,817030,Granite,20,30,25
-BH-C,835160,817070,Fill,0,4,31
-BH-C,835160,817070,CDG,4,18,31
-BH-C,835160,817070,HDG,18,25,31
-BH-C,835160,817070,Granite,25,36,31`,
-  pinch: `borehole_id,x,y,surface,top_depth,base_depth,ground_level
-BH-1,840000,820000,Fill,0,3,20
-BH-1,840000,820000,Colluvium,3,9,20
-BH-1,840000,820000,CDG,9,20,20
-BH-2,840120,820000,Fill,0,4,18
-BH-2,840120,820000,CDG,4,19,18
-BH-3,840240,820000,Fill,0,2,22
-BH-3,840240,820000,Colluvium,2,12,22
-BH-3,840240,820000,CDG,12,26,22`
-};
 
 // ---- stratum colours -------------------------------------------------
 const PALETTE = {
@@ -104,6 +69,8 @@ function syncDerived(){
 }
 
 // ---- CSV <-> state ---------------------------------------------------
+// Format logic lives in project_csv.js (pure, quoting-correct, Node-tested by
+// web/test_project_csv.mjs — the save/resume round trip is verified lossless).
 function stateToCSV(){
   let out='borehole_id,x,y,surface,top_depth,base_depth,ground_level\n';
   for (const bh of state.boreholes)
@@ -112,66 +79,16 @@ function stateToCSV(){
   return out;
 }
 function csvToState(text){
-  const lines = text.trim().split(/\r?\n/).filter(l=>l.trim());
-  if (!lines.length) throw new Error('No data.');
-  const header = lines[0].split(',').map(s=>s.trim().toLowerCase());
-  const ix = n => header.indexOf(n);
-  const need = ['borehole_id','x','y','surface','top_depth','base_depth','ground_level'];
-  for (const c of need) if (ix(c)<0) throw new Error('Missing column: '+c);
-  const map = {};
-  for (let i=1;i<lines.length;i++){
-    const p = lines[i].split(',');
-    if (p.length < 7) continue;
-    const id = p[ix('borehole_id')].trim();
-    if (!map[id]) map[id] = { id, x:+p[ix('x')], y:+p[ix('y')], gl:+p[ix('ground_level')], layers:[] };
-    map[id].layers.push({ surface:p[ix('surface')].trim(), top:+p[ix('top_depth')], base:+p[ix('base_depth')] });
-  }
-  const arr = Object.values(map);
-  arr.forEach(bh=>bh.layers.sort((a,b)=>a.top-b.top));
-  if (!arr.length) throw new Error('No boreholes parsed.');
-  state.boreholes = arr; state.activeIdx = 0;
+  state.boreholes = csvToBoreholes(text); state.activeIdx = 0;
 }
-
-// ---- project CSV (full round-trip: boreholes + grade + kind + site boundary
-//      + section line) so a session can be saved and resumed later -----------
-function sanitize(s){ return String(s==null?'':s).replace(/[,\r\n]/g,' ').trim(); }
-function stateToProjectCSV(){
-  const meta = { v:1, mode:state.mode,
-    bounds:(state.sitePlan && state.sitePlan.bounds) || null,
-    sectionLine: sectionLine || null };
-  let out = '#GEOVIS '+JSON.stringify(meta)+'\n';
-  out += 'borehole_id,x,y,ground_level,kind,surface,top_depth,base_depth,grade\n';
-  for (const bh of state.boreholes)
-    for (const l of bh.layers)
-      out += [sanitize(bh.id),bh.x,bh.y,bh.gl,bh.kind||'BH',sanitize(l.surface),l.top,l.base,sanitize(l.grade||'')].join(',')+'\n';
-  return out;
-}
-function projectCSVToState(text){
-  const lines = text.split(/\r?\n/).filter(l=>l.length);
-  if (!lines.length) throw new Error('Empty file.');
-  let i=0, meta=null;
-  if (lines[0].startsWith('#GEOVIS')){ try{ meta=JSON.parse(lines[0].slice(lines[0].indexOf('{'))); }catch{} i=1; }
-  const header = lines[i].split(',').map(s=>s.trim().toLowerCase()); i++;
-  const ix = n => header.indexOf(n);
-  if (ix('kind')<0 && ix('grade')<0){ csvToState(text); return; }   // legacy 7-col CSV
-  const map = {};
-  for (; i<lines.length; i++){
-    const p = lines[i].split(','); if (p.length < 8) continue;
-    const id = (p[ix('borehole_id')]||'').trim(); if (!id) continue;
-    if (!map[id]) map[id] = { id, x:+p[ix('x')], y:+p[ix('y')], gl:+p[ix('ground_level')],
-      kind:(ix('kind')>=0?(p[ix('kind')]||'').trim():'')||'BH', layers:[] };
-    map[id].layers.push({ surface:(p[ix('surface')]||'').trim(), top:+p[ix('top_depth')],
-      base:+p[ix('base_depth')], grade:(ix('grade')>=0?(p[ix('grade')]||'').trim():'') });
-  }
-  const arr = Object.values(map);
-  arr.forEach(bh=>bh.layers.sort((a,b)=>a.top-b.top));
-  if (!arr.length) throw new Error('No boreholes parsed.');
-  state.boreholes = arr; state.activeIdx = 0;
-  if (meta){
-    if (meta.mode) state.mode = meta.mode;
-    sectionLine = meta.sectionLine || null;
-    state.sitePlan = meta.bounds ? { bounds:meta.bounds, boreholes: arr.map(b=>({id:b.id,x:b.x,y:b.y,imported:true})) } : null;
-  }
+function loadProjectCSV(text){
+  const p = projectCSVToState(text);
+  state.boreholes = p.boreholes; state.activeIdx = 0;
+  if (p.mode) state.mode = p.mode;
+  sectionLine = p.sectionLine || null;
+  state.sitePlan = p.bounds
+    ? { bounds:p.bounds, boreholes: p.boreholes.map(b=>({id:b.id,x:b.x,y:b.y,imported:true})) }
+    : null;
 }
 function downloadText(name, text){
   const a=document.createElement('a');
@@ -233,8 +150,13 @@ function escapeHtml(s){ return (s||'').replace(/"/g,'&quot;'); }
 function refreshInput(){ renderBhSelect(); renderMeta(); renderLayerTable(); }
 
 // ---- edit handlers ---------------------------------------------------
-function sectionActive(){ return document.querySelector('.tabpane[data-pane="section"]').classList.contains('active'); }
-function commit(){ syncDerived(); renderLogLive(); if (sectionActive() && secMap) updateSection(); }
+function paneActive(name){ return document.querySelector(`.tabpane[data-pane="${name}"]`).classList.contains('active'); }
+function sectionActive(){ return paneActive('section'); }
+function commit(){
+  syncDerived(); renderLogLive();
+  if (sectionActive() && secMap) updateSection();
+  if (paneActive('contour')) renderContour();
+}
 
 function onMetaChange(){
   const bh = active();
@@ -310,10 +232,13 @@ function renderLog(id){
   const maxDepth = Math.max(...bh.layers.map(l=>l.base));
   if (!(maxDepth>0)){ box.innerHTML='<p class="hint" style="padding:10px">Layer depths must be positive.</p>'; return; }
 
-  const mL=58, mR=showElev?70:20, mT=76, mB=24, colW=90;
+  const mL=58, mT=76, mB=24, colW=90;
   const pxPerM = Math.max(6, Math.min(20, 320/maxDepth)), plotH = maxDepth*pxPerM;
   const yOf = d => mT + d*pxPerM;
-  const lx = mL+colW+(showElev?46:8);
+  // gutters: log column → mPD axis → labels/legend. The mPD numbers get their
+  // own 60 px lane so they can never collide with the labels beside them.
+  const mpdX = mL+colW+14;
+  const lx = mL+colW+(showElev?78:18);
 
   // Pre-compute de-cluttered label slots (inline mode): each label keeps its
   // height and is pushed down so it never overlaps the one above — a leader
@@ -334,8 +259,14 @@ function renderLog(id){
     for (const l of bh.layers){ const k=(l.surface||'')+'|'+(l.grade||''); if(!seen.has(k)){ seen.add(k); uniq.push(l); } }
   }
 
-  const rightW = legendMode ? 220 : 170;
-  const W = mL+colW+mR+rightW;
+  // Size the right-hand label/legend lane to the longest text it must hold, so
+  // nothing is clipped (task 1: the log used to cut off legend text & labels).
+  const labelTexts = legendMode
+    ? uniq.map(l=>(l.surface||'(unnamed)')+(l.grade?`  ·  Grade ${l.grade}`:''))
+    : bh.layers.map(l=>l.surface||'(unnamed)');
+  const maxChars = labelTexts.reduce((m,t)=>Math.max(m,t.length),0);
+  const rightW = Math.max(160, Math.min(460, maxChars*6.1+40));
+  const W = lx+rightW+14;
   const H = Math.max(mT+plotH+mB, (legendMode ? mT+uniq.length*18+mB : labelsBottom+mB));
   const svg = el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
   svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#fffdf8'}));
@@ -349,10 +280,13 @@ function renderLog(id){
     const y=yOf(d);
     svg.appendChild(el('line',{x1:mL-4,y1:y,x2:mL,y2:y,stroke:'#6b6250'}));
     svg.appendChild(el('text',{x:mL-7,y:y+3,'font-size':10,'text-anchor':'end',fill:'#6b6250'},d.toFixed(0)));
-    if (showElev) svg.appendChild(el('text',{x:mL+colW+8,y:y+3,'font-size':10,fill:'#6b6250'},(bh.gl-d).toFixed(1)));
+    if (showElev){
+      svg.appendChild(el('line',{x1:mL+colW,y1:y,x2:mL+colW+6,y2:y,stroke:'#6b6250'}));
+      svg.appendChild(el('text',{x:mpdX,y:y+3,'font-size':10,fill:'#6b6250'},(bh.gl-d).toFixed(1)));
+    }
   }
   svg.appendChild(el('text',{x:mL-40,y:mT-14,'font-size':10,'font-weight':600,fill:'#6b6250'},'Depth (m)'));
-  if (showElev) svg.appendChild(el('text',{x:mL+colW+8,y:mT-14,'font-size':10,'font-weight':600,fill:'#6b6250'},'mPD'));
+  if (showElev) svg.appendChild(el('text',{x:mpdX,y:mT-14,'font-size':10,'font-weight':600,fill:'#6b6250'},'mPD'));
 
   for (const l of bh.layers){
     const y0=yOf(l.top), y1=yOf(l.base), c=colourFor(l.surface);
@@ -360,8 +294,9 @@ function renderLog(id){
   }
 
   if (legendMode){
-    // consolidated legend beside the log (top) instead of crowded inline labels
-    const gx=mL+colW+20; let gy=mT+4;
+    // consolidated legend beside the log (top) instead of crowded inline labels,
+    // clear of the mPD axis lane
+    const gx=lx; let gy=mT+4;
     svg.appendChild(el('text',{x:gx,y:gy,'font-size':11,'font-weight':700,fill:'#1e3c12'},'Legend')); gy+=16;
     for (const l of uniq){
       svg.appendChild(el('rect',{x:gx,y:gy-9,width:11,height:11,fill:colourFor(l.surface),stroke:'#3d3529','stroke-width':.6}));
@@ -393,6 +328,19 @@ let sectionLine=null;   // {a:[lat,lng], b:[lat,lng]}
 
 let _mapLibs=null;
 function ensureMapLibs(){ return _mapLibs || (_mapLibs=import('./sitemap.js').then(m=>m.ensureMapLibs())); }
+let _mapExport=null;
+function mapExport(){ return _mapExport || (_mapExport=import('./map_export.js')); }
+
+// Swappable base map for the site plan / contour plan (task 6). `key` namespaces
+// the remembered layer so the two maps can show different basemaps at once.
+const _baseLayers={};
+async function setBase(map, key, name){
+  const { BASEMAPS } = await mapExport();
+  const bm = BASEMAPS[name];
+  if (_baseLayers[key]){ map.removeLayer(_baseLayers[key]); _baseLayers[key]=null; }
+  if (bm && bm.url) _baseLayers[key]=L.tileLayer(bm.url,{maxZoom:bm.maxZoom||19,attribution:bm.attribution}).addTo(map);
+  if (_baseLayers[key]) _baseLayers[key].bringToBack();
+}
 
 function toLL(e,n){ const r=proj4('HK1980','EPSG:4326',[e,n]); return [r[1], r[0]]; }   // -> [lat,lng]
 function toEN(lat,lng){ const r=proj4('EPSG:4326','HK1980',[lng,lat]); return {e:r[0], n:r[1]}; }
@@ -441,8 +389,8 @@ async function renderSitePlan(){
   if (!secMap){
     box.innerHTML=''; box.style.padding='0';
     secMap=L.map(box,{zoomControl:true});
-    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',{maxZoom:20,attribution:'Google Hybrid'}).addTo(secMap);
     secBhLayer=L.layerGroup().addTo(secMap);
+    await setBase(secMap, 'sp', document.getElementById('sp-base').value);
   }
   secMap.setMaxBounds(expanded);
   secMap.fitBounds(expanded);
@@ -486,8 +434,8 @@ function updateSection(){
   const A=toEN(...sectionLine.a), B=toEN(...sectionLine.b);
   const lineLen=Math.hypot(B.e-A.e, B.n-A.n);
   const allHoles=sectionHoles();
-  const tpOnly = document.getElementById('sec-tp-only')?.checked;
-  const secHoles = tpOnly ? allHoles.filter(b=>(b.kind||'BH')==='TP') : allHoles;
+  const bhOnly = document.getElementById('sec-bh-only')?.checked;
+  const secHoles = bhOnly ? allHoles.filter(b=>(b.kind||'BH')!=='TP') : allHoles;
   const corridor = +document.getElementById('sec-tol').value;   // task 5: distance tolerance (m)
   const { stations, inSet } = sectionStations(A, B, secHoles, corridor);
   secBhLayer.clearLayers();
@@ -584,21 +532,26 @@ function renderSection(stations, vex, lineLen){
   }
   svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'));
 
-  // coloured grade bands (interpolated between adjacent boreholes)
-  const horizonsByHole = {}; ids.forEach(id=>{ horizonsByHole[id]=buildHorizons(id); });
+  // coloured grade bands, interpolated between boreholes by the chosen method
+  // (task 9). Horizons are interpolated as top-surface + thicknesses, so bands
+  // can pinch out but never cross — see interpolateHorizons().
+  const method = document.getElementById('sec-interp')?.value || 'linear';
+  const horizons = ids.map(id=>buildHorizons(id));
+  // sample every ~3 px for linear/nearest fidelity and smooth cubic curves
+  const nQ = method==='linear' ? 0 : Math.max(ids.length, Math.round(plotW/3));
+  const xq = nQ ? Array.from({length:nQ+1},(_,i)=>dist[0]+(dist[dist.length-1]-dist[0])*i/nQ) : dist.slice();
+  const curves = interpolateHorizons(dist, horizons, xq, method);
   for (let k=0;k<STRAT.length;k++){
     const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
-    for (let i=0;i<ids.length-1;i++){
-      const hA=horizonsByHole[ids[i]], hB=horizonsByHole[ids[i+1]];
-      const topA=hA[k], baseA=hA[k+1], topB=hB[k], baseB=hB[k+1];
-      if (topA===baseA && topB===baseB) continue;
-      const xa=X(dist[i]), xb=X(dist[i+1]);
-      const pts=[[xa,Y(topA)],[xb,Y(topB)],[xb,Y(baseB)],[xa,Y(baseA)]].map(p=>p.join(',')).join(' ');
-      svg.appendChild(el('polygon',{points:pts,fill:c,opacity:.85,stroke:c,'stroke-width':.5,'data-cls':STRAT[k]}));
-    }
+    const top=curves[k], base=curves[k+1];
+    if (top.every((v,q)=>v===base[q])) continue;                     // absent everywhere
+    const fwd=xq.map((d,q)=>`${X(d)},${Y(top[q])}`);
+    const rev=xq.map((d,q)=>`${X(d)},${Y(base[q])}`).reverse();
+    svg.appendChild(el('polygon',{points:fwd.concat(rev).join(' '),fill:c,opacity:.85,
+      stroke:c,'stroke-width':.5,'data-cls':STRAT[k]}));
   }
-  let gpts=''; ids.forEach((id,i)=>{ gpts+=`${X(dist[i])},${Y(BH[id].gl)} `; });
-  svg.appendChild(el('polyline',{points:gpts.trim(),fill:'none',stroke:'#3d3529','stroke-width':1.4}));
+  svg.appendChild(el('polyline',{points:xq.map((d,q)=>`${X(d)},${Y(curves[0][q])}`).join(' '),
+    fill:'none',stroke:'#3d3529','stroke-width':1.4}));
 
   ids.forEach((id,i)=>{
     const bh=BH[id], x=X(dist[i]), w=8;
@@ -642,6 +595,172 @@ function renderSection(stations, vex, lineLen){
   });
   svg.addEventListener('mouseleave', ()=> clsEls.forEach(n=>n.classList.remove('dimmed')));
   box.appendChild(svg);
+}
+
+// ---- site-plan image export (task 6) --------------------------------------
+// Exports the plan exactly as framed on screen — basemap + site boundary +
+// section line (A/B) + boreholes — as a report-ready PNG.
+function setSpStatus(msg, cls){
+  const s=document.getElementById('sp-status');
+  s.style.display='block'; s.className='status '+(cls||''); s.textContent=msg;
+}
+async function exportSitePlan(){
+  if (!secMap){ setSpStatus('Load boreholes first — there is no site plan to export yet.','err'); return; }
+  const { exportMapPNG, paintPolyline, paintMarker, paintText } = await mapExport();
+  const sp=state.sitePlan, holes=sectionHoles();
+  const inSet = sectionLine
+    ? sectionStations(toEN(...sectionLine.a), toEN(...sectionLine.b), holes,
+        +document.getElementById('sec-tol').value).inSet
+    : new Set();
+  setSpStatus('Rendering image…','busy');
+  const msg = await exportMapPNG(secMap, {
+    name:`site_plan_${new Date().toISOString().slice(0,10)}.png`,
+    basemap:document.getElementById('sp-base').value,
+    title:(document.getElementById('sec-title').value||'').trim() || 'Site plan',
+    draw(ctx, project){
+      if (sp && sp.bounds && Number.isFinite(sp.bounds.latMin)){
+        const {latMin,latMax,lngMin,lngMax}=sp.bounds;
+        paintPolyline(ctx, project, [[latMin,lngMin],[latMin,lngMax],[latMax,lngMax],[latMax,lngMin]],
+          {color:'#e0a800',weight:3,dash:[10,6],close:true});
+      }
+      if (sectionLine){
+        paintPolyline(ctx, project, [sectionLine.a, sectionLine.b], {color:'#d33',weight:3});
+        paintText(ctx, project, sectionLine.a, 'A', {font:'700 15px Outfit, sans-serif',color:'#d33'});
+        paintText(ctx, project, sectionLine.b, 'B', {font:'700 15px Outfit, sans-serif',color:'#d33'});
+      }
+      for (const bh of holes){
+        const on=inSet.has(bh.id);
+        paintMarker(ctx, project, toLL(bh.x,bh.y), bh.id,
+          {radius:on?5:4, fill:on?'#2f5a1e':'#a8a196'});
+      }
+    }
+  });
+  setSpStatus(msg, msg.startsWith('✓')?'ok':'err');
+}
+
+// ==== ROCK CONTOUR PLAN (task 8) ===========================================
+// Plan view of interpolated rockhead level, styled like an engineering drawing:
+// thin black contours, thicker labelled index contours, borehole callouts.
+let ctrMap=null, ctrLayer=null, ctrCache=null;
+function setCtrStatus(msg, cls){
+  const s=document.getElementById('ctr-status');
+  s.style.display='block'; s.className='status '+(cls||''); s.textContent=msg;
+}
+const ctrOpt = id => document.getElementById(id);
+
+async function renderContour(){
+  const box=document.getElementById('contour-viz');
+  const holes=sectionHoles();
+  const { rockheadPoints, gridInterp, contourLevels, contourLines } = await import('./contour.js');
+  const maxGrade = ctrOpt('ctr-grade').value;
+  const { points, missing } = rockheadPoints(holes, maxGrade);
+  if (points.length < 3){
+    if (ctrMap){ ctrMap.remove(); ctrMap=null; ctrLayer=null; }
+    box.innerHTML='<p class="hint" style="padding:10px">At least 3 boreholes proving rock (Grade '+maxGrade+
+      ' or better) are needed to contour rockhead. Currently '+points.length+
+      ' of '+holes.length+' loaded borehole(s) reach rock — load a site from the Site Map tab, '+
+      'or relax the rock definition below.</p>';
+    ctrCache=null;
+    setCtrStatus(`${points.length} borehole(s) prove rock, ${missing.length} do not — not enough to contour.`,'err');
+    return;
+  }
+  await ensureMapLibs();
+
+  const interval=+ctrOpt('ctr-int').value;
+  const grid=gridInterp(points, { method:ctrOpt('ctr-method').value, n:90 });
+  const levels=contourLevels(grid, interval);
+  const contours=contourLines(grid, levels);
+  // Index contours (heavier + labelled) every 5th interval, as on a survey
+  // drawing — but on a shallow site that would label nothing, so fall back to
+  // labelling every contour when there are few of them.
+  const idxStep = levels.length > 6 ? interval*5 : interval;
+  const isIndex = lvl => Math.abs(lvl/idxStep - Math.round(lvl/idxStep)) < 1e-6;
+
+  if (!ctrMap){
+    box.innerHTML=''; box.style.padding='0';
+    ctrMap=L.map(box,{zoomControl:true});
+    ctrLayer=L.layerGroup().addTo(ctrMap);
+    await setBase(ctrMap, 'ctr', ctrOpt('ctr-base').value);
+    ctrMap.fitBounds(L.latLngBounds(points.map(p=>toLL(p.x,p.y))).pad(0.35));
+  }
+  setTimeout(()=>ctrMap.invalidateSize(),60);
+  ctrLayer.clearLayers();
+
+  const showLabels=ctrOpt('ctr-labels').checked, showBh=ctrOpt('ctr-bh').checked;
+  const sp=state.sitePlan;
+  if (ctrOpt('ctr-boundary').checked && sp && sp.bounds && Number.isFinite(sp.bounds.latMin)){
+    const {latMin,latMax,lngMin,lngMax}=sp.bounds;
+    L.rectangle([[latMin,lngMin],[latMax,lngMax]],
+      {color:'#000',weight:1.6,dashArray:'12,5',fill:false}).addTo(ctrLayer);
+  }
+  for (const c of contours){
+    const idx=isIndex(c.level);
+    for (const line of c.lines){
+      const lls=line.map(([x,y])=>toLL(x,y));
+      L.polyline(lls,{color:'#000',weight:idx?1.7:0.7,opacity:1})
+        .bindTooltip(c.level.toFixed(1)+' mPD',{sticky:true}).addTo(ctrLayer);
+      if (showLabels && idx && line.length>6){
+        L.marker(lls[Math.floor(lls.length/2)],
+          {interactive:false, icon:L.divIcon({className:'ctr-label',
+            html:c.level.toFixed(interval<1?1:0), iconSize:null})}).addTo(ctrLayer);
+      }
+    }
+  }
+  if (showBh){
+    for (const p of points){
+      const ll=toLL(p.x,p.y);
+      L.circleMarker(ll,{radius:4,color:'#000',weight:1.6,fillColor:'#fff',fillOpacity:1}).addTo(ctrLayer);
+      L.marker(ll,{interactive:false,icon:L.divIcon({className:'ctr-bh',iconSize:null,
+        html:`${p.id}<br>RL ${p.z.toFixed(2)}`})}).addTo(ctrLayer)
+        .setZIndexOffset(500);
+    }
+    for (const m of missing){
+      const ll=toLL(m.x,m.y);
+      L.circleMarker(ll,{radius:4,color:'#666',weight:1.4,fillColor:'#fff',fillOpacity:1,dashArray:'2,2'}).addTo(ctrLayer);
+      L.marker(ll,{interactive:false,icon:L.divIcon({className:'ctr-bh',iconSize:null,
+        html:`${m.id}<br>rock N.E. (${m.depth.toFixed(1)} m)`})}).addTo(ctrLayer);
+    }
+  }
+  const zs=points.map(p=>p.z);
+  ctrCache={ points, missing, contours, isIndex, interval };
+  setCtrStatus(`${points.length} borehole(s) proved rock (Grade ${maxGrade} or better): rock level `+
+    `${Math.min(...zs).toFixed(2)} to ${Math.max(...zs).toFixed(2)} mPD. `+
+    `${missing.length} borehole(s) did not reach rock (marked “rock N.E.”, excluded from the interpolation). `+
+    `Contours every ${interval} m; index contours labelled.`,'ok');
+}
+
+async function exportContour(){
+  if (!ctrMap || !ctrCache){ setCtrStatus('Nothing to export yet.','err'); return; }
+  const { exportMapPNG, paintPolyline, paintMarker, paintText } = await mapExport();
+  const { points, missing, contours, isIndex, interval } = ctrCache;
+  const sp=state.sitePlan;
+  setCtrStatus('Rendering image…','busy');
+  const msg = await exportMapPNG(ctrMap, {
+    name:`rock_contour_plan_${new Date().toISOString().slice(0,10)}.png`,
+    basemap:ctrOpt('ctr-base').value,
+    title:`Rockhead contour plan — ${interval} m interval (mPD)`,
+    draw(ctx, project){
+      if (ctrOpt('ctr-boundary').checked && sp && sp.bounds && Number.isFinite(sp.bounds.latMin)){
+        const {latMin,latMax,lngMin,lngMax}=sp.bounds;
+        paintPolyline(ctx,project,[[latMin,lngMin],[latMin,lngMax],[latMax,lngMax],[latMax,lngMin]],
+          {color:'#000',weight:1.6,dash:[12,5],close:true});
+      }
+      for (const c of contours) for (const line of c.lines)
+        paintPolyline(ctx, project, line.map(([x,y])=>toLL(x,y)),
+          {color:'#000', weight:isIndex(c.level)?1.7:0.7});
+      if (ctrOpt('ctr-labels').checked)
+        for (const c of contours) if (isIndex(c.level)) for (const line of c.lines)
+          if (line.length>6) paintText(ctx, project, toLL(...line[Math.floor(line.length/2)]),
+            c.level.toFixed(interval<1?1:0), {});
+      if (ctrOpt('ctr-bh').checked){
+        for (const p of points) paintMarker(ctx, project, toLL(p.x,p.y),
+          `${p.id}  RL ${p.z.toFixed(2)}`, {radius:4, fill:'#fff', stroke:'#000', weight:1.6});
+        for (const m of missing) paintMarker(ctx, project, toLL(m.x,m.y),
+          `${m.id}  rock N.E.`, {radius:4, fill:'#fff', stroke:'#666', weight:1.4});
+      }
+    }
+  });
+  setCtrStatus(msg, msg.startsWith('✓')?'ok':'err');
 }
 
 // ---- PNG export ------------------------------------------------------
@@ -707,6 +826,7 @@ function setPanelCollapsed(flag){
   applyTabLayout(currentTab());
   // let the layout reflow, then resize the map & redraw the section to fit the new width
   if (secMap){ setTimeout(()=>{ secMap.invalidateSize(); if (sectionActive()) updateSection(); }, 80); }
+  if (ctrMap){ setTimeout(()=>ctrMap.invalidateSize(), 80); }
   renderLogLive();
 }
 
@@ -719,6 +839,7 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   if (t.dataset.tab==='section') renderSectionFromUI();
   if (t.dataset.tab==='log') renderLogLive();
   if (t.dataset.tab==='map') openSiteMap();
+  if (t.dataset.tab==='contour') renderContour();
 }));
 
 // ---- global loading toast (bottom-right), shared with sitemap.js ----------
@@ -775,16 +896,27 @@ document.getElementById('log-png').addEventListener('click', ()=>exportPNG(docum
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; if (secMap) updateSection(); });
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
-['sec-show-logs','sec-show-names','sec-tp-only'].forEach(id=>
+['sec-show-logs','sec-show-names','sec-bh-only','sec-interp'].forEach(id=>
   document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
 document.getElementById('panel-collapse').addEventListener('click', ()=>setPanelCollapsed(true));
 document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));
 document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'),'cross_section.png'));
+
+// site plan base map + image export (task 6)
+document.getElementById('sp-base').addEventListener('change', e=>{
+  if (secMap) setBase(secMap, 'sp', e.target.value);
+});
+document.getElementById('sp-export').addEventListener('click', exportSitePlan);
+
+// rock contour plan (task 8)
+['ctr-grade','ctr-method','ctr-int','ctr-labels','ctr-bh','ctr-boundary'].forEach(id=>
+  document.getElementById(id).addEventListener('change', renderContour));
+document.getElementById('ctr-base').addEventListener('change', e=>{
+  if (ctrMap) setBase(ctrMap, 'ctr', e.target.value);
+});
+document.getElementById('ctr-export').addEventListener('click', exportContour);
 document.getElementById('hf-send').addEventListener('click', sendToHF);
 
-document.getElementById('sample-select').addEventListener('change', e=>{
-  if (SAMPLES[e.target.value]){ document.getElementById('csv').value=SAMPLES[e.target.value]; importCSV(); }
-});
 function importCSV(){
   try { csvToState(document.getElementById('csv').value); document.getElementById('parse-info').textContent='✓ imported';
     refreshInput(); commit(); }
@@ -796,7 +928,7 @@ document.getElementById('csv-export').addEventListener('click', ()=>{ document.g
 // ---- project save / resume (tasks 5 & 6) ----------------------------
 document.getElementById('proj-export').addEventListener('click', ()=>{
   const stamp=new Date().toISOString().slice(0,10);
-  downloadText(`geovis_project_${stamp}.csv`, stateToProjectCSV());
+  downloadText(`geovis_project_${stamp}.csv`, stateToProjectCSV(state, sectionLine));
 });
 let _projText='';
 const _projInfo=document.getElementById('proj-info');
@@ -816,9 +948,8 @@ document.getElementById('proj-file').addEventListener('change', e=>acceptProject
 _drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) acceptProjectFile(f); });
 _projLoad.addEventListener('click', ()=>{
   try{
-    projectCSVToState(_projText);
+    loadProjectCSV(_projText);
     setMode(state.mode);                 // sync depth/elevation toggle
-    sectionLine = sectionLine;           // preserved from meta
     refreshInput(); commit();
     _projInfo.textContent=`✓ Loaded ${state.boreholes.length} borehole(s)`+(state.sitePlan?' + site boundary':'')+'.';
     document.querySelector('.tab[data-tab="log"]').click();
@@ -833,8 +964,8 @@ window.GeoBuilder = {
   loadCSV(text){ document.getElementById('csv').value=text; importCSV(); }
 };
 
-// boot with the simple sample, opening on the Site Map (step 1)
-csvToState(SAMPLES.simple);
+// boot empty (one blank borehole to type into), opening on the Site Map (step 1)
+state.boreholes = [{ id:'BH-1', x:836694, y:819070, gl:10, kind:'BH', layers:[] }];
 syncDerived();
 refreshInput();
 renderLogLive();

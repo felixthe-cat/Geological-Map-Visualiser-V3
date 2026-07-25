@@ -20,3 +20,73 @@ export function sectionStations(A, B, holes, corridor){
   }
   return { stations, inSet };
 }
+
+// ---- horizon interpolation between boreholes -------------------------------
+// Three methods, all evaluated at arbitrary query distances along the section:
+//   'linear'  — straight lines between logged boreholes (the classic hand-drawn
+//               section; every point is defensible from the data).
+//   'mono'    — monotone cubic (PCHIP, Fritsch–Carlson). Smooth, and unlike a
+//               natural cubic spline it CANNOT overshoot past the neighbouring
+//               logged values, so a smoothed horizon never invents a bulge
+//               above ground or a spurious basin between two boreholes.
+//   'nearest' — nearest neighbour: each borehole's log is held constant out to
+//               the midpoint of the gap (a "no interpolation" honest view).
+export const INTERP_METHODS = ['linear', 'mono', 'nearest'];
+
+function pchipTangents(xs, ys){
+  const n=xs.length, d=new Array(n-1), m=new Array(n);
+  for (let i=0;i<n-1;i++) d[i]=(ys[i+1]-ys[i])/(xs[i+1]-xs[i]);
+  m[0]=d[0]; m[n-1]=d[n-2];
+  for (let i=1;i<n-1;i++){
+    if (d[i-1]*d[i] <= 0) m[i]=0;                 // local extremum -> flat, no overshoot
+    else {
+      const w1=2*(xs[i+1]-xs[i])+(xs[i]-xs[i-1]), w2=(xs[i+1]-xs[i])+2*(xs[i]-xs[i-1]);
+      m[i]=(w1+w2)/(w1/d[i-1] + w2/d[i]);         // weighted harmonic mean
+    }
+  }
+  return m;
+}
+
+/** Interpolate the series (xs, ys) at each query x in `xq`. */
+export function interpolateSeries(xs, ys, xq, method='linear'){
+  const n=xs.length;
+  if (n===0) return xq.map(()=>0);
+  if (n===1) return xq.map(()=>ys[0]);
+  const m = method==='mono' ? pchipTangents(xs, ys) : null;
+  return xq.map(x=>{
+    if (x<=xs[0]) return ys[0];
+    if (x>=xs[n-1]) return ys[n-1];
+    let i=0; while (i<n-2 && xs[i+1]<x) i++;
+    const h=xs[i+1]-xs[i], t=(x-xs[i])/h;
+    if (method==='nearest') return t<0.5 ? ys[i] : ys[i+1];
+    if (method!=='mono') return ys[i]+(ys[i+1]-ys[i])*t;
+    const t2=t*t, t3=t2*t;                           // cubic Hermite basis
+    return (2*t3-3*t2+1)*ys[i] + (t3-2*t2+t)*h*m[i]
+         + (-2*t3+3*t2)*ys[i+1] + (t3-t2)*h*m[i+1];
+  });
+}
+
+/**
+ * Interpolate a whole stack of horizons without ever letting two of them cross.
+ * Trick: interpolate the top surface and each stratum THICKNESS separately.
+ * Thicknesses are ≥0 at every borehole and none of the three methods overshoots
+ * below the neighbouring values, so every interpolated thickness stays ≥0 —
+ * i.e. bands can pinch out but never invert.
+ * @param xs        station distances along the section
+ * @param horizons  horizons[s] = [topElev, boundary1, boundary2, …] for station s
+ *                  (non-increasing within each station)
+ * @param xq        query distances
+ * @returns curves[k][q] = elevation of horizon k at xq[q]
+ */
+export function interpolateHorizons(xs, horizons, xq, method='linear'){
+  const nH = horizons[0].length;
+  const top = interpolateSeries(xs, horizons.map(h=>h[0]), xq, method);
+  const curves = [top];
+  const running = top.slice();
+  for (let k=1;k<nH;k++){
+    const th = interpolateSeries(xs, horizons.map(h=>Math.max(0, h[k-1]-h[k])), xq, method);
+    for (let q=0;q<xq.length;q++) running[q] -= Math.max(0, th[q]);
+    curves.push(running.slice());
+  }
+  return curves;
+}

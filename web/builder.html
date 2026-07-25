@@ -113,6 +113,12 @@
     .sec-handle{background:#d33;border:2px solid #fff;border-radius:50%;
       box-shadow:0 1px 4px rgba(0,0,0,.45);cursor:move}
     #siteplan-viz .leaflet-container{height:320px;border-radius:10px}
+    /* rock contour plan — engineering-drawing look */
+    #contour-viz .leaflet-container{height:460px;border-radius:10px;background:#fff}
+    .ctr-label{font:700 10px/1 Outfit,sans-serif;color:#000;white-space:nowrap;
+      text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
+    .ctr-bh{font:600 10px/1.2 Outfit,sans-serif;color:#000;white-space:nowrap;
+      text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
   </style>
 </head>
 <body>
@@ -177,16 +183,8 @@
       <button class="ghost mini" id="layer-add" style="margin-top:6px">＋ Add layer</button>
 
       <details>
-        <summary>Import / export CSV &amp; samples</summary>
-        <div class="row" style="margin:8px 0 6px">
-          <select id="sample-select" style="flex:1">
-            <option value="">Load sample…</option>
-            <option value="simple">Simple (3 BH)</option>
-            <option value="hk">HK weathered granite</option>
-            <option value="pinch">Pinch-out</option>
-          </select>
-        </div>
-        <label>CSV (borehole_id, x, y, surface, top_depth, base_depth, ground_level)</label>
+        <summary>Import / export CSV</summary>
+        <label style="margin-top:8px">CSV (borehole_id, x, y, surface, top_depth, base_depth, ground_level)</label>
         <textarea id="csv" spellcheck="false"></textarea>
         <div class="row" style="margin-top:6px">
           <button class="mini" id="csv-import">Import CSV → table</button>
@@ -215,7 +213,8 @@
         <button class="tab active" data-tab="map">1 · Site Map</button>
         <button class="tab" data-tab="log">2 · Borehole Log</button>
         <button class="tab" data-tab="section">3 · Cross-Section</button>
-        <button class="tab" data-tab="hf" id="tab-hf" data-lock3d>4 · 3D via Hugging Face</button>
+        <button class="tab" data-tab="contour">4 · Rock Contour</button>
+        <button class="tab" data-tab="hf" id="tab-hf" data-lock3d>5 · 3D via Hugging Face</button>
       </div>
 
       <!-- LOG -->
@@ -233,6 +232,16 @@
         <h3 style="margin:0 0 4px">Site Plan (satellite)</h3>
         <div class="hint">Drag either end of the <b style="color:#d33">red section line</b> on the satellite map to move, rotate or resize the cross-section. Ends are marked <b>A</b> and <b>B</b>. Boreholes near the line turn <b style="color:#2f5a1e">green</b> (included); the section below updates live.</div>
         <div class="viz" id="siteplan-viz" style="padding:0;min-height:320px"></div>
+        <div class="row" style="margin-top:8px;gap:10px">
+          <label style="margin:0;min-width:auto">Base map</label>
+          <select id="sp-base" style="width:auto">
+            <option value="Google Hybrid">Google Hybrid (satellite + roads)</option>
+            <option value="Satellite (Esri)">Satellite (Esri imagery)</option>
+            <option value="OpenStreetMap">OpenStreetMap (streets)</option>
+          </select>
+          <button class="gold" id="sp-export" title="Export the site plan — boreholes, site boundary and section line — as a PNG for reports">⬇ Export site plan (PNG)</button>
+        </div>
+        <div id="sp-status" class="status" style="display:none"></div>
 
         <!-- collapsible options panel for the cross-section -->
         <details id="sec-options" open style="margin-top:12px">
@@ -254,11 +263,20 @@
                 <input type="range" id="sec-tol" min="10" max="500" step="5" value="100">
                 <span id="sec-tol-val">100 m</span>
               </div>
+              <div>
+                <label>Interpolation between boreholes</label>
+                <select id="sec-interp">
+                  <option value="linear">Linear (straight lines — classic)</option>
+                  <option value="mono">Monotone cubic (smooth, no overshoot)</option>
+                  <option value="nearest">Nearest neighbour (stepped, no interpolation)</option>
+                </select>
+              </div>
+              <div></div>
             </div>
             <div class="row" style="margin-top:10px;gap:16px">
               <label style="margin:0"><input type="checkbox" id="sec-show-logs" style="width:auto" checked> Show borehole logs</label>
               <label style="margin:0"><input type="checkbox" id="sec-show-names" style="width:auto" checked> Show borehole names</label>
-              <label style="margin:0"><input type="checkbox" id="sec-tp-only" style="width:auto"> Trial pits only (exclude boreholes)</label>
+              <label style="margin:0"><input type="checkbox" id="sec-bh-only" style="width:auto"> Boreholes only (exclude trial pits)</label>
             </div>
             <div class="row" style="margin-top:10px">
               <button class="ghost" id="sec-png">Export PNG</button>
@@ -267,6 +285,61 @@
         </details>
         <div class="hint">Bands are grouped &amp; coloured by <b>decomposition grade</b> (GeoGuide 3). Hover a band or legend entry to highlight it.</div>
         <div class="viz" id="sec-viz"></div>
+      </div>
+
+      <!-- ROCK CONTOUR -->
+      <div class="tabpane" data-pane="contour">
+        <h3 style="margin:0 0 4px">Rock Contour Plan</h3>
+        <div class="hint">Contours of <b>rockhead level (mPD)</b> interpolated from the loaded borehole logs — drawn in engineering-drawing style (black lines, index contours labelled). Boreholes are annotated with their rock level; boreholes where rock was <b>not</b> proved are marked and excluded from the interpolation.</div>
+        <div class="viz" id="contour-viz" style="padding:0;min-height:420px"></div>
+        <details id="ctr-options" open style="margin-top:12px">
+          <summary>Rock contour options</summary>
+          <div style="padding:8px 4px 2px">
+            <div class="grid2" style="gap:8px 18px">
+              <div>
+                <label>Top of rock defined as</label>
+                <select id="ctr-grade">
+                  <option value="III">Grade III or better (moderately decomposed) — usual HK practice</option>
+                  <option value="II">Grade II or better (slightly decomposed / fresh)</option>
+                </select>
+              </div>
+              <div>
+                <label>Interpolation</label>
+                <select id="ctr-method">
+                  <option value="idw">Inverse-distance weighting (smooth)</option>
+                  <option value="nearest">Nearest neighbour (Thiessen blocks)</option>
+                </select>
+              </div>
+              <div>
+                <label>Contour interval</label>
+                <select id="ctr-int">
+                  <option value="0.5">0.5 m</option>
+                  <option value="1">1 m</option>
+                  <option value="2" selected>2 m</option>
+                  <option value="5">5 m</option>
+                </select>
+              </div>
+              <div>
+                <label>Base map</label>
+                <select id="ctr-base">
+                  <option value="Google Hybrid">Google Hybrid (satellite + roads)</option>
+                  <option value="Satellite (Esri)">Satellite (Esri imagery)</option>
+                  <option value="OpenStreetMap" selected>OpenStreetMap (simple streets)</option>
+                  <option value="Plain (no basemap)">Plain white (drawing only)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px;gap:16px">
+              <label style="margin:0"><input type="checkbox" id="ctr-labels" style="width:auto" checked> Label contours</label>
+              <label style="margin:0"><input type="checkbox" id="ctr-bh" style="width:auto" checked> Annotate boreholes</label>
+              <label style="margin:0"><input type="checkbox" id="ctr-boundary" style="width:auto" checked> Show site boundary</label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="gold" id="ctr-export">⬇ Export contour plan (PNG)</button>
+            </div>
+          </div>
+        </details>
+        <div id="ctr-status" class="status" style="display:none"></div>
       </div>
 
       <!-- SITE MAP -->
@@ -305,8 +378,8 @@
         <div class="hint">Only boreholes with AGS data (green) are loaded — their <b>logged stratigraphy</b> is fetched on demand from the CEDD AGS open-data archive.</div>
 
         <div class="row" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-          <button class="ghost" id="map-download-ags" disabled title="Load boreholes first">⬇ Download extracted data (AGS)</button>
-          <span class="hint" style="margin:0">All loaded borehole logs as an AGS4 file for use in other software.</span>
+          <button class="ghost" id="map-download-ags" disabled title="Load boreholes first">⬇ Download original AGS (CEDD)</button>
+          <span class="hint" style="margin:0">The <b>original, unaltered</b> AGS report file(s) exactly as published on the CEDD GEO Open Data portal — nothing parsed or re-encoded (CRC-verified against the archive).</span>
         </div>
       </div>
 

@@ -36,7 +36,8 @@ AGS_ZIP_URL = "https://www.ginfo.cedd.gov.hk/geoopendata/Data/GI/GI_AGS.zip"
 REQUEST_TIMEOUT = 120
 
 # module-level caches (per process)
-_manifest: dict[str, tuple[int, int, int]] | None = None   # repno -> (offset, csize, method)
+# repno -> (localHeaderOffset, compressedSize, method, crc32, uncompressedSize)
+_manifest: dict[str, tuple[int, int, int, int, int]] | None = None
 _manifest_tag: str | None = None                           # Last-Modified of the zip when built
 _report_cache: dict[str, dict] = {}                        # repno -> parsed stratigraphy
 
@@ -56,9 +57,11 @@ def _fetch_range(start: int, end: int) -> bytes:
     return r.content
 
 
-def build_manifest(force: bool = False) -> dict[str, tuple[int, int, int]]:
-    """Map REPNO -> (localHeaderOffset, compressedSize, method) from the ZIP
-    central directory. Cached until the archive's Last-Modified changes."""
+def build_manifest(force: bool = False) -> dict[str, tuple[int, int, int, int, int]]:
+    """Map REPNO -> (localHeaderOffset, compressedSize, method, crc32, uncompressedSize)
+    from the ZIP central directory. Cached until the archive's Last-Modified changes.
+    The CRC-32 and uncompressed size come straight from CEDD's own central
+    directory, which is what lets us *prove* a byte-range fetch is unaltered."""
     global _manifest, _manifest_tag
     total, tag = _zip_version()
     if _manifest is not None and _manifest_tag == tag and not force:
@@ -73,7 +76,7 @@ def build_manifest(force: bool = False) -> dict[str, tuple[int, int, int]]:
     cd_offset = int.from_bytes(eocd_buf[e + 16:e + 20], "little")
 
     cd = _fetch_range(cd_offset, cd_offset + cd_size - 1)
-    manifest: dict[str, tuple[int, int, int]] = {}
+    manifest: dict[str, tuple[int, int, int, int, int]] = {}
     sig = b"PK\x01\x02"
     i = 0
     while True:
@@ -81,13 +84,15 @@ def build_manifest(force: bool = False) -> dict[str, tuple[int, int, int]]:
         if j < 0:
             break
         method = int.from_bytes(cd[j + 10:j + 12], "little")
+        crc = int.from_bytes(cd[j + 16:j + 20], "little")
         csize = int.from_bytes(cd[j + 20:j + 24], "little")
+        usize = int.from_bytes(cd[j + 24:j + 28], "little")
         fnlen = int.from_bytes(cd[j + 28:j + 30], "little")
         lho = int.from_bytes(cd[j + 42:j + 46], "little")
         name = cd[j + 46:j + 46 + fnlen].decode("utf-8", "replace")
         if name.lower().endswith(".zip"):
             repno = name.split("/")[-1][:-4]
-            manifest[repno] = (lho, csize, method)
+            manifest[repno] = (lho, csize, method, crc, usize)
         i = j + 4
 
     _manifest, _manifest_tag = manifest, tag
@@ -97,8 +102,16 @@ def build_manifest(force: bool = False) -> dict[str, tuple[int, int, int]]:
 
 # ── per-report fetch + AGS parse ───────────────────────────────────────────
 
-def _fetch_report_zip(repno: str, manifest: dict) -> zipfile.ZipFile:
-    lho, csize, method = manifest[repno]
+def fetch_report_bytes(repno: str, manifest: dict) -> bytes:
+    """Return the *original, unaltered* bytes of CEDD's `GI_AGS/<REPNO>.zip`
+    entry, byte-range fetched out of the big archive.
+
+    The returned bytes are verified against the CRC-32 and uncompressed size
+    recorded in CEDD's own ZIP central directory — if a single byte were
+    corrupted in transit or mis-sliced by us, this raises rather than returning
+    altered data. That check is what backs the "download exactly what the API
+    served" guarantee (see verify_report / test_raw_ags.py)."""
+    lho, csize, method, crc, usize = manifest[repno]
     # local file header (30 bytes) + name + extra, then csize bytes of data
     buf = _fetch_range(lho, lho + 30 + csize + 4096)
     if buf[:4] != b"PK\x03\x04":
@@ -108,7 +121,44 @@ def _fetch_report_zip(repno: str, manifest: dict) -> zipfile.ZipFile:
     start = 30 + lfnlen + lexlen
     comp = buf[start:start + csize]
     inner = zlib.decompress(comp, -15) if method == 8 else comp
-    return zipfile.ZipFile(io.BytesIO(inner))
+    if len(inner) != usize:
+        raise RuntimeError(f"report {repno}: size {len(inner)} != CEDD's {usize}")
+    if zlib.crc32(inner) != crc:
+        raise RuntimeError(f"report {repno}: CRC mismatch vs CEDD central directory")
+    return inner
+
+
+def _fetch_report_zip(repno: str, manifest: dict) -> zipfile.ZipFile:
+    return zipfile.ZipFile(io.BytesIO(fetch_report_bytes(repno, manifest)))
+
+
+def get_raw_reports(repnos: Iterable[str]) -> dict[str, bytes]:
+    """{repno: original <REPNO>.zip bytes} for the reports that exist, CRC-verified.
+    No parsing, no re-encoding — this is the archive file as CEDD publishes it."""
+    manifest = build_manifest()
+    out: dict[str, bytes] = {}
+    for repno in dict.fromkeys(str(r).strip() for r in repnos):
+        if repno and repno in manifest:
+            out[repno] = fetch_report_bytes(repno, manifest)
+    return out
+
+
+def verify_report(repno: str) -> dict:
+    """Prove a byte-range fetched report is intact and unaltered:
+      1. CRC-32 + size of the outer entry match CEDD's central directory
+         (checked inside fetch_report_bytes),
+      2. every file *inside* that report zip passes its own stored CRC.
+    Returns a small report dict; raises on any mismatch."""
+    manifest = build_manifest()
+    if repno not in manifest:
+        raise KeyError(f"report {repno} not in GI_AGS.zip")
+    raw = fetch_report_bytes(repno, manifest)
+    z = zipfile.ZipFile(io.BytesIO(raw))
+    bad = z.testzip()          # returns the first corrupt member name, or None
+    if bad is not None:
+        raise RuntimeError(f"report {repno}: inner member {bad!r} failed its CRC")
+    return {"repno": repno, "bytes": len(raw), "outer_crc_ok": True,
+            "inner_members": z.namelist(), "inner_crc_ok": True}
 
 
 # ── geotechnical classification ────────────────────────────────────────────

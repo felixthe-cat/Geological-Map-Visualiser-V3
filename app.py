@@ -738,6 +738,48 @@ def fetch_stratigraphy_api(repnos_json):
         raise gr.Error(f"Stratigraphy fetch failed: {e}")
 
 
+def fetch_raw_ags_api(repnos_json):
+    """Headless endpoint: return the ORIGINAL, unaltered CEDD AGS report file(s).
+
+    Nothing is parsed, classified or re-encoded here — the bytes are the
+    `GI_AGS/<REPNO>.zip` entries exactly as published on the GEO Open Data
+    portal, each verified against CEDD's own CRC-32 before being served.
+    One report  -> that report's original .zip.
+    Many reports -> a container .zip holding the original .zip files, STORED
+                    (no recompression), so every inner byte is untouched.
+    """
+    import json
+    import tempfile
+    import zipfile
+    from src.ags_open_data import get_raw_reports
+    try:
+        repnos = json.loads(repnos_json) if repnos_json else []
+    except Exception:
+        raise gr.Error("Invalid repnos JSON.")
+    if not isinstance(repnos, list):
+        raise gr.Error("repnos must be a JSON array of report numbers.")
+    repnos = [str(r).strip() for r in repnos if str(r).strip()][:50]
+    try:
+        raw = get_raw_reports(repnos)
+    except Exception as e:
+        raise gr.Error(f"Raw AGS fetch failed: {e}")
+    if not raw:
+        raise gr.Error("None of those report numbers exist in the CEDD AGS archive.")
+
+    tmpdir = tempfile.mkdtemp(prefix="ags_raw_")
+    if len(raw) == 1:
+        repno, data = next(iter(raw.items()))
+        path = os.path.join(tmpdir, f"{repno}.zip")
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+    path = os.path.join(tmpdir, f"CEDD_AGS_original_{len(raw)}_reports.zip")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:
+        for repno, data in raw.items():
+            z.writestr(f"{repno}.zip", data)
+    return path
+
+
 # Build Gradio Block Layout
 with gr.Blocks() as demo:
     
@@ -1027,6 +1069,17 @@ with gr.Blocks() as demo:
                         inputs=strat_api_in,
                         outputs=strat_api_out,
                         api_name="fetch_stratigraphy"
+                    )
+
+                    # Original (unaltered) CEDD AGS file endpoint for the JS site map.
+                    rawags_api_in = gr.Textbox(visible=False)
+                    rawags_api_out = gr.File(visible=False)
+                    btn_rawags_api = gr.Button(visible=False)
+                    btn_rawags_api.click(
+                        fn=fetch_raw_ags_api,
+                        inputs=rawags_api_in,
+                        outputs=rawags_api_out,
+                        api_name="fetch_raw_ags"
                     )
 
                     # Pack inputs for fast visualisation updates
