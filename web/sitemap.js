@@ -50,6 +50,7 @@ const toast = {
 let map = null, drawnLayer = null, resultLayer = null;
 let INDEX = null;              // [{repno,statno,stattype,lat,lon,e,n,gl,depth}]
 let lastResults = [];
+let lastLoaded = [];           // boreholes with logs from the last load (for AGS export)
 let lastBounds = null;         // {latMin,latMax,lngMin,lngMax,eMin,eMax,nMin,nMax} of the drawn rectangle
 let onLoadTo2D = null;
 
@@ -286,9 +287,44 @@ async function loadInto2D(){
       imported: importedIds.has((b.statno||b.repno||'').toString().trim())
     }))
   };
+  lastLoaded = boreholes;
+  const dlBtn = document.getElementById('map-download-ags');
+  if (dlBtn){ dlBtn.disabled = false; dlBtn.title = `Download ${boreholes.length} borehole(s) as AGS4`; }
+
   if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
   setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
                 (skipped ? ` (${skipped} with no geological log skipped)` : '')+'.','ok');
+}
+
+// ---- AGS4 export of the extracted stratigraphy (task 4) --------------------
+// A minimal, valid AGS4 file (LOCA + GEOL groups) built from what we extracted —
+// classified stratum + decomposition grade. Not the byte-original archive file,
+// but the data the tool pulled, usable in other AGS-aware software.
+function agsField(s){ return '"'+String(s==null?'':s).replace(/"/g,'""')+'"'; }
+function buildAGS4(boreholes){
+  const L=[];
+  L.push(['GROUP','LOCA'].map(agsField).join(','));
+  L.push(['HEADING','LOCA_ID','LOCA_NATE','LOCA_NATN','LOCA_GL'].map(agsField).join(','));
+  L.push(['UNIT','','m','m','m'].map(agsField).join(','));
+  L.push(['TYPE','X','2DP','2DP','2DP'].map(agsField).join(','));
+  for (const b of boreholes) L.push(['DATA',b.id,b.x,b.y,b.gl].map(agsField).join(','));
+  L.push('');
+  L.push(['GROUP','GEOL'].map(agsField).join(','));
+  L.push(['HEADING','LOCA_ID','GEOL_TOP','GEOL_BASE','GEOL_LEG','GEOL_GEOL','GEOL_DESC'].map(agsField).join(','));
+  L.push(['UNIT','','m','m','','',''].map(agsField).join(','));
+  L.push(['TYPE','X','2DP','2DP','X','X','X'].map(agsField).join(','));
+  for (const b of boreholes) for (const l of b.layers)
+    L.push(['DATA',b.id,l.top,l.base,l.surface,(l.grade||''),
+            l.surface+(l.grade?` (Grade ${l.grade})`:'')].map(agsField).join(','));
+  return L.join('\r\n')+'\r\n';
+}
+function downloadAgs(){
+  if (!lastLoaded.length){ setLoadStatus('Load boreholes into the 2D Builder first.','err'); return; }
+  const blob=new Blob([buildAGS4(lastLoaded)],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`geovis_extracted_${new Date().toISOString().slice(0,10)}.ags`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 }
 
 // ---- init ------------------------------------------------------------
@@ -340,6 +376,8 @@ export async function initSiteMap(opts={}){
 
   document.getElementById('map-search').addEventListener('click', searchBbox);
   document.getElementById('map-to-2d').addEventListener('click', loadInto2D);
+  const _dl=document.getElementById('map-download-ags');
+  if (_dl) _dl.addEventListener('click', downloadAgs);
   document.getElementById('map-to-3d').addEventListener('click', ()=>{
     setStatus('3D export from the map is not built yet (prototype placeholder).','');
   });

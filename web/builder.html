@@ -80,6 +80,14 @@
     .wrap.map-mode,.wrap.section-wide,.wrap.entry-collapsed{grid-template-columns:1fr}
     /* decomposition-grade cell in the layer table */
     table.layers td.grade{width:74px;font-size:11px;font-weight:600;color:#2f5a1e;text-align:center;white-space:nowrap}
+    /* project drag-and-drop zone */
+    .dropzone{margin-top:6px;border:2px dashed var(--border);border-radius:10px;background:var(--card2);
+      padding:14px;text-align:center;font-size:12px;color:var(--muted);cursor:pointer;transition:.15s}
+    .dropzone.over{border-color:var(--lime);background:#eef3e2;color:var(--forest-d)}
+    /* locked 3D features (normal users) */
+    .locked3d{opacity:.45;cursor:not-allowed;pointer-events:none;filter:grayscale(.6)}
+    .coming-soon{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;font-size:9px;
+      font-weight:700;background:var(--gold);color:#fff;vertical-align:middle}
     /* floating button to re-open a collapsed data-entry panel */
     #panel-expand{position:fixed;left:10px;top:64px;z-index:9998;display:none;width:34px;height:34px;
       padding:0;font-size:16px;border-radius:8px;background:var(--forest);color:#fff;
@@ -119,7 +127,7 @@
     </span>
     <span class="spacer"></span>
     <a href="index.html">← Home</a>
-    <a href="viewer.html">3D Viewer ↗</a>
+    <a href="viewer.html" data-lock3d>3D Viewer ↗</a>
   </header>
 
   <div class="wrap" id="wrap">
@@ -185,6 +193,19 @@
           <button class="ghost mini" id="csv-export">Export table → CSV</button>
         </div>
         <div id="parse-info" class="hint"></div>
+
+        <h3 style="margin-top:14px">Save / resume project</h3>
+        <div class="hint">Export <b>everything</b> — all boreholes &amp; trial pits, grades, the site boundary and section line — to one CSV, then drag it back here in a new session to resume.</div>
+        <div class="row" style="margin:6px 0">
+          <button class="gold mini" id="proj-export">⬇ Download project CSV</button>
+        </div>
+        <div id="proj-drop" class="dropzone">Drag &amp; drop a project CSV here<br><span class="hint" style="margin:0">or click to choose a file</span>
+          <input type="file" id="proj-file" accept=".csv,text/csv" style="display:none">
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button class="mini" id="proj-load" disabled>Load project into 2D Builder →</button>
+        </div>
+        <div id="proj-info" class="hint"></div>
       </details>
     </div>
 
@@ -194,7 +215,7 @@
         <button class="tab active" data-tab="map">1 · Site Map</button>
         <button class="tab" data-tab="log">2 · Borehole Log</button>
         <button class="tab" data-tab="section">3 · Cross-Section</button>
-        <button class="tab" data-tab="hf">4 · 3D via Hugging Face</button>
+        <button class="tab" data-tab="hf" id="tab-hf" data-lock3d>4 · 3D via Hugging Face</button>
       </div>
 
       <!-- LOG -->
@@ -282,6 +303,11 @@
         </div>
         <div id="load-status" class="status" style="display:none"></div>
         <div class="hint">Only boreholes with AGS data (green) are loaded — their <b>logged stratigraphy</b> is fetched on demand from the CEDD AGS open-data archive.</div>
+
+        <div class="row" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+          <button class="ghost" id="map-download-ags" disabled title="Load boreholes first">⬇ Download extracted data (AGS)</button>
+          <span class="hint" style="margin:0">All loaded borehole logs as an AGS4 file for use in other software.</span>
+        </div>
       </div>
 
       <!-- HF -->
@@ -307,6 +333,17 @@
     <span class="spinner"></span><span id="toast-msg"></span>
   </div>
 
+  <script src="admin.js"></script>
+  <script>
+    // Grey out 3D features for normal users (admin unlocks them via the landing page).
+    if (!window.GeoAdmin.isAdmin()) {
+      document.querySelectorAll('[data-lock3d]').forEach(el => {
+        el.classList.add('locked3d');
+        const b = document.createElement('span'); b.className = 'coming-soon'; b.textContent = 'Coming soon';
+        el.appendChild(b);
+      });
+    }
+  </script>
   <script type="module" src="builder.js"></script>
 </body>
 </html>

@@ -132,6 +132,53 @@ function csvToState(text){
   state.boreholes = arr; state.activeIdx = 0;
 }
 
+// ---- project CSV (full round-trip: boreholes + grade + kind + site boundary
+//      + section line) so a session can be saved and resumed later -----------
+function sanitize(s){ return String(s==null?'':s).replace(/[,\r\n]/g,' ').trim(); }
+function stateToProjectCSV(){
+  const meta = { v:1, mode:state.mode,
+    bounds:(state.sitePlan && state.sitePlan.bounds) || null,
+    sectionLine: sectionLine || null };
+  let out = '#GEOVIS '+JSON.stringify(meta)+'\n';
+  out += 'borehole_id,x,y,ground_level,kind,surface,top_depth,base_depth,grade\n';
+  for (const bh of state.boreholes)
+    for (const l of bh.layers)
+      out += [sanitize(bh.id),bh.x,bh.y,bh.gl,bh.kind||'BH',sanitize(l.surface),l.top,l.base,sanitize(l.grade||'')].join(',')+'\n';
+  return out;
+}
+function projectCSVToState(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.length);
+  if (!lines.length) throw new Error('Empty file.');
+  let i=0, meta=null;
+  if (lines[0].startsWith('#GEOVIS')){ try{ meta=JSON.parse(lines[0].slice(lines[0].indexOf('{'))); }catch{} i=1; }
+  const header = lines[i].split(',').map(s=>s.trim().toLowerCase()); i++;
+  const ix = n => header.indexOf(n);
+  if (ix('kind')<0 && ix('grade')<0){ csvToState(text); return; }   // legacy 7-col CSV
+  const map = {};
+  for (; i<lines.length; i++){
+    const p = lines[i].split(','); if (p.length < 8) continue;
+    const id = (p[ix('borehole_id')]||'').trim(); if (!id) continue;
+    if (!map[id]) map[id] = { id, x:+p[ix('x')], y:+p[ix('y')], gl:+p[ix('ground_level')],
+      kind:(ix('kind')>=0?(p[ix('kind')]||'').trim():'')||'BH', layers:[] };
+    map[id].layers.push({ surface:(p[ix('surface')]||'').trim(), top:+p[ix('top_depth')],
+      base:+p[ix('base_depth')], grade:(ix('grade')>=0?(p[ix('grade')]||'').trim():'') });
+  }
+  const arr = Object.values(map);
+  arr.forEach(bh=>bh.layers.sort((a,b)=>a.top-b.top));
+  if (!arr.length) throw new Error('No boreholes parsed.');
+  state.boreholes = arr; state.activeIdx = 0;
+  if (meta){
+    if (meta.mode) state.mode = meta.mode;
+    sectionLine = meta.sectionLine || null;
+    state.sitePlan = meta.bounds ? { bounds:meta.bounds, boreholes: arr.map(b=>({id:b.id,x:b.x,y:b.y,imported:true})) } : null;
+  }
+}
+function downloadText(name, text){
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(text);
+  a.download=name; document.body.appendChild(a); a.click(); a.remove();
+}
+
 // ==== INPUT UI ========================================================
 
 // depth<->elevation display helpers (task 8)
@@ -745,6 +792,38 @@ function importCSV(){
 }
 document.getElementById('csv-import').addEventListener('click', importCSV);
 document.getElementById('csv-export').addEventListener('click', ()=>{ document.getElementById('csv').value=stateToCSV(); document.getElementById('parse-info').textContent='✓ exported to textbox'; });
+
+// ---- project save / resume (tasks 5 & 6) ----------------------------
+document.getElementById('proj-export').addEventListener('click', ()=>{
+  const stamp=new Date().toISOString().slice(0,10);
+  downloadText(`geovis_project_${stamp}.csv`, stateToProjectCSV());
+});
+let _projText='';
+const _projInfo=document.getElementById('proj-info');
+const _projLoad=document.getElementById('proj-load');
+function acceptProjectFile(file){
+  if (!file) return;
+  const r=new FileReader();
+  r.onload=()=>{ _projText=r.result; _projLoad.disabled=false; _projInfo.textContent=`Ready: ${file.name} — press “Load project”.`; };
+  r.onerror=()=>{ _projInfo.textContent='Could not read file.'; };
+  r.readAsText(file);
+}
+const _drop=document.getElementById('proj-drop');
+_drop.addEventListener('click', ()=>document.getElementById('proj-file').click());
+document.getElementById('proj-file').addEventListener('change', e=>acceptProjectFile(e.target.files[0]));
+['dragenter','dragover'].forEach(ev=>_drop.addEventListener(ev, e=>{ e.preventDefault(); _drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev=>_drop.addEventListener(ev, e=>{ e.preventDefault(); _drop.classList.remove('over'); }));
+_drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) acceptProjectFile(f); });
+_projLoad.addEventListener('click', ()=>{
+  try{
+    projectCSVToState(_projText);
+    setMode(state.mode);                 // sync depth/elevation toggle
+    sectionLine = sectionLine;           // preserved from meta
+    refreshInput(); commit();
+    _projInfo.textContent=`✓ Loaded ${state.boreholes.length} borehole(s)`+(state.sitePlan?' + site boundary':'')+'.';
+    document.querySelector('.tab[data-tab="log"]').click();
+  }catch(err){ _projInfo.textContent='✗ '+err.message; }
+});
 
 // ---- external API: load boreholes pushed from the sitemap (task 4, future) ----
 window.GeoBuilder = {

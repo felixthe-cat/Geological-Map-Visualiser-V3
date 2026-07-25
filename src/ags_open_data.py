@@ -194,10 +194,25 @@ _DESC_ROCK = [("granite", "Granite"), ("tuff", "Tuff"), ("rhyolite", "Rhyolite")
 _DESC_ORIGIN = [("marine", "Marine Deposit"), ("alluvi", "Alluvium"), ("colluvi", "Colluvium")]
 _ROCK_LETTER = {"Granite": "G", "Tuff": "T", "Quartzite": "QZ", "Volcanics": "V",
                 "Rhyolite": "R", "Sandstone": "SS", "Siltstone": "SLT", "Mudstone": "MD",
-                "Marble": "MB", "Breccia": "BR", "Rock": "R"}
+                "Marble": "MB", "Breccia": "BR", "Syenite": "SY", "Rock": "R"}
 _DECOMP_LABEL = {"V": "Completely Decomposed", "IV": "Highly Decomposed",
                  "III": "Moderately Decomposed", "II": "Slightly Decomposed"}
 _DECOMP_PREFIX = {"V": "C", "IV": "H", "III": "M", "II": "S"}
+
+# Rock-material strength terms (GEO/BS5930) → decomposition grade, used only
+# when the description names a rock but omits the "… decomposed" phrase.
+# Most-specific first so "extremely weak" beats "weak", etc.
+_DESC_STRENGTH = [
+    ("extremely weak", "V"), ("very weak", "IV"), ("moderately weak", "III"),
+    ("moderately strong", "III"), ("extremely strong", "I"), ("very strong", "I"),
+    ("weak", "IV"), ("strong", "II"),
+]
+# rock words extended for strength/lithology detection (superset of _DESC_ROCK)
+_DESC_ROCK2 = _DESC_ROCK + [("syenite", "Syenite"), ("dolerite", "Dolerite"),
+                            ("basalt", "Basalt"), ("schist", "Schist"), ("gneiss", "Gneiss")]
+# Grading-code roots that denote a granular SOIL fabric (weathered-rock or
+# superficial). A bare one of these with no other signal defaults to CDG (V).
+_SOIL_ROOTS = ("SAND", "SILT", "CLAY", "GRAV", "CBBL", "BLDR")
 
 
 def _grade_tag(roman: str, rock: str) -> str:
@@ -209,7 +224,7 @@ def _grade_tag(roman: str, rock: str) -> str:
 
 
 def _rock_in(desc: str) -> str:
-    for kw, name in _DESC_ROCK:
+    for kw, name in _DESC_ROCK2:
         if kw in desc:
             return name
     return "Rock"
@@ -219,9 +234,14 @@ def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
     """Return (surface_label, grade_label) for one GEOL row.
     surface = clean material name; grade = GeoGuide 3 decomposition-grade tag
     (e.g. "V (CDG)", "IV (HDG)", "VI (RS)", "I (Fresh)") for weathered rock /
-    residual soil, or "" for transported soils (Fill/Alluvium/Marine) & unknown."""
+    residual soil, or "" for transported soils / made ground / special layers.
+
+    Signal order: GEO2 code → description (decomposition word, then rock
+    strength) → origin/made-ground/special markers → GEOL_GEOL='Q' superficial
+    → option-A default (bare granular grading code → CDG Grade V)."""
     d = (desc or "").lower()
     g2 = (geo2 or "").strip().upper()
+    geolc = (geol or "").strip().upper()      # GEOL_GEOL: 'Q'=Quaternary superficial, 'L'=in-situ
 
     # 1. Authoritative GEO2 rock-grade code (CDG/HDG/MDG/SDG/CDT/SDQZ…)
     if len(g2) > 2 and g2[:2] in _GRADE_PREFIX:
@@ -239,10 +259,12 @@ def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
     if g2.startswith("MAD"):
         return "Marine Deposit", ""
 
-    # 3. GEO2 missing/unknown -> read the description (earliest-mentioned grade wins)
+    # 3. Description decomposition word (earliest-mentioned grade wins). Handle a
+    #    common misspelling ("completley") seen in real logs.
+    dd = d.replace("completley", "completely")
     pos, sel = None, None
     for kw, roman in _DESC_DECOMP:
-        p = d.find(kw)
+        p = dd.find(kw)
         if p >= 0 and (pos is None or p < pos):
             pos, sel = p, roman
     if sel == "VI":
@@ -251,30 +273,82 @@ def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
     if sel:
         rock = _rock_in(d)
         return f"{_DECOMP_LABEL[sel]} {rock} (Grade {sel})", _grade_tag(sel, rock)
-    if "fresh" in d and _rock_in(d) != "Rock":
-        rock = _rock_in(d)
-        return f"Fresh {rock} (Grade I)", "I (Fresh)"
-    # transported soils / made ground from the description
+
+    # 4. Special / made-ground / origin markers in the description
+    if any(k in d for k in ("topsoil",)):
+        return "Topsoil", ""
+    if "shell" in d or "marine" in d:
+        return "Marine Deposit", ""
     if "asphalt" in d:
         return "Made Ground (Asphalt)", ""
-    if "concrete" in d:
+    if any(k in d for k in ("concrete", "shotcrete")):
         return "Made Ground (Concrete)", ""
+    if any(k in d for k in ("brick", "rubble", "rubbish", "debris", "boulders (fill", "(fill")):
+        return "Fill", ""
+    if "diamict" in d:                       # poorly-sorted superficial deposit, not weathered rock
+        return "Superficial Deposit", ""
     for kw, origin in _DESC_ORIGIN:
         if kw in d:
             return origin, ""
 
-    # 4. GEOL_LEG/GEOL as a recognised origin, else raw grading code (last resort)
-    lg = (leg or geol or "").strip().upper()
-    if lg in _ORIGIN_EXACT:
-        surf = _ORIGIN_EXACT[lg]
+    # 5. Rock named in the description but no decomposition word → use strength
+    rock = _rock_in(d)
+    if rock != "Rock":
+        for kw, roman in _DESC_STRENGTH:
+            if kw in d:
+                if roman == "I":
+                    return f"Fresh {rock} (Grade I)", "I (Fresh)"
+                return f"{_DECOMP_LABEL[roman]} {rock} (Grade {roman})", _grade_tag(roman, rock)
+        if "fresh" in d:
+            return f"Fresh {rock} (Grade I)", "I (Fresh)"
+
+    # 6. Special GEOL_LEG markers (drilling artefacts, not strata)
+    lg = (leg or "").strip().upper()
+    if lg in ("BLANK", "NR", "NCR"):
+        return "No Recovery", ""
+    if lg in ("WASHING", "WASH") or "wash boring" in d:
+        return "Wash Boring", ""
+    if lg in ("SURFACE",):
+        return "Made Ground (Concrete)", ""
+
+    # 7. Recognised origin on GEOL_LEG / GEOL_GEOL
+    lg2 = lg or geolc
+    if lg2 in _ORIGIN_EXACT:
+        surf = _ORIGIN_EXACT[lg2]
         return surf, ("VI (RS)" if surf == "Residual Soil" else "")
-    return ((leg or "").strip() or (geol or "").strip() or g2 or "Unknown"), ""
+
+    # 8. Quaternary superficial deposit (GEOL_GEOL='Q') with no other signal —
+    #    a transported soil, not weathered rock → no rock grade.
+    if geolc == "Q":
+        return "Superficial Deposit", ""
+
+    # 9. nothing classified here — leave the raw code; the parser then tries the
+    #    WETH grade for this depth, and only then the option-A guess (below).
+    return ((leg or "").strip() or geolc or g2 or "Unclassified"), ""
 
 
-# Transported soils / made ground allowed to carry no decomposition grade.
+def guess_bare_grade(leg, desc) -> tuple[str, str] | None:
+    """Last-resort grade for a layer with a bare grading code and NO other
+    signal (no GEO2, no description grade/strength, no WETH). Option A: in HK
+    weathered-granite terrain a bare granular grading code is overwhelmingly
+    completely decomposed granite → CDG (Grade V). A bare rock name → Fresh."""
+    lg = (leg or "").strip().upper()
+    if lg and lg[:4] in _SOIL_ROOTS:
+        return "Completely Decomposed Granite (Grade V)", "V (CDG)"
+    rock = _rock_in((desc or "").lower())
+    if rock == "Rock" and lg[:4] in ("GRAN", "TUFF", "RHYO", "VOLC", "SYEN"):
+        rock = {"GRAN": "Granite", "TUFF": "Tuff", "RHYO": "Rhyolite",
+                "VOLC": "Volcanics", "SYEN": "Syenite"}[lg[:4]]
+    if rock != "Rock":
+        return f"Fresh {rock} (Grade I)", "I (Fresh)"
+    return None
+
+
+# Materials allowed to carry no decomposition grade (everything else must be graded).
 _ALLOWED_NONGRADE = {"fill", "concrete", "asphalt", "marine deposit", "colluvium",
                      "alluvium", "made ground (concrete)", "made ground (asphalt)",
-                     "residual soil"}
+                     "made ground", "residual soil", "topsoil", "no recovery",
+                     "wash boring", "superficial deposit"}
 _ARABIC_ROMAN = {"1": "I", "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI"}
 
 
@@ -447,9 +521,13 @@ def parse_ags_any(text: str):
         surface, grade = classify_layer(rec.get("GEOL_GEO2"), rec.get("GEOL_LEG"),
                                         rec.get("GEOL_GEOL"), rec.get("GEOL_DESC"))
         if not grade and surface.strip().lower() not in _ALLOWED_NONGRADE:
-            r = _weth_grade_at(weth_by_id.get(pid, []), top, base)
+            r = _weth_grade_at(weth_by_id.get(pid, []), top, base)   # authoritative first
             if r:
                 surface, grade = _grade_from_roman(r, rec.get("GEOL_LEG") or rec.get("GEOL_DESC"))
+            else:                                                    # then the option-A guess
+                g = guess_bare_grade(rec.get("GEOL_LEG"), rec.get("GEOL_DESC"))
+                if g:
+                    surface, grade = g
         geol.append((pid, top, base, surface, grade))
     return loca, geol
 
@@ -555,7 +633,20 @@ def demo():
     _, gwe = parse_ags_any(ags_weth)
     assert len(gwe) == 1 and gwe[0][4] == "V (CDR)", gwe   # WETH grade V, no lithology word -> Grade V Rock
     assert gwe[0][3] == "Completely Decomposed Rock (Grade V)", gwe
-    assert classify_layer("", "SANDZG", "", "") == ("SANDZG", ""), "no grade signal -> raw code, no grade"
+
+    # rock strength term (no "decomposed" word) -> grade
+    assert classify_layer("", "SANDZ", "", "Extremely weak, spotted white, medium grained GRANITE") == (
+        "Completely Decomposed Granite (Grade V)", "V (CDG)")
+    assert classify_layer("", "GRANITE", "", "Strong, pinkish grey GRANITE. Joints tight") == (
+        "Slightly Decomposed Granite (Grade II)", "II (SDG)")
+    # special / superficial markers
+    assert classify_layer("", "BLANK", "", "") == ("No Recovery", "")
+    assert classify_layer("", "WASHING", "", "Wash boring.") == ("Wash Boring", "")
+    assert classify_layer("", "SILTS", "Q", "Firm, dark grey, sandy SILT. (TOPSOIL)") == ("Topsoil", "")
+    assert classify_layer("", "SILTSG", "Q", "Very sandy SILT with gravel") == ("Superficial Deposit", "")
+    # option-A guess: bare granular grading code, no other signal -> CDG (V)
+    assert guess_bare_grade("SANDZG", "") == ("Completely Decomposed Granite (Grade V)", "V (CDG)")
+    assert guess_bare_grade("GRANITE", "") == ("Fresh Granite (Grade I)", "I (Fresh)")
     assert l4["BH1"] == (800000.0, 820000.0, 15.0), l4
     assert len(g4) == 2 and g4[0][3] == "Fill", g4          # LEG=FILL -> recognised origin "Fill"
     assert l3["BH2"] == (801000.0, 821000.0, 20.0), l3

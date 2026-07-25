@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GeoVisualise 3D — Interactive Geological Mapping</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .locked3d{position:relative;opacity:.5;cursor:not-allowed;filter:grayscale(.6)}
+    .coming-soon{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:10px;
+      font-size:10px;font-weight:700;letter-spacing:.03em;background:#b8860b;color:#fff;vertical-align:middle}
+    #admin-btn{position:fixed;right:14px;bottom:14px;z-index:9999;border:none;cursor:pointer;
+      padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;font-family:inherit;
+      background:rgba(20,40,8,.85);color:#d8e6c4;box-shadow:0 3px 12px rgba(0,0,0,.3)}
+    #admin-btn:hover{background:rgba(20,40,8,1)}
+  </style>
 </head>
 <body>
 
@@ -49,7 +58,7 @@
           </svg>
         </a>
         <a href="builder.html" class="nav-link">2D Builder</a>
-        <a href="viewer.html" class="nav-link">3D Viewer</a>
+        <a href="viewer.html" class="nav-link" data-lock3d>3D Viewer</a>
         <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
       </div>
     </nav>
@@ -71,7 +80,7 @@
           </svg>
           2D Log &amp; Cross-Section Builder
         </a>
-        <a href="viewer.html" class="hero-cta hero-cta-primary">
+        <a href="viewer.html" class="hero-cta hero-cta-primary" data-lock3d>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
@@ -103,7 +112,7 @@
           <p>Enter boreholes layer-by-layer with a live log preview, then generate interpolated cross-sections. Runs instantly in your browser.</p>
           <span class="about-card-cta">Open 2D Builder →</span>
         </a>
-        <a href="viewer.html" class="about-card">
+        <a href="viewer.html" class="about-card" data-lock3d>
           <h3>3D Geological Map Visualiser</h3>
           <p>Implicit 3D modelling with GemPy — rotate, slice and export interactive geological surfaces and volumetric strata. Powered by Hugging Face Spaces.</p>
           <span class="about-card-cta">Open 3D Viewer →</span>
@@ -131,6 +140,33 @@
     </div>
   </footer>
 
+  <button id="admin-btn">Admin</button>
+
+  <script src="admin.js"></script>
+  <script>
+    (function () {
+      const admin = window.GeoAdmin;
+      // grey out & disable 3D features for normal users
+      if (!admin.isAdmin()) {
+        document.querySelectorAll('[data-lock3d]').forEach(el => {
+          el.classList.add('locked3d');
+          el.setAttribute('aria-disabled', 'true');
+          el.addEventListener('click', e => e.preventDefault());
+          const b = document.createElement('span'); b.className = 'coming-soon'; b.textContent = 'Coming soon';
+          el.appendChild(b);
+        });
+      }
+      const btn = document.getElementById('admin-btn');
+      btn.textContent = admin.isAdmin() ? 'Admin ✓' : 'Admin';
+      btn.addEventListener('click', async () => {
+        if (admin.isAdmin()) { if (confirm('Log out of admin (testing) mode?')) { admin.logout(); location.reload(); } return; }
+        const pw = prompt('Admin password (for testing unreleased features):');
+        if (pw == null) return;
+        if (await admin.tryLogin(pw)) location.reload();
+        else alert('Incorrect password.');
+      });
+    })();
+  </script>
   <script src="app.js"></script>
 </body>
 </html>
