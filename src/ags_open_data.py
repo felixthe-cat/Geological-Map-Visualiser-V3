@@ -247,9 +247,14 @@ def parse_ags_any(text: str):
             head = None
             continue
         if c0.startswith("*"):
-            head = [h.lstrip("*").strip() for h in row]
+            # AGS3 headings wrap across several lines when they exceed the format's
+            # line-length limit — every wrapped line also starts with "*". Accumulate
+            # them instead of overwriting, or the key columns (HOLE_ID, GEOL_TOP…)
+            # on the first line get lost and the whole group fails to parse.
+            cols = [h.lstrip("*?").strip() for h in row]
+            head = cols if head is None else head + cols
             continue
-        if c0.startswith("<"):          # <UNITS>, <CONT> …
+        if c0.startswith("<"):          # <UNITS>, <CONT>, <NOTE> … (data/unit continuation, not heading)
             continue
         # AGS3 data row (values only)
         if head:
@@ -325,12 +330,34 @@ def demo():
         '"BH2","0.0","3.0","FILL"\n'
         '"BH2","3.0","9.0","HDG"\n'
     )
+    # AGS3 with a HEADING that wraps across two lines (both start with "*").
+    # The key columns (HOLE_ID, HOLE_GL) sit on the first line; without
+    # accumulating the wrapped line the whole group silently fails to parse.
+    ags3_wrapped = (
+        '"**HOLE"\n'
+        '"*HOLE_ID","*HOLE_TYPE","*HOLE_NATE","*HOLE_NATN"\n'
+        '"*HOLE_GL","*HOLE_FDEP","*?HOLE_REM"\n'          # wrapped heading continuation
+        '"<UNITS>","","m","m","m","m",""\n'
+        '"B 1","RC","833678","822552","51.87","25.35","note"\n'
+        '"**GEOL"\n'
+        '"*HOLE_ID","*GEOL_TOP","*GEOL_BASE","*GEOL_LEG"\n'
+        '"*GEOL_GEO2"\n'                                   # wrapped heading continuation
+        '"<UNITS>","m","m","",""\n'
+        '"B 1","0.0","4.0","FILL","FILL"\n'
+        '"B 1","4.0","10.0","SANDZG","CDG"\n'
+    )
+
     l4, g4 = parse_ags_any(ags4)
     l3, g3 = parse_ags_any(ags3)
+    lw, gw = parse_ags_any(ags3_wrapped)
     assert l4["BH1"] == (800000.0, 820000.0, 15.0), l4
     assert len(g4) == 2 and g4[0][3] == "FILL", g4
     assert l3["BH2"] == (801000.0, 821000.0, 20.0), l3
     assert len(g3) == 2 and g3[1][3] == "HDG", g3
+    # wrapped-heading AGS3: id + GL recovered, and GEO2 preferred over LEG
+    assert lw["B 1"] == (833678.0, 822552.0, 51.87), lw
+    assert len(gw) == 2 and gw[0][0] == "B 1", gw
+    assert gw[1][3] == "Completely Decomposed Granite (Grade V)", gw   # GEOL_GEO2=CDG wins over LEG=SANDZG
 
     # classification: verified against real CEDD AGS files (report 71936 BH3, report 73528)
     assert classify_geo2("FILL") == "Fill"
