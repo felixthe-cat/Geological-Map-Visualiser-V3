@@ -85,6 +85,15 @@ function setStatus(msg, cls){
   el.style.display='block'; el.className='status '+(cls||''); el.textContent=msg;
 }
 
+// Load Leaflet (+ draw + proj4) once and register the HK1980 projection.
+// Shared with builder.js so the cross-section satellite map reuses the same libs.
+export async function ensureMapLibs(){
+  await Promise.all([loadCss(CDN.leafletCss), loadCss(CDN.drawCss)]);
+  await loadJs(CDN.leafletJs);
+  await Promise.all([loadJs(CDN.drawJs), loadJs(CDN.proj4)]);
+  proj4.defs('HK1980', HK1980);
+}
+
 // ---- borehole index --------------------------------------------------
 async function ensureIndex(){
   if (INDEX) return INDEX;
@@ -258,10 +267,7 @@ export async function initSiteMap(opts={}){
   if (map) { setTimeout(()=>map.invalidateSize(), 50); return; }  // already built
 
   setStatus('Loading map…','busy');
-  await Promise.all([loadCss(CDN.leafletCss), loadCss(CDN.drawCss)]);
-  await loadJs(CDN.leafletJs);
-  await Promise.all([loadJs(CDN.drawJs), loadJs(CDN.proj4)]);
-  proj4.defs('HK1980', HK1980);
+  await ensureMapLibs();
 
   map = L.map('map-canvas', { center:[22.3193,114.1694], zoom:11 });
 

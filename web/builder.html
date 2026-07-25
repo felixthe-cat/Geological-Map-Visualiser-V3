@@ -89,6 +89,10 @@
     #toast .spinner{width:15px;height:15px;border:2.5px solid rgba(240,233,220,.35);
       border-top-color:#9ac845;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 auto}
     @keyframes spin{to{transform:rotate(360deg)}}
+    /* draggable cross-section endpoint handle (Leaflet divIcon) */
+    .sec-handle{background:#d33;border:2px solid #fff;border-radius:50%;
+      box-shadow:0 1px 4px rgba(0,0,0,.45);cursor:move}
+    #siteplan-viz .leaflet-container{height:320px;border-radius:10px}
   </style>
 </head>
 <body>
@@ -188,26 +192,17 @@
 
       <!-- SECTION -->
       <div class="tabpane" data-pane="section">
-        <div class="row" style="justify-content:space-between;align-items:center">
-          <h3 style="margin:0">Site Plan</h3>
-          <button class="ghost mini" id="siteplan-png">Export PNG</button>
-        </div>
-        <div class="hint">Site boundary drawn on the Site Map, with imported borehole positions — the darker line traces the current cross-section order.</div>
-        <div class="viz" id="siteplan-viz" style="max-height:280px"></div>
+        <h3 style="margin:0 0 4px">Site Plan (satellite)</h3>
+        <div class="hint">Drag either end of the <b style="color:#d33">red section line</b> on the satellite map to move, rotate or resize the cross-section. Boreholes near the line turn <b style="color:#2f5a1e">green</b> (included); the section below updates live.</div>
+        <div class="viz" id="siteplan-viz" style="padding:0;min-height:320px"></div>
 
-        <div class="row" style="align-items:flex-start;margin-top:14px">
-          <div>
-            <label style="margin:0">Boreholes (order = section line)</label>
-            <select id="sec-bh" multiple style="min-width:150px"></select>
+        <div class="row" style="align-items:center;margin-top:14px">
+          <div class="field" style="flex:1">
+            <label>Vertical exaggeration</label>
+            <input type="range" id="sec-vex" min="1" max="10" step="0.5" value="2">
+            <span id="sec-vex-val">2×</span>
           </div>
-          <div style="flex:1">
-            <div class="field">
-              <label>Vertical exaggeration</label>
-              <input type="range" id="sec-vex" min="1" max="10" step="0.5" value="2">
-              <span id="sec-vex-val">2×</span>
-            </div>
-            <button class="ghost" id="sec-png">Export PNG</button>
-          </div>
+          <button class="ghost" id="sec-png">Export PNG</button>
         </div>
         <div class="hint">Coloured bands linearly interpolate each stratum's top &amp; base between adjacent boreholes. Missing layers pinch out.</div>
         <div class="viz" id="sec-viz"></div>
