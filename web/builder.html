@@ -76,10 +76,20 @@
     .toggle button.on{background:var(--forest);color:#fff}
     details{margin-top:12px;border:1px solid var(--border);border-radius:8px;background:var(--card2);padding:6px 10px}
     summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--forest-d)}
-    /* single-column when the entry panel is hidden (Site Map tab / collapsed section) */
-    .wrap.map-mode,.wrap.section-wide{grid-template-columns:1fr}
+    /* single-column when the entry panel is hidden (Site Map tab / collapsed) */
+    .wrap.map-mode,.wrap.section-wide,.wrap.entry-collapsed{grid-template-columns:1fr}
     /* decomposition-grade cell in the layer table */
     table.layers td.grade{width:74px;font-size:11px;font-weight:600;color:#2f5a1e;text-align:center;white-space:nowrap}
+    /* floating button to re-open a collapsed data-entry panel */
+    #panel-expand{position:fixed;left:10px;top:64px;z-index:9998;display:none;width:34px;height:34px;
+      padding:0;font-size:16px;border-radius:8px;background:var(--forest);color:#fff;
+      box-shadow:0 3px 12px rgba(0,0,0,.28)}
+    #panel-expand.show{display:block}
+    /* cross-section options panel */
+    #sec-options{margin-top:12px}
+    #sec-options summary{padding:6px 4px}
+    #sec-viz svg .dimmed{opacity:.15;transition:opacity .1s}
+    #sec-viz svg .hl{opacity:1}
     /* AGS-availability colours in the results table */
     table.mini tr.has-ags td{color:#2f5a1e}
     table.mini tr.no-ags td{color:#9a9284}
@@ -115,7 +125,10 @@
   <div class="wrap" id="wrap">
     <!-- ── INPUT PANEL ── -->
     <div class="panel" id="entry-panel">
-      <h2>Borehole Data Entry</h2>
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">Borehole Data Entry</h2>
+        <button class="ghost mini" id="panel-collapse" title="Collapse this panel for a wider view">⟨ Collapse</button>
+      </div>
       <div class="hint">Add boreholes and their layers below — the log preview updates as you type.</div>
 
       <!-- borehole selector -->
@@ -188,6 +201,7 @@
       <div class="tabpane" data-pane="log">
         <div class="row">
           <label style="margin:0"><input type="checkbox" id="log-elev" style="width:auto" checked> show elevation (mPD)</label>
+          <button class="ghost" id="log-labels" title="Switch between inline labels and a legend">Labels: inline</button>
           <button class="ghost" id="log-png">Export PNG</button>
         </div>
         <div class="viz" id="log-viz"></div>
@@ -195,29 +209,42 @@
 
       <!-- SECTION -->
       <div class="tabpane" data-pane="section">
-        <div class="row" style="justify-content:space-between;align-items:center">
-          <h3 style="margin:0 0 4px">Site Plan (satellite)</h3>
-          <button class="ghost mini" id="sec-collapse" title="Collapse the data-entry panel for a full-width section">⟨ Collapse panel</button>
-        </div>
-        <div class="hint">Drag either end of the <b style="color:#d33">red section line</b> on the satellite map to move, rotate or resize the cross-section. Boreholes near the line turn <b style="color:#2f5a1e">green</b> (included); the section below updates live.</div>
+        <h3 style="margin:0 0 4px">Site Plan (satellite)</h3>
+        <div class="hint">Drag either end of the <b style="color:#d33">red section line</b> on the satellite map to move, rotate or resize the cross-section. Ends are marked <b>A</b> and <b>B</b>. Boreholes near the line turn <b style="color:#2f5a1e">green</b> (included); the section below updates live.</div>
         <div class="viz" id="siteplan-viz" style="padding:0;min-height:320px"></div>
 
-        <div class="row" style="align-items:flex-start;margin-top:14px;gap:18px">
-          <div style="flex:1">
-            <div class="field">
-              <label>Vertical exaggeration</label>
-              <input type="range" id="sec-vex" min="1" max="10" step="0.5" value="2">
-              <span id="sec-vex-val">2×</span>
+        <!-- collapsible options panel for the cross-section -->
+        <details id="sec-options" open style="margin-top:12px">
+          <summary>Cross-section options</summary>
+          <div style="padding:8px 4px 2px">
+            <div class="grid2" style="gap:8px 18px">
+              <div>
+                <label>Diagram title</label>
+                <input type="text" id="sec-title" placeholder="Cross-section A–B" style="width:100%">
+              </div>
+              <div></div>
+              <div class="field" style="margin:0">
+                <label style="min-width:150px">Vertical exaggeration</label>
+                <input type="range" id="sec-vex" min="1" max="10" step="0.5" value="2">
+                <span id="sec-vex-val">2×</span>
+              </div>
+              <div class="field" style="margin:0">
+                <label style="min-width:150px">Distance tolerance</label>
+                <input type="range" id="sec-tol" min="10" max="500" step="5" value="100">
+                <span id="sec-tol-val">100 m</span>
+              </div>
             </div>
-            <div class="field">
-              <label>Distance tolerance</label>
-              <input type="range" id="sec-tol" min="10" max="500" step="5" value="100">
-              <span id="sec-tol-val">100 m</span>
+            <div class="row" style="margin-top:10px;gap:16px">
+              <label style="margin:0"><input type="checkbox" id="sec-show-logs" style="width:auto" checked> Show borehole logs</label>
+              <label style="margin:0"><input type="checkbox" id="sec-show-names" style="width:auto" checked> Show borehole names</label>
+              <label style="margin:0"><input type="checkbox" id="sec-tp-only" style="width:auto"> Trial pits only (exclude boreholes)</label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="ghost" id="sec-png">Export PNG</button>
             </div>
           </div>
-          <button class="ghost" id="sec-png">Export PNG</button>
-        </div>
-        <div class="hint">Bands are grouped &amp; coloured by <b>decomposition grade</b> (GeoGuide 3). Tolerance sets how far a borehole can sit from the section line and still be included.</div>
+        </details>
+        <div class="hint">Bands are grouped &amp; coloured by <b>decomposition grade</b> (GeoGuide 3). Hover a band or legend entry to highlight it.</div>
         <div class="viz" id="sec-viz"></div>
       </div>
 
@@ -271,6 +298,9 @@
       </div>
     </div>
   </div>
+
+  <!-- floating button to re-open the data-entry panel when collapsed -->
+  <button id="panel-expand" title="Show data-entry panel">⟩</button>
 
   <!-- global loading toast (bottom-right) -->
   <div id="toast">

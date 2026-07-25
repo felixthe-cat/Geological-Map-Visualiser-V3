@@ -252,18 +252,44 @@ function niceStep(range){
   const n = raw/p; return (n<1.5?1:n<3?2:n<7?5:10)*p;
 }
 
+let logLabelsMode = 'inline';   // 'inline' (de-cluttered leader labels) | 'legend'
 function renderLog(id){
   const box = document.getElementById('log-viz');
   box.innerHTML='';
   const bh = BH[id];
   if (!bh || !bh.layers.length){ box.innerHTML='<p class="hint" style="padding:10px">Add layers to see the log.</p>'; return; }
   const showElev = document.getElementById('log-elev').checked;
+  const legendMode = logLabelsMode === 'legend';
   const maxDepth = Math.max(...bh.layers.map(l=>l.base));
   if (!(maxDepth>0)){ box.innerHTML='<p class="hint" style="padding:10px">Layer depths must be positive.</p>'; return; }
 
   const mL=58, mR=showElev?70:20, mT=76, mB=24, colW=90;
   const pxPerM = Math.max(6, Math.min(20, 320/maxDepth)), plotH = maxDepth*pxPerM;
-  const W = mL+colW+mR+150, H = mT+plotH+mB;
+  const yOf = d => mT + d*pxPerM;
+  const lx = mL+colW+(showElev?46:8);
+
+  // Pre-compute de-cluttered label slots (inline mode): each label keeps its
+  // height and is pushed down so it never overlaps the one above — a leader
+  // line links it back to its (possibly thin) layer. This is why thin layers
+  // no longer collide.
+  let items=[], labelsBottom=mT;
+  if (!legendMode){
+    items = bh.layers.map(l=>{ const y0=yOf(l.top), y1=yOf(l.base); return {l,y0,y1,mid:(y0+y1)/2,h:l.grade?36:26}; });
+    let last=mT-100;
+    for (const it of items){ it.ty=Math.max(it.mid-it.h/2, last+3); last=it.ty+it.h; }
+    labelsBottom=last;
+  }
+
+  // uniques for legend mode
+  let uniq=[];
+  if (legendMode){
+    const seen=new Set();
+    for (const l of bh.layers){ const k=(l.surface||'')+'|'+(l.grade||''); if(!seen.has(k)){ seen.add(k); uniq.push(l); } }
+  }
+
+  const rightW = legendMode ? 220 : 170;
+  const W = mL+colW+mR+rightW;
+  const H = Math.max(mT+plotH+mB, (legendMode ? mT+uniq.length*18+mB : labelsBottom+mB));
   const svg = el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
   svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#fffdf8'}));
   svg.appendChild(el('text',{x:mL,y:24,'font-size':16,'font-weight':700,fill:'#1e3c12'},`Borehole ${id}`));
@@ -271,7 +297,6 @@ function renderLog(id){
     `GL ${(+bh.gl).toFixed(2)} mPD   ·   E ${bh.x}  N ${bh.y}   ·   depth ${maxDepth} m`));
   svg.appendChild(el('line',{x1:mL,y1:mT-8,x2:W-8,y2:mT-8,stroke:'#c8bda8'}));
 
-  const yOf = d => mT + d*pxPerM;
   const step = niceStep(maxDepth);
   for (let d=0; d<=maxDepth+0.001; d+=step){
     const y=yOf(d);
@@ -285,12 +310,26 @@ function renderLog(id){
   for (const l of bh.layers){
     const y0=yOf(l.top), y1=yOf(l.base), c=colourFor(l.surface);
     svg.appendChild(el('rect',{x:mL,y:y0,width:colW,height:Math.max(0,y1-y0),fill:c,stroke:'#3d3529','stroke-width':.7}));
-    const midY=(y0+y1)/2, lx=mL+colW+(showElev?46:8);
-    svg.appendChild(el('line',{x1:mL+colW,y1:midY,x2:lx,y2:midY,stroke:'#b0a68f','stroke-width':.6}));
-    svg.appendChild(el('rect',{x:lx,y:midY-5,width:10,height:10,fill:c,stroke:'#3d3529','stroke-width':.6}));
-    svg.appendChild(el('text',{x:lx+15,y:midY-3,'font-size':11,'font-weight':600,fill:'#1a1a0f'},l.surface||'(unnamed)'));
-    svg.appendChild(el('text',{x:lx+15,y:midY+8,'font-size':9.5,fill:'#6b6250'},`${l.top}–${l.base} m`));
-    if (l.grade) svg.appendChild(el('text',{x:lx+15,y:midY+19,'font-size':9.5,'font-weight':600,fill:'#2f5a1e'},`Grade ${l.grade}`));
+  }
+
+  if (legendMode){
+    // consolidated legend beside the log (top) instead of crowded inline labels
+    const gx=mL+colW+20; let gy=mT+4;
+    svg.appendChild(el('text',{x:gx,y:gy,'font-size':11,'font-weight':700,fill:'#1e3c12'},'Legend')); gy+=16;
+    for (const l of uniq){
+      svg.appendChild(el('rect',{x:gx,y:gy-9,width:11,height:11,fill:colourFor(l.surface),stroke:'#3d3529','stroke-width':.6}));
+      const txt=(l.surface||'(unnamed)')+(l.grade?`  ·  Grade ${l.grade}`:'');
+      svg.appendChild(el('text',{x:gx+16,y:gy,'font-size':10,fill:'#1a1a0f'},txt)); gy+=18;
+    }
+  } else {
+    for (const it of items){
+      const l=it.l, c=colourFor(l.surface), ly=it.ty, cy=ly+it.h/2;
+      svg.appendChild(el('polyline',{points:`${mL+colW},${it.mid} ${lx-4},${it.mid} ${lx-4},${cy} ${lx},${cy}`,fill:'none',stroke:'#b0a68f','stroke-width':.6}));
+      svg.appendChild(el('rect',{x:lx,y:cy-5,width:10,height:10,fill:c,stroke:'#3d3529','stroke-width':.6}));
+      svg.appendChild(el('text',{x:lx+15,y:ly+9,'font-size':11,'font-weight':600,fill:'#1a1a0f'},l.surface||'(unnamed)'));
+      svg.appendChild(el('text',{x:lx+15,y:ly+20,'font-size':9.5,fill:'#6b6250'},`${l.top}–${l.base} m`));
+      if (l.grade) svg.appendChild(el('text',{x:lx+15,y:ly+31,'font-size':9.5,'font-weight':600,fill:'#2f5a1e'},`Grade ${l.grade}`));
+    }
   }
   svg.appendChild(el('rect',{x:mL,y:mT,width:colW,height:plotH,fill:'none',stroke:'#3d3529'}));
   box.appendChild(svg);
@@ -398,18 +437,20 @@ function onHandleDrag(){
 function updateSection(){
   if (!secMap || !sectionLine) return;
   const A=toEN(...sectionLine.a), B=toEN(...sectionLine.b);
-  const holes=sectionHoles();
-  const tolEl=document.getElementById('sec-tol');
-  const corridor = tolEl ? +tolEl.value : undefined;   // task 5: user-set distance tolerance (m)
-  const { stations, inSet } = sectionStations(A, B, holes, corridor);
+  const lineLen=Math.hypot(B.e-A.e, B.n-A.n);
+  const allHoles=sectionHoles();
+  const tpOnly = document.getElementById('sec-tp-only')?.checked;
+  const secHoles = tpOnly ? allHoles.filter(b=>(b.kind||'BH')==='TP') : allHoles;
+  const corridor = +document.getElementById('sec-tol').value;   // task 5: distance tolerance (m)
+  const { stations, inSet } = sectionStations(A, B, secHoles, corridor);
   secBhLayer.clearLayers();
-  for (const bh of holes){
+  for (const bh of allHoles){
     const inSec=inSet.has(bh.id);
     L.circleMarker(toLL(bh.x,bh.y),{radius:inSec?6:4,color:'#1a1a0f',weight:1,
       fillColor:inSec?'#2f5a1e':'#a8a196',fillOpacity:.9})
       .bindTooltip(bh.id).addTo(secBhLayer);
   }
-  renderSection(stations, +document.getElementById('sec-vex').value);
+  renderSection(stations, +document.getElementById('sec-vex').value, lineLen);
 }
 
 // Build monotonic horizon boundaries for one borehole, in the GLOBAL
@@ -434,28 +475,38 @@ function buildHorizons(id){
   return horizons;
 }
 
-// stations = [{id, dist}] already ordered by distance along the section line.
-function renderSection(stations, vex){
+// stations = [{id, dist}] ordered by distance along the section line (dist
+// measured from end A). lineLen = full A→B length in metres (0 = degenerate).
+function renderSection(stations, vex, lineLen){
   const box = document.getElementById('sec-viz');
   box.innerHTML='';
   stations = (stations||[]).filter(s=>BH[s.id] && BH[s.id].layers.length);
-  if (stations.length < 2){ box.innerHTML='<p class="hint" style="padding:10px">Drag the section line over at least 2 boreholes.</p>'; return; }
+  if (stations.length < 2){ box.innerHTML='<p class="hint" style="padding:10px">Drag the section line over at least 2 boreholes (widen the distance tolerance if needed).</p>'; return; }
 
   const ids = stations.map(s=>s.id);
-  const d0 = stations[0].dist;
-  const dist = stations.map(s=>s.dist - d0);   // normalise so the first station sits at 0
-  let total = dist[dist.length-1];
-  if (total===0){ dist.forEach((_,i)=>dist[i]=i); total=ids.length-1; }
+  let total, dist;
+  if (lineLen>=1){ total=lineLen; dist=stations.map(s=>s.dist); }   // A at 0, B at lineLen
+  else { const d0=stations[0].dist; dist=stations.map(s=>s.dist-d0); total=dist[dist.length-1]||(ids.length-1); if(total===0){ dist=dist.map((_,i)=>i); total=ids.length-1; } }
+
+  const showLogs  = document.getElementById('sec-show-logs')?.checked ?? true;
+  const showNames = document.getElementById('sec-show-names')?.checked ?? true;
+  const titleTxt  = (document.getElementById('sec-title')?.value || '').trim() || 'Cross-section A–B';
 
   let eMin=Infinity, eMax=-Infinity;
   for (const id of ids){ const bh=BH[id]; eMax=Math.max(eMax,bh.gl); for (const l of bh.layers) eMin=Math.min(eMin,bh.gl-l.base); }
   const eRange=(eMax-eMin)||1;
 
-  // Fill the available container width (grows when the entry panel is collapsed),
+  // classes actually present in the CURRENTLY-included boreholes — the legend
+  // reflects only these, so it updates live as the section line is dragged and
+  // boreholes (and their soil/rock types) enter or leave the section. (task 12)
+  const present = new Set();
+  for (const id of ids) for (const l of BH[id].layers) present.add(classKey(l));
+  const activeStrat = STRAT.filter(s=>present.has(s));
+
+  // Fill the available container width (grows when the panel is collapsed),
   // reserving a right-hand legend gutter and sensible margins.
-  const box0=document.getElementById('sec-viz');
-  const legendW=205, mL=56, mR=20+legendW, mT=56, mB=40;
-  const avail=(box0 && box0.clientWidth ? box0.clientWidth : 900) - 24; // minus viz padding
+  const legendW=205, mL=56, mR=20+legendW, mT=56, mB=showNames?66:44;
+  const avail=(box.clientWidth ? box.clientWidth : 900) - 24;
   const plotW=Math.max(480, avail - mL - mR);
   const xPxPerM=plotW/total, yPxPerM=xPxPerM*vex, plotH=eRange*yPxPerM;
   const W=mL+plotW+mR, H=mT+plotH+mB;
@@ -463,28 +514,40 @@ function renderSection(stations, vex){
   svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#fffdf8'}));
   const X=d=>mL+d*xPxPerM, Y=e=>mT+(eMax-e)*yPxPerM, elevAt=(id,d)=>BH[id].gl-d;
 
-  svg.appendChild(el('text',{x:mL,y:24,'font-size':15,'font-weight':700,fill:'#1e3c12'},`Cross-section: ${ids.join(' – ')}`));
-  svg.appendChild(el('text',{x:mL,y:40,'font-size':11,fill:'#6b6250'},`Vertical exaggeration ${vex}×`));
+  svg.appendChild(el('text',{x:mL,y:24,'font-size':15,'font-weight':700,fill:'#1e3c12'},titleTxt));
+  svg.appendChild(el('text',{x:mL,y:40,'font-size':11,fill:'#6b6250'},`Vertical exaggeration ${vex}×  ·  length ${total.toFixed(0)} m`));
 
+  // Y grid (elevation)
   const estep=niceStep(eRange), e0=Math.ceil(eMin/estep)*estep;
   for (let e=e0; e<=eMax+0.001; e+=estep){
     const y=Y(e);
-    svg.appendChild(el('line',{x1:mL-4,y1:y,x2:W-mR,y2:y,stroke:'#eae1cf'}));
+    svg.appendChild(el('line',{x1:mL,y1:y,x2:mL+plotW,y2:y,stroke:'#eae1cf'}));
     svg.appendChild(el('line',{x1:mL-4,y1:y,x2:mL,y2:y,stroke:'#6b6250'}));
     svg.appendChild(el('text',{x:mL-7,y:y+3,'font-size':10,'text-anchor':'end',fill:'#6b6250'},e.toFixed(0)));
   }
   svg.appendChild(el('text',{x:mL-46,y:mT-10,'font-size':10,'font-weight':600,fill:'#6b6250'},'mPD'));
 
+  // X grid (distance along the line) — task 8
+  const xstep=niceStep(total), yAxis=mT+plotH;
+  for (let d=0; d<=total+0.001; d+=xstep){
+    const x=X(d);
+    svg.appendChild(el('line',{x1:x,y1:mT,x2:x,y2:yAxis,stroke:'#f0e8d6'}));
+    svg.appendChild(el('line',{x1:x,y1:yAxis,x2:x,y2:yAxis+4,stroke:'#6b6250'}));
+    svg.appendChild(el('text',{x:x,y:yAxis+15,'font-size':9.5,'text-anchor':'middle',fill:'#6b6250'},d.toFixed(0)));
+  }
+  svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'));
+
+  // coloured grade bands (interpolated between adjacent boreholes)
   const horizonsByHole = {}; ids.forEach(id=>{ horizonsByHole[id]=buildHorizons(id); });
   for (let k=0;k<STRAT.length;k++){
     const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
     for (let i=0;i<ids.length-1;i++){
       const hA=horizonsByHole[ids[i]], hB=horizonsByHole[ids[i+1]];
       const topA=hA[k], baseA=hA[k+1], topB=hB[k], baseB=hB[k+1];
-      if (topA===baseA && topB===baseB) continue;   // pinched out on both sides — nothing to draw
+      if (topA===baseA && topB===baseB) continue;
       const xa=X(dist[i]), xb=X(dist[i+1]);
       const pts=[[xa,Y(topA)],[xb,Y(topB)],[xb,Y(baseB)],[xa,Y(baseA)]].map(p=>p.join(',')).join(' ');
-      svg.appendChild(el('polygon',{points:pts,fill:c,opacity:.85,stroke:c,'stroke-width':.5}));
+      svg.appendChild(el('polygon',{points:pts,fill:c,opacity:.85,stroke:c,'stroke-width':.5,'data-cls':STRAT[k]}));
     }
   }
   let gpts=''; ids.forEach((id,i)=>{ gpts+=`${X(dist[i])},${Y(BH[id].gl)} `; });
@@ -492,24 +555,45 @@ function renderSection(stations, vex){
 
   ids.forEach((id,i)=>{
     const bh=BH[id], x=X(dist[i]), w=8;
-    for (const l of bh.layers){
+    if (showLogs) for (const l of bh.layers){                      // task 6: toggle borehole logs
       const y0=Y(elevAt(id,l.top)), y1=Y(elevAt(id,l.base));
-      svg.appendChild(el('rect',{x:x-w/2,y:y0,width:w,height:Math.max(0,y1-y0),fill:classColour(l),stroke:'#1a1a0f','stroke-width':.8}));
+      svg.appendChild(el('rect',{x:x-w/2,y:y0,width:w,height:Math.max(0,y1-y0),fill:classColour(l),stroke:'#1a1a0f','stroke-width':.8,'data-cls':classKey(l)}));
     }
-    svg.appendChild(el('line',{x1:x,y1:mT+plotH,x2:x,y2:mT+plotH+6,stroke:'#6b6250'}));
-    svg.appendChild(el('text',{x:x,y:mT+plotH+18,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#1e3c12'},id));
-    svg.appendChild(el('text',{x:x,y:mT+plotH+30,'font-size':9,'text-anchor':'middle',fill:'#6b6250'},`${dist[i].toFixed(0)} m`));
+    if (showNames){                                                // task 6: toggle borehole names
+      svg.appendChild(el('line',{x1:x,y1:yAxis,x2:x,y2:yAxis+6,stroke:'#6b6250'}));
+      svg.appendChild(el('text',{x:x,y:yAxis+30,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#1e3c12'},id));
+    }
   });
-  // legend (by decomposition grade / material), in the right-hand gutter
+
+  // A / B end markers matching the section line on the map — task 9
+  [[X(0),'A','start'],[X(total),'B','end']].forEach(([x,lab])=>{
+    svg.appendChild(el('line',{x1:x,y1:mT,x2:x,y2:yAxis,stroke:'#d33','stroke-width':1.2,'stroke-dasharray':'4,3'}));
+    svg.appendChild(el('circle',{cx:x,cy:mT-10,r:9,fill:'#d33'}));
+    svg.appendChild(el('text',{x:x,y:mT-6,'font-size':11,'font-weight':700,'text-anchor':'middle',fill:'#fff'},lab));
+  });
+
+  // legend (by decomposition grade / material), in the right-hand gutter —
+  // only the classes present in the current section (updates live on drag)
   const lx=W-mR+8;
-  svg.appendChild(el('rect',{x:lx-6,y:mT-6,width:legendW-6,height:STRAT.length*16+22,
+  svg.appendChild(el('rect',{x:lx-6,y:mT-6,width:legendW-6,height:Math.max(1,activeStrat.length)*16+22,
     fill:'#fffdf8',opacity:.92,stroke:'#c8bda8','stroke-width':.8,rx:6}));
   svg.appendChild(el('text',{x:lx,y:mT+8,'font-size':10,'font-weight':700,fill:'#1e3c12'},'Decomposition grade'));
   let ly=mT+24;
-  STRAT.forEach(s=>{
-    svg.appendChild(el('rect',{x:lx,y:ly-8,width:11,height:11,fill:STRAT_COLOUR[s]||colourFor(s),stroke:'#3d3529','stroke-width':.6}));
-    svg.appendChild(el('text',{x:lx+16,y:ly+1,'font-size':10,fill:'#1a1a0f'},STRAT_LABEL[s]||s)); ly+=16;
+  activeStrat.forEach(s=>{
+    const g=el('g',{'data-cls':s,style:'cursor:default'});
+    g.appendChild(el('rect',{x:lx,y:ly-8,width:11,height:11,fill:STRAT_COLOUR[s]||colourFor(s),stroke:'#3d3529','stroke-width':.6}));
+    g.appendChild(el('text',{x:lx+16,y:ly+1,'font-size':10,fill:'#1a1a0f'},STRAT_LABEL[s]||s));
+    svg.appendChild(g); ly+=16;
   });
+
+  // hover interactivity — highlight one class, dim the rest — task 5
+  const clsEls=[...svg.querySelectorAll('[data-cls]')];
+  svg.addEventListener('mouseover', e=>{
+    const t=e.target.closest('[data-cls]'); if(!t) return;
+    const c=t.getAttribute('data-cls');
+    clsEls.forEach(n=>n.classList.toggle('dimmed', n.getAttribute('data-cls')!==c));
+  });
+  svg.addEventListener('mouseleave', ()=> clsEls.forEach(n=>n.classList.remove('dimmed')));
   box.appendChild(svg);
 }
 
@@ -560,15 +644,23 @@ function renderSectionFromUI(){ renderSitePlan(); }
 
 // The borehole-entry panel (left) is only relevant to the Log / Cross-Section /
 // 3D tabs — hide it on the Site Map tab and give the map full width.
-let sectionCollapsed = false;
+let panelCollapsed = false;
+function currentTab(){ const t=document.querySelector('.tab.active'); return t?t.dataset.tab:'map'; }
 function applyTabLayout(tab){
-  const hideEntry = (tab === 'map') || (tab === 'section' && sectionCollapsed);
+  const hideEntry = (tab === 'map') || panelCollapsed;
   document.getElementById('entry-panel').style.display = hideEntry ? 'none' : '';
   const wrap = document.getElementById('wrap');
   wrap.classList.toggle('map-mode', tab === 'map');
-  wrap.classList.toggle('section-wide', tab === 'section' && sectionCollapsed);
-  const cb = document.getElementById('sec-collapse');
-  if (cb) cb.textContent = sectionCollapsed ? '⟩ Show panel' : '⟨ Collapse panel';
+  wrap.classList.toggle('entry-collapsed', panelCollapsed && tab !== 'map');
+  const exp = document.getElementById('panel-expand');
+  if (exp) exp.classList.toggle('show', panelCollapsed && tab !== 'map');
+}
+function setPanelCollapsed(flag){
+  panelCollapsed = flag;
+  applyTabLayout(currentTab());
+  // let the layout reflow, then resize the map & redraw the section to fit the new width
+  if (secMap){ setTimeout(()=>{ secMap.invalidateSize(); if (sectionActive()) updateSection(); }, 80); }
+  renderLogLive();
 }
 
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -627,16 +719,19 @@ document.querySelectorAll('#mode-toggle button').forEach(b=>b.addEventListener('
 
 // log / section / CSV
 document.getElementById('log-elev').addEventListener('change', renderLogLive);
+document.getElementById('log-labels').addEventListener('click', e=>{
+  logLabelsMode = logLabelsMode==='inline' ? 'legend' : 'inline';
+  e.target.textContent = 'Labels: '+logLabelsMode;
+  renderLogLive();
+});
 document.getElementById('log-png').addEventListener('click', ()=>exportPNG(document.querySelector('#log-viz svg'),'borehole_log.png'));
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; if (secMap) updateSection(); });
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
-document.getElementById('sec-collapse').addEventListener('click', ()=>{
-  sectionCollapsed = !sectionCollapsed;
-  applyTabLayout('section');
-  // let the layout reflow, then resize the map and redraw the section to fit the new width
-  if (secMap){ setTimeout(()=>{ secMap.invalidateSize(); updateSection(); }, 80); }
-  else renderSectionFromUI();
-});
+document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
+['sec-show-logs','sec-show-names','sec-tp-only'].forEach(id=>
+  document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
+document.getElementById('panel-collapse').addEventListener('click', ()=>setPanelCollapsed(true));
+document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));
 document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'),'cross_section.png'));
 document.getElementById('hf-send').addEventListener('click', sendToHF);
 

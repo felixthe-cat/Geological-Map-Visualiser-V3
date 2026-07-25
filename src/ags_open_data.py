@@ -271,6 +271,49 @@ def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
     return ((leg or "").strip() or (geol or "").strip() or g2 or "Unknown"), ""
 
 
+# Transported soils / made ground allowed to carry no decomposition grade.
+_ALLOWED_NONGRADE = {"fill", "concrete", "asphalt", "marine deposit", "colluvium",
+                     "alluvium", "made ground (concrete)", "made ground (asphalt)",
+                     "residual soil"}
+_ARABIC_ROMAN = {"1": "I", "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI"}
+
+
+def _norm_roman(s: str | None) -> str:
+    """Normalise a WETH_GRAD value ("V", "5", "IV/V", "V-VI"…) to a roman grade."""
+    if not s:
+        return ""
+    t = str(s).strip().upper().replace("W", "")
+    for sep in ("/", "-", " ", "TO"):
+        if sep in t:
+            t = t.split(sep)[0].strip()
+    t = _ARABIC_ROMAN.get(t, t)
+    return t if t in ("I", "II", "III", "IV", "V", "VI") else ""
+
+
+def _grade_from_roman(roman: str, rock_hint: str | None) -> tuple[str, str]:
+    rock = _rock_in((rock_hint or "").lower())
+    if roman == "VI":
+        return (f"Residual Soil ({rock})" if rock != "Rock" else "Residual Soil"), "VI (RS)"
+    if roman == "I":
+        return f"Fresh {rock} (Grade I)", "I (Fresh)"
+    return f"{_DECOMP_LABEL[roman]} {rock} (Grade {roman})", _grade_tag(roman, rock)
+
+
+def _weth_grade_at(intervals, top, base):
+    """Weathering grade covering a GEOL layer, by the WETH interval containing
+    the layer midpoint (else the one with the largest depth overlap)."""
+    mid = (top + base) / 2
+    for t, b, r in intervals:
+        if t <= mid <= b:
+            return r
+    best, best_ov = "", 0.0
+    for t, b, r in intervals:
+        ov = min(base, b) - max(top, t)
+        if ov > best_ov:
+            best, best_ov = r, ov
+    return best
+
+
 def merge_consecutive_layers(layers: list[dict], eps: float = 0.05) -> list[dict]:
     """Collapse adjacent layers (already sorted by top) that share the same
     classified surface and are contiguous (small gap/overlap tolerated) —
@@ -288,14 +331,16 @@ def merge_consecutive_layers(layers: list[dict], eps: float = 0.05) -> list[dict
     return out
 
 
-def _add_record(cur, head, row, loca, geol):
+def _add_record(cur, head, row, loca, geol_raw, weth_raw):
+    """Handle one DATA/data row. Returns the record dict when it belongs to a
+    group that accepts <CONT> continuation (GEOL/WETH), else None."""
     if not head or not cur:
-        return
+        return None
     rec = dict(zip(head, row))
     g = cur.upper()
     pid = (rec.get("LOCA_ID") or rec.get("HOLE_ID") or "").strip()
     if not pid:
-        return
+        return None
     if g in ("LOCA", "HOLE"):                       # location group (AGS4 / AGS3)
         try:
             loca[pid] = (
@@ -305,13 +350,14 @@ def _add_record(cur, head, row, loca, geol):
             )
         except (TypeError, ValueError):
             pass
-    elif g == "GEOL":                               # stratigraphy group
-        surface, grade = classify_layer(rec.get("GEOL_GEO2"), rec.get("GEOL_LEG"),
-                                        rec.get("GEOL_GEOL"), rec.get("GEOL_DESC"))
-        try:
-            geol.append((pid, float(rec["GEOL_TOP"]), float(rec["GEOL_BASE"]), surface, grade))
-        except (KeyError, TypeError, ValueError):
-            pass
+        return None
+    if g == "GEOL":                                 # stratigraphy group — classify later
+        geol_raw.append(rec)
+        return rec
+    if g == "WETH":                                 # weathering-grade group (authoritative grade by depth)
+        weth_raw.append(rec)
+        return rec
+    return None
 
 
 def parse_ags_any(text: str):
@@ -319,11 +365,17 @@ def parse_ags_any(text: str):
     (**GROUP / *HEADING / bare data rows). Returns (loca, geol):
         loca = {id: (nate, natn, gl)}
         geol = [(id, top, base, surface, grade), ...]
+
+    AGS3 long text fields (esp. GEOL_DESC) wrap across <CONT> rows; we merge
+    those back into the record so the description — which is where the
+    decomposition grade & lithology actually live — is classified in full.
     """
     loca: dict[str, tuple] = {}
-    geol: list[tuple] = []
+    geol_raw: list[dict] = []
+    weth_raw: list[dict] = []
     cur = None
     head = None
+    cont = None            # current GEOL/WETH record that <CONT> rows append to
     for row in csv.reader(io.StringIO(text)):
         if not row or all(c == "" for c in row):
             continue
@@ -331,7 +383,7 @@ def parse_ags_any(text: str):
         # AGS4 markers
         if c0 == "GROUP":
             cur = row[1].strip() if len(row) > 1 else None
-            head = None
+            head = None; cont = None
             continue
         if c0 == "HEADING":
             head = [h.strip() for h in row]
@@ -339,12 +391,20 @@ def parse_ags_any(text: str):
         if c0 in ("UNIT", "TYPE"):
             continue
         if c0 == "DATA":
-            _add_record(cur, head, row, loca, geol)
+            cont = _add_record(cur, head, row, loca, geol_raw, weth_raw)
+            continue
+        # AGS3 data-value continuation: append each non-empty cell to its column
+        if c0.upper() == "<CONT>":
+            if cont is not None and head:
+                for i, cell in enumerate(row):
+                    if i > 0 and i < len(head) and cell.strip():
+                        k = head[i]
+                        cont[k] = ((cont.get(k) or "") + " " + cell.strip()).strip()
             continue
         # AGS3 markers
         if c0.startswith("**"):
             cur = c0.lstrip("*").strip()
-            head = None
+            head = None; cont = None
             continue
         if c0.startswith("*"):
             # AGS3 headings wrap across several lines when they exceed the format's
@@ -354,11 +414,43 @@ def parse_ags_any(text: str):
             cols = [h.lstrip("*?").strip() for h in row]
             head = cols if head is None else head + cols
             continue
-        if c0.startswith("<"):          # <UNITS>, <CONT>, <NOTE> … (data/unit continuation, not heading)
+        if c0.startswith("<"):          # <UNITS>, <NOTE> … (not heading; <CONT> handled above)
             continue
         # AGS3 data row (values only)
         if head:
-            _add_record(cur, head, row, loca, geol)
+            cont = _add_record(cur, head, row, loca, geol_raw, weth_raw)
+
+    # per-borehole weathering-grade intervals (authoritative grade by depth)
+    weth_by_id: dict[str, list] = {}
+    for rec in weth_raw:
+        pid = (rec.get("LOCA_ID") or rec.get("HOLE_ID") or "").strip()
+        r = _norm_roman(rec.get("WETH_GRAD"))
+        try:
+            t, b = float(rec["WETH_TOP"]), float(rec["WETH_BASE"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pid and r:
+            weth_by_id.setdefault(pid, []).append((t, b, r))
+
+    # classify GEOL rows now that wrapped descriptions are complete; for rows
+    # that still have no grade (blank GEO2 + no description) fall back to the
+    # WETH weathering grade covering that depth.
+    geol: list[tuple] = []
+    for rec in geol_raw:
+        pid = (rec.get("LOCA_ID") or rec.get("HOLE_ID") or "").strip()
+        if not pid:
+            continue
+        try:
+            top, base = float(rec["GEOL_TOP"]), float(rec["GEOL_BASE"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        surface, grade = classify_layer(rec.get("GEOL_GEO2"), rec.get("GEOL_LEG"),
+                                        rec.get("GEOL_GEOL"), rec.get("GEOL_DESC"))
+        if not grade and surface.strip().lower() not in _ALLOWED_NONGRADE:
+            r = _weth_grade_at(weth_by_id.get(pid, []), top, base)
+            if r:
+                surface, grade = _grade_from_roman(r, rec.get("GEOL_LEG") or rec.get("GEOL_DESC"))
+        geol.append((pid, top, base, surface, grade))
     return loca, geol
 
 
@@ -447,9 +539,23 @@ def demo():
         '"B 1","4.0","10.0","SANDZG","CDG"\n'
     )
 
+    # AGS4 GEOL with blank GEO2 + no description, graded via the WETH group by depth
+    ags_weth = (
+        '"GROUP","GEOL"\n'
+        '"HEADING","LOCA_ID","GEOL_TOP","GEOL_BASE","GEOL_LEG","GEOL_GEO2","GEOL_DESC"\n'
+        '"DATA","BH9","10.0","18.0","SANDZG","",""\n'
+        '"GROUP","WETH"\n'
+        '"HEADING","LOCA_ID","WETH_TOP","WETH_BASE","WETH_GRAD"\n'
+        '"DATA","BH9","8.0","20.0","V"\n'
+    )
+
     l4, g4 = parse_ags_any(ags4)
     l3, g3 = parse_ags_any(ags3)
     lw, gw = parse_ags_any(ags3_wrapped)
+    _, gwe = parse_ags_any(ags_weth)
+    assert len(gwe) == 1 and gwe[0][4] == "V (CDR)", gwe   # WETH grade V, no lithology word -> Grade V Rock
+    assert gwe[0][3] == "Completely Decomposed Rock (Grade V)", gwe
+    assert classify_layer("", "SANDZG", "", "") == ("SANDZG", ""), "no grade signal -> raw code, no grade"
     assert l4["BH1"] == (800000.0, 820000.0, 15.0), l4
     assert len(g4) == 2 and g4[0][3] == "Fill", g4          # LEG=FILL -> recognised origin "Fill"
     assert l3["BH2"] == (801000.0, 821000.0, 20.0), l3

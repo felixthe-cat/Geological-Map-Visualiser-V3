@@ -182,12 +182,18 @@ function plotResults(hits){
   resultLayer.clearLayers();
   const cap = hits.slice(0, 800); // keep rendering snappy
   for (const b of cap){
-    const style = b.hasAGS
+    // Before loading we only know a report exists (hasAGS). After loading we
+    // know whether THIS station has a real geological log (hasLog) — green then
+    // means "has a log"; AGS points that are trial-pit/CPT-only go grey.
+    const green = (b.hasLog !== undefined) ? b.hasLog : b.hasAGS;
+    const style = green
       ? {radius:4, color:'#1e3c12', weight:1, fillColor:'#3f9b46', fillOpacity:.9}
       : {radius:3, color:'#6b6250', weight:1, fillColor:'#a8a196', fillOpacity:.7};
+    const note = (b.hasLog === false)
+      ? 'AGS report exists but no geological log (trial pit / CPT)'
+      : (green ? '<b style="color:#2f5a1e">Geological log available</b>' : 'Location only (no AGS)');
     L.circleMarker([b.lat,b.lon], style)
-      .bindPopup(`<b>${b.statno||'(no id)'}</b><br>Report ${b.repno||'-'}<br>`+
-                 `${b.hasAGS?'<b style="color:#2f5a1e">AGS stratigraphy available</b>':'Location only (no AGS)'}<br>`+
+      .bindPopup(`<b>${b.statno||'(no id)'}</b><br>Report ${b.repno||'-'}<br>${note}<br>`+
                  `E ${b.e??'-'} N ${b.n??'-'}<br>GL ${b.gl??'-'} mPD · depth ${b.depth??'-'} m`)
       .addTo(resultLayer);
   }
@@ -248,6 +254,7 @@ async function loadInto2D(){
       x: Number.isFinite(hit.x) ? hit.x : (b.e ?? 0),
       y: Number.isFinite(hit.y) ? hit.y : (b.n ?? 0),
       gl: Number.isFinite(hit.gl) ? hit.gl : (b.gl ?? 0),
+      kind: isTrialPit(b) ? 'TP' : 'BH',
       layers
     });
   });
@@ -258,6 +265,20 @@ async function loadInto2D(){
     return;
   }
   const importedIds = new Set(boreholes.map(b=>b.id));
+  // Mark which mapped stations actually have a log, then recolour the map so
+  // AGS points without a geological log (trial pit / CPT) go grey too.
+  for (const b of lastResults){
+    if (b.hasAGS) b.hasLog = importedIds.has((b.statno||b.repno||'').toString().trim());
+  }
+  plotResults(lastResults);
+
+  const greenCount = lastResults.filter(b=>b.hasAGS).length;
+  const noLog = greenCount - boreholes.length;
+  const locOnly = lastResults.length - greenCount;
+  setStatus(`${boreholes.length} borehole(s) with a geological log (green). `+
+            `${noLog} AGS point(s) with no solid/rock log — trial pit / CPT (now grey). `+
+            `${locOnly} location-only.`, 'ok');
+
   const sitePlan = {
     bounds: lastBounds,
     boreholes: lastResults.map(b=>({
@@ -267,7 +288,7 @@ async function loadInto2D(){
   };
   if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
   setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
-                (skipped ? ` (${skipped} skipped — no geological log)` : '')+'.','ok');
+                (skipped ? ` (${skipped} with no geological log skipped)` : '')+'.','ok');
 }
 
 // ---- init ------------------------------------------------------------
