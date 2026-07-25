@@ -150,6 +150,8 @@ def classify_geo2(code: str | None) -> str | None:
         return _ORIGIN_EXACT[c]
     if c.startswith("ALL"):                      # ALLG, ALLS, ALL... -> Alluvium (drop grading suffix)
         return "Alluvium"
+    if c.startswith("MAD"):                      # MADC etc. -> Marine Deposit (verified: "MADC" = disturbed Marine Deposit Clay)
+        return "Marine Deposit"
     if len(c) > 2 and c[:2] in _GRADE_PREFIX:     # CDG, HDT, SDQZ, ...
         grade, label = _GRADE_PREFIX[c[:2]]
         rock = _ROCK_SUFFIX.get(c[2:], c[2:].title())
@@ -341,7 +343,8 @@ def demo():
     assert classify_geo2("ALLG") == "Alluvium" and classify_geo2("ALLS") == "Alluvium"
     assert classify_geo2("COL") == "Colluvium"
     assert classify_geo2("RS") == "Residual Soil"
-    assert classify_geo2("MD") == "Marine Deposit"          # bare MD, not a grade prefix
+    assert classify_geo2("MD") == "Marine Deposit"           # bare MD, not a grade prefix
+    assert classify_geo2("MADC") == "Marine Deposit"         # verified: report 71936 BH4, "(Disturbed MARINE DEPOSIT)"
     assert classify_geo2("") is None and classify_geo2(None) is None
     # grading-code fallback (no GEO2) is NOT reclassified — surfaces as-is
     assert classify_surface(None, "SANDZG", "Q") == "SANDZG"
