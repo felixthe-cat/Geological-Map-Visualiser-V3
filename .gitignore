@@ -32,3 +32,12 @@ screenshots/
 .vercel
 .env*.local
 web/hero_globe.png
+
+# Local-only: large source data, scratch work, agent config
+# (/data/ holds the 14 MB CSDI sqlite — source for web/data/*.csv exports, not committed)
+/data/
+scratch/
+tmp_check.txt
+.claude/
+restructure_app.py
+References from Datagov/
