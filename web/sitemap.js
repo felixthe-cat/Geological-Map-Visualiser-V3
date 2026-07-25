@@ -50,7 +50,6 @@ const toast = {
 let map = null, drawnLayer = null, resultLayer = null;
 let INDEX = null;              // [{repno,statno,stattype,lat,lon,e,n,gl,depth}]
 let lastResults = [];
-let lastLoaded = [];           // boreholes with logs from the last load
 let lastRepnos = [];           // CEDD report numbers behind that load (for the original-AGS download)
 let lastBounds = null;         // {latMin,latMax,lngMin,lngMax,eMin,eMax,nMin,nMax} of the drawn rectangle
 let onLoadTo2D = null;
@@ -288,7 +287,6 @@ async function loadInto2D(){
       imported: importedIds.has((b.statno||b.repno||'').toString().trim())
     }))
   };
-  lastLoaded = boreholes;
   lastRepnos = Object.keys(strat).length ? Object.keys(strat) : repnos;
   const dlBtn = document.getElementById('map-download-ags');
   if (dlBtn){ dlBtn.disabled = false; dlBtn.title = `Download the original CEDD AGS file(s) for ${lastRepnos.length} report(s)`; }
