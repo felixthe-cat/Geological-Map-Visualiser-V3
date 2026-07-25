@@ -61,7 +61,7 @@ function colourFor(surface){
 
 // ---- STATE (source of truth) ----------------------------------------
 // state.boreholes = [{id,x,y,gl, layers:[{surface,top,base}]}]  (top/base = depth below GL)
-let state = { boreholes: [], activeIdx: 0, mode: 'depth' };
+let state = { boreholes: [], activeIdx: 0, mode: 'depth', sitePlan: null };
 // Derived (consumed by renderers)
 let BH = {}; let STRAT = [];
 
@@ -272,6 +272,73 @@ function renderLog(id){
 }
 function renderLogLive(){ const bh=active(); if(bh) renderLog(bh.id); }
 
+// Site plan: the drawn rectangle + borehole positions, for geographic
+// reference alongside the cross-section (which borehole is where on site).
+function renderSitePlan(){
+  const box = document.getElementById('siteplan-viz');
+  if (!box) return;
+  const sp = state.sitePlan;
+  if (!sp || !sp.bounds || !sp.boreholes || !sp.boreholes.length){
+    box.innerHTML = '<p class="hint" style="padding:8px">Draw a site boundary on the Site Map tab and load boreholes to see the plan here.</p>';
+    return;
+  }
+  const {eMin,eMax,nMin,nMax} = sp.bounds;
+  const padE=(eMax-eMin)*0.10||5, padN=(nMax-nMin)*0.10||5;
+  const eLo=eMin-padE, eHi=eMax+padE, nLo=nMin-padN, nHi=nMax+padN;
+  const W=520, H=340, mL=14, mR=14, mT=14, mB=26;
+  const plotW=W-mL-mR, plotH=H-mT-mB;
+  const scale = Math.min(plotW/(eHi-eLo), plotH/(nHi-nLo));
+  const usedW=(eHi-eLo)*scale, usedH=(nHi-nLo)*scale;
+  const offX = mL+(plotW-usedW)/2, offY = mT+(plotH-usedH)/2;
+  const X = e => offX+(e-eLo)*scale;
+  const Y = n => offY+(nHi-n)*scale;   // north up
+
+  const svg = el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
+  svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#fffdf8'}));
+  svg.appendChild(el('rect',{x:X(eMin),y:Y(nMax),width:X(eMax)-X(eMin),height:Y(nMin)-Y(nMax),
+    fill:'rgba(184,134,11,0.08)',stroke:'#b8860b','stroke-width':1.4,'stroke-dasharray':'5,3'}));
+
+  const selIds = selectedSectionIds().filter(id=>sp.boreholes.some(b=>b.id===id));
+  if (selIds.length>=2){
+    const pts = selIds.map(id=>{ const b=sp.boreholes.find(x=>x.id===id); return `${X(b.x)},${Y(b.y)}`; }).join(' ');
+    svg.appendChild(el('polyline',{points:pts,fill:'none',stroke:'#2f5a1e','stroke-width':2,'stroke-dasharray':'2,3'}));
+  }
+
+  sp.boreholes.forEach(b=>{
+    if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) return;
+    const inSection = selIds.includes(b.id);
+    const r = b.imported ? (inSection?5:4) : 2.5;
+    const fill = b.imported ? (inSection?'#2f5a1e':'#3f9b46') : '#a8a196';
+    svg.appendChild(el('circle',{cx:X(b.x),cy:Y(b.y),r,fill,stroke:'#1a1a0f','stroke-width':0.6}));
+    if (b.imported) svg.appendChild(el('text',{x:X(b.x)+6,y:Y(b.y)-6,'font-size':9,fill:'#1e3c12','font-weight':600},b.id));
+  });
+
+  const barM = niceStep((eHi-eLo)/4), barPx = barM*scale, bx=mL+4, by=H-8;
+  svg.appendChild(el('line',{x1:bx,y1:by,x2:bx+barPx,y2:by,stroke:'#3d3529','stroke-width':1.4}));
+  svg.appendChild(el('text',{x:bx,y:by-4,'font-size':9,fill:'#6b6250'},`${barM} m`));
+
+  box.innerHTML=''; box.appendChild(svg);
+}
+
+// Build monotonic horizon boundaries for one borehole, in the GLOBAL
+// stratigraphic order (STRAT, shallowest-first). horizons[k] = elevation of
+// the boundary ABOVE stratum k; horizons[k+1] = boundary below it (0-thickness
+// if that stratum isn't logged here). Because horizons only ever step DOWN as
+// k increases, and linear interpolation of two non-increasing sequences stays
+// non-increasing at every point in between, bands for different strata can
+// never swap order / cross when interpolated between two boreholes — even if
+// a borehole's own logged sequence is locally out of the usual order.
+function buildHorizons(id){
+  const bh = BH[id];
+  const horizons = [bh.gl];
+  for (const s of STRAT){
+    const top = horizons[horizons.length-1];
+    const layer = bh.layers.find(l=>l.surface===s);
+    horizons.push(layer ? Math.min(bh.gl - layer.base, top) : top);
+  }
+  return horizons;
+}
+
 function renderSection(ids, vex){
   const box = document.getElementById('sec-viz');
   box.innerHTML='';
@@ -306,15 +373,15 @@ function renderSection(ids, vex){
   }
   svg.appendChild(el('text',{x:mL-46,y:mT-10,'font-size':10,'font-weight':600,fill:'#6b6250'},'mPD'));
 
-  const layerOf=(id,s)=>BH[id].layers.find(l=>l.surface===s)||null;
-  for (const s of STRAT){
-    const c=colourFor(s);
+  const horizonsByHole = {}; ids.forEach(id=>{ horizonsByHole[id]=buildHorizons(id); });
+  for (let k=0;k<STRAT.length;k++){
+    const c=colourFor(STRAT[k]);
     for (let i=0;i<ids.length-1;i++){
-      const la=layerOf(ids[i],s), lb=layerOf(ids[i+1],s);
-      if (!la||!lb) continue;
+      const hA=horizonsByHole[ids[i]], hB=horizonsByHole[ids[i+1]];
+      const topA=hA[k], baseA=hA[k+1], topB=hB[k], baseB=hB[k+1];
+      if (topA===baseA && topB===baseB) continue;   // pinched out on both sides — nothing to draw
       const xa=X(dist[i]), xb=X(dist[i+1]);
-      const pts=[[xa,Y(elevAt(ids[i],la.top))],[xb,Y(elevAt(ids[i+1],lb.top))],
-                 [xb,Y(elevAt(ids[i+1],lb.base))],[xa,Y(elevAt(ids[i],la.base))]].map(p=>p.join(',')).join(' ');
+      const pts=[[xa,Y(topA)],[xb,Y(topB)],[xb,Y(baseB)],[xa,Y(baseA)]].map(p=>p.join(',')).join(' ');
       svg.appendChild(el('polygon',{points:pts,fill:c,opacity:.85,stroke:c,'stroke-width':.5}));
     }
   }
@@ -396,7 +463,7 @@ function refreshSelectors(){
   });
 }
 function selectedSectionIds(){ return [...document.getElementById('sec-bh').selectedOptions].map(o=>o.value); }
-function renderSectionFromUI(){ renderSection(selectedSectionIds(), +document.getElementById('sec-vex').value); }
+function renderSectionFromUI(){ renderSitePlan(); renderSection(selectedSectionIds(), +document.getElementById('sec-vex').value); }
 
 // The borehole-entry panel (left) is only relevant to the Log / Cross-Section /
 // 3D tabs — hide it on the Site Map tab and give the map full width.
@@ -430,9 +497,10 @@ async function openSiteMap(){
   try {
     const { initSiteMap } = await import('./sitemap.js');
     await initSiteMap({
-      onLoadTo2D(boreholes){
+      onLoadTo2D(boreholes, sitePlan){
         state.boreholes = boreholes;
         state.activeIdx = 0;
+        state.sitePlan = sitePlan || null;
         refreshInput(); commit();
         // jump back to the log tab so the user sees what landed
         document.querySelector('.tab[data-tab="log"]').click();
@@ -464,6 +532,7 @@ document.getElementById('log-png').addEventListener('click', ()=>exportPNG(docum
 document.getElementById('sec-bh').addEventListener('change', renderSectionFromUI);
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; renderSectionFromUI(); });
 document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'),'cross_section.png'));
+document.getElementById('siteplan-png').addEventListener('click', ()=>exportPNG(document.querySelector('#siteplan-viz svg'),'site_plan.png'));
 document.getElementById('hf-send').addEventListener('click', sendToHF);
 
 document.getElementById('sample-select').addEventListener('change', e=>{

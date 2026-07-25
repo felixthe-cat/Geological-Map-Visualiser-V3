@@ -188,7 +188,14 @@
 
       <!-- SECTION -->
       <div class="tabpane" data-pane="section">
-        <div class="row" style="align-items:flex-start">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h3 style="margin:0">Site Plan</h3>
+          <button class="ghost mini" id="siteplan-png">Export PNG</button>
+        </div>
+        <div class="hint">Site boundary drawn on the Site Map, with imported borehole positions — the darker line traces the current cross-section order.</div>
+        <div class="viz" id="siteplan-viz" style="max-height:280px"></div>
+
+        <div class="row" style="align-items:flex-start;margin-top:14px">
           <div>
             <label style="margin:0">Boreholes (order = section line)</label>
             <select id="sec-bh" multiple style="min-width:150px"></select>

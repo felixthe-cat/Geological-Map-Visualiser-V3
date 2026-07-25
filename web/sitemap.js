@@ -48,9 +48,19 @@ const toast = {
 };
 
 let map = null, drawnLayer = null, resultLayer = null;
-let INDEX = null;              // [{repno,statno,lat,lon,e,n,gl,depth}]
+let INDEX = null;              // [{repno,statno,stattype,lat,lon,e,n,gl,depth}]
 let lastResults = [];
+let lastBounds = null;         // {latMin,latMax,lngMin,lngMax,eMin,eMax,nMin,nMax} of the drawn rectangle
 let onLoadTo2D = null;
+
+// Boreholes carry far more information than trial pits — list/select them first.
+// STATTYPE 'TP' is the CSDI trial-pit code; everything else (DH, RC, RCG, GCOP, ...) sorts first.
+function isTrialPit(b){ return (b.stattype||'').trim().toUpperCase() === 'TP'; }
+function boreholesFirst(a, b){
+  const ta = isTrialPit(a), tb = isTrialPit(b);
+  if (ta !== tb) return ta ? 1 : -1;
+  return (a.statno||'').localeCompare(b.statno||'', undefined, {numeric:true});
+}
 
 // ---- asset loading ---------------------------------------------------
 function loadCss(href){
@@ -87,10 +97,10 @@ async function ensureIndex(){
   for (let i=1;i<lines.length;i++){
     const L=lines[i]; if(!L) continue;
     const p=L.split(',');
-    if (p.length<8) continue;
-    out.push({ repno:p[0], statno:p[1], lat:+p[2], lon:+p[3],
-               e:p[4]===''?null:+p[4], n:p[5]===''?null:+p[5],
-               gl:p[6]===''?null:+p[6], depth:p[7]===''?null:+p[7] });
+    if (p.length<9) continue;
+    out.push({ repno:p[0], statno:p[1], stattype:p[2], lat:+p[3], lon:+p[4],
+               e:p[5]===''?null:+p[5], n:p[6]===''?null:+p[6],
+               gl:p[7]===''?null:+p[7], depth:p[8]===''?null:+p[8] });
   }
   INDEX = out;
   setStatus(`Borehole index ready — ${out.length.toLocaleString()} CSDI boreholes available offline.`,'ok');
@@ -113,10 +123,12 @@ function fillBboxFields(bounds){
   document.getElementById('bb-lng-max').value = ne.lng.toFixed(6);
   // HK1980 — convert both corners
   const a = toHK1980(sw.lng, sw.lat), b = toHK1980(ne.lng, ne.lat);
-  document.getElementById('bb-e-min').value = Math.min(a.e,b.e).toFixed(1);
-  document.getElementById('bb-e-max').value = Math.max(a.e,b.e).toFixed(1);
-  document.getElementById('bb-n-min').value = Math.min(a.n,b.n).toFixed(1);
-  document.getElementById('bb-n-max').value = Math.max(a.n,b.n).toFixed(1);
+  const eMin=Math.min(a.e,b.e), eMax=Math.max(a.e,b.e), nMin=Math.min(a.n,b.n), nMax=Math.max(a.n,b.n);
+  document.getElementById('bb-e-min').value = eMin.toFixed(1);
+  document.getElementById('bb-e-max').value = eMax.toFixed(1);
+  document.getElementById('bb-n-min').value = nMin.toFixed(1);
+  document.getElementById('bb-n-max').value = nMax.toFixed(1);
+  lastBounds = { latMin:sw.lat, latMax:ne.lat, lngMin:sw.lng, lngMax:ne.lng, eMin, eMax, nMin, nMax };
 }
 
 // ---- search ----------------------------------------------------------
@@ -132,6 +144,7 @@ async function searchBbox(){
     const [idx, agsSet] = await Promise.all([ensureIndex(), ensureAgsSet()]);
     const hits = idx.filter(b => b.lat>=latMin && b.lat<=latMax && b.lon>=lngMin && b.lon<=lngMax);
     for (const b of hits) b.hasAGS = agsSet.has(String(b.repno));
+    hits.sort(boreholesFirst);          // boreholes before trial pits (task: TP carries far less info)
     lastResults = hits;
     const nAgs = hits.filter(b=>b.hasAGS).length;
     renderResults(hits);
@@ -146,9 +159,9 @@ function renderResults(hits){
   document.getElementById('map-count').textContent = hits.length ? `${nAgs} with AGS / ${hits.length} found` : '';
   if (!hits.length){ box.innerHTML='<p class="hint">No boreholes in this area.</p>'; return; }
   const show=hits.slice(0,200);
-  let html='<table class="mini"><tr><th>Station</th><th>Report</th><th>AGS</th><th>E</th><th>N</th><th>GL</th><th>Depth</th></tr>';
+  let html='<table class="mini"><tr><th>Station</th><th>Type</th><th>Report</th><th>AGS</th><th>E</th><th>N</th><th>GL</th><th>Depth</th></tr>';
   for (const b of show)
-    html+=`<tr class="${b.hasAGS?'has-ags':'no-ags'}"><td>${b.statno||''}</td><td>${b.repno||''}</td>`+
+    html+=`<tr class="${b.hasAGS?'has-ags':'no-ags'}"><td>${b.statno||''}</td><td>${b.stattype||''}</td><td>${b.repno||''}</td>`+
           `<td>${b.hasAGS?'✔ yes':'—'}</td><td>${b.e??''}</td><td>${b.n??''}</td><td>${b.gl??''}</td><td>${b.depth??''}</td></tr>`;
   html+='</table>';
   if (hits.length>show.length) html+=`<p class="hint">Showing first ${show.length} of ${hits.length}.</p>`;
@@ -226,7 +239,15 @@ async function loadInto2D(){
     setLoadStatus('The AGS reports here contain no geological logs (e.g. CPT/penetration tests only). Nothing to load.','err');
     return;
   }
-  if (onLoadTo2D) onLoadTo2D(boreholes);
+  const importedIds = new Set(boreholes.map(b=>b.id));
+  const sitePlan = {
+    bounds: lastBounds,
+    boreholes: lastResults.map(b=>({
+      id: (b.statno||b.repno||'').toString().trim(), x:b.e, y:b.n,
+      imported: importedIds.has((b.statno||b.repno||'').toString().trim())
+    }))
+  };
+  if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
   setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
                 (skipped ? ` (${skipped} skipped — no geological log)` : '')+'.','ok');
 }

@@ -111,6 +111,82 @@ def _fetch_report_zip(repno: str, manifest: dict) -> zipfile.ZipFile:
     return zipfile.ZipFile(io.BytesIO(inner))
 
 
+# ── geotechnical classification ────────────────────────────────────────────
+# AGS's GEOL_LEG is a *grading* code (e.g. "SANDCZG" = clayey silty sandy
+# GRAVEL) — it says nothing about origin or weathering grade, so the same
+# material (e.g. Completely Decomposed Granite) ends up split across many
+# differently-named grading variants (SANDZG, GRAV, GRANITE, ...).
+#
+# GEOL_GEO2 is the actual origin / weathering-grade code used in HK GEO
+# practice (verified against real CEDD AGS files): FILL, COL(luvium),
+# ALL+suffix (Alluvium), RS (Residual Soil), MD (Marine Deposit, exact),
+# and <grade prefix><rock suffix> for rock, e.g. CDG/HDG/MDG/SDG (granite),
+# CDT/HDT/MDT/SDT (tuff), SDQZ (quartzite). We classify GEOL_GEO2 into a
+# clean, ungraded label and use it in preference to GEOL_LEG.
+_ORIGIN_EXACT = {
+    "FILL": "Fill", "ASPHALT": "Made Ground (Asphalt)", "CONCRETE": "Made Ground (Concrete)",
+    "COL": "Colluvium", "COLLUVIUM": "Colluvium",
+    "RS": "Residual Soil", "RESIDUAL": "Residual Soil",
+    "MD": "Marine Deposit", "MARINE": "Marine Deposit",
+}
+_GRADE_PREFIX = {  # 2-letter weathering-grade prefix -> (grade numeral, label)
+    "CD": ("V", "Completely Decomposed"),
+    "HD": ("IV", "Highly Decomposed"),
+    "MD": ("III", "Moderately Decomposed"),   # only used when a rock suffix follows; bare "MD" = Marine Deposit
+    "SD": ("II", "Slightly Decomposed"),
+}
+_ROCK_SUFFIX = {"G": "Granite", "T": "Tuff", "QZ": "Quartzite", "V": "Volcanics", "M": "Metasediment", "R": "Rock"}
+
+
+def classify_geo2(code: str | None) -> str | None:
+    """Map a GEOL_GEO2 origin/weathering code to a clean group label, or
+    None if the code is empty/unrecognised (caller should fall back)."""
+    if not code:
+        return None
+    c = code.strip().upper()
+    if not c:
+        return None
+    if c in _ORIGIN_EXACT:
+        return _ORIGIN_EXACT[c]
+    if c.startswith("ALL"):                      # ALLG, ALLS, ALL... -> Alluvium (drop grading suffix)
+        return "Alluvium"
+    if len(c) > 2 and c[:2] in _GRADE_PREFIX:     # CDG, HDT, SDQZ, ...
+        grade, label = _GRADE_PREFIX[c[:2]]
+        rock = _ROCK_SUFFIX.get(c[2:], c[2:].title())
+        return f"{label} {rock} (Grade {grade})"
+    if c in _ROCK_SUFFIX:                         # bare rock code with no grade prefix -> fresh rock
+        return f"Fresh {_ROCK_SUFFIX[c]} (Grade I)"
+    return None
+
+
+def classify_surface(geo2: str | None, leg: str | None, geol: str | None) -> str:
+    """Best available classified label for one GEOL row: prefer a recognised
+    GEOL_GEO2 origin/grade code, then the raw GEO2 code as-is, then fall
+    back to the grading-only GEOL_LEG/GEOL_GEOL code."""
+    classified = classify_geo2(geo2)
+    if classified:
+        return classified
+    if geo2 and geo2.strip():
+        return geo2.strip()
+    return (leg or geol or "").strip()
+
+
+def merge_consecutive_layers(layers: list[dict], eps: float = 0.05) -> list[dict]:
+    """Collapse adjacent layers (already sorted by top) that share the same
+    classified surface and are contiguous (small gap/overlap tolerated) —
+    fixes AGS logs that record one material as many sample-interval rows."""
+    if not layers:
+        return layers
+    out = [dict(layers[0])]
+    for L in layers[1:]:
+        prev = out[-1]
+        if L["surface"] == prev["surface"] and abs(L["top"] - prev["base"]) <= eps:
+            prev["base"] = max(prev["base"], L["base"])
+        else:
+            out.append(dict(L))
+    return out
+
+
 def _add_record(cur, head, row, loca, geol):
     if not head or not cur:
         return
@@ -129,7 +205,7 @@ def _add_record(cur, head, row, loca, geol):
         except (TypeError, ValueError):
             pass
     elif g == "GEOL":                               # stratigraphy group
-        surface = (rec.get("GEOL_LEG") or rec.get("GEOL_GEOL") or rec.get("GEOL_GEO2") or "").strip()
+        surface = classify_surface(rec.get("GEOL_GEO2"), rec.get("GEOL_LEG"), rec.get("GEOL_GEOL"))
         try:
             geol.append((pid, float(rec["GEOL_TOP"]), float(rec["GEOL_BASE"]), surface))
         except (KeyError, TypeError, ValueError):
@@ -192,8 +268,9 @@ def parse_report(repno: str, manifest: dict) -> dict:
     layers_by_id: dict[str, list] = {}
     for pid, top, base, surface in geol:
         layers_by_id.setdefault(pid, []).append({"surface": surface, "top": top, "base": base})
-    for lst in layers_by_id.values():
+    for pid, lst in layers_by_id.items():
         lst.sort(key=lambda l: l["top"])
+        layers_by_id[pid] = merge_consecutive_layers(lst)
 
     out = {}
     for pid, (x, y, gl) in loca.items():
@@ -252,7 +329,44 @@ def demo():
     assert len(g4) == 2 and g4[0][3] == "FILL", g4
     assert l3["BH2"] == (801000.0, 821000.0, 20.0), l3
     assert len(g3) == 2 and g3[1][3] == "HDG", g3
-    print("ags_open_data.demo OK (AGS3 + AGS4 parse)")
+
+    # classification: verified against real CEDD AGS files (report 71936 BH3, report 73528)
+    assert classify_geo2("FILL") == "Fill"
+    assert classify_geo2("CDG") == "Completely Decomposed Granite (Grade V)"
+    assert classify_geo2("HDG") == "Highly Decomposed Granite (Grade IV)"
+    assert classify_geo2("MDG") == "Moderately Decomposed Granite (Grade III)"
+    assert classify_geo2("SDG") == "Slightly Decomposed Granite (Grade II)"
+    assert classify_geo2("CDT") == "Completely Decomposed Tuff (Grade V)"
+    assert classify_geo2("SDQZ") == "Slightly Decomposed Quartzite (Grade II)"
+    assert classify_geo2("ALLG") == "Alluvium" and classify_geo2("ALLS") == "Alluvium"
+    assert classify_geo2("COL") == "Colluvium"
+    assert classify_geo2("RS") == "Residual Soil"
+    assert classify_geo2("MD") == "Marine Deposit"          # bare MD, not a grade prefix
+    assert classify_geo2("") is None and classify_geo2(None) is None
+    # grading-code fallback (no GEO2) is NOT reclassified — surfaces as-is
+    assert classify_surface(None, "SANDZG", "Q") == "SANDZG"
+    assert classify_surface("CDG", "SANDZG", "Q") == "Completely Decomposed Granite (Grade V)"
+
+    # merge: consecutive same-label layers collapse; non-contiguous ones don't
+    merged = merge_consecutive_layers([
+        {"surface": "Fill", "top": 0.0, "base": 2.0},
+        {"surface": "Fill", "top": 2.0, "base": 12.9},
+        {"surface": "Fill", "top": 12.9, "base": 26.0},
+        {"surface": "Alluvium", "top": 26.0, "base": 28.9},
+        {"surface": "Completely Decomposed Granite (Grade V)", "top": 28.9, "base": 40.7},
+        {"surface": "Moderately Decomposed Granite (Grade III)", "top": 40.7, "base": 40.97},
+        {"surface": "Highly Decomposed Granite (Grade IV)", "top": 40.97, "base": 42.9},
+        {"surface": "Completely Decomposed Granite (Grade V)", "top": 42.9, "base": 44.66},
+    ])
+    assert [(m["surface"], m["top"], m["base"]) for m in merged] == [
+        ("Fill", 0.0, 26.0), ("Alluvium", 26.0, 28.9),
+        ("Completely Decomposed Granite (Grade V)", 28.9, 40.7),
+        ("Moderately Decomposed Granite (Grade III)", 40.7, 40.97),
+        ("Highly Decomposed Granite (Grade IV)", 40.97, 42.9),
+        ("Completely Decomposed Granite (Grade V)", 42.9, 44.66),   # NOT merged with the first CDG block — not contiguous
+    ], merged
+
+    print("ags_open_data.demo OK (AGS3 + AGS4 parse, classification, merge)")
 
 
 if __name__ == "__main__":
