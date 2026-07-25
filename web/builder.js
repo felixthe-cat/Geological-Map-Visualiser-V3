@@ -358,6 +358,7 @@ function exportPNG(svgEl, name){
 function setStatus(msg,cls){ const s=document.getElementById('hf-status'); s.style.display='block'; s.className='status '+cls; s.textContent=msg; }
 async function sendToHF(){
   setStatus('Connecting to Hugging Face Space…','busy');
+  showToast('Running 3D model on Hugging Face…');
   try {
     const mod=await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
     const { Client, handle_file }=mod;
@@ -375,6 +376,8 @@ async function sendToHF(){
   } catch(err){
     setStatus('Pipeline reached Hugging Face but returned: '+(err?.message||err)+'\n(If the Space was asleep it may need a moment — retry.)','err');
     console.error('[HF]',err);
+  } finally {
+    hideToast();
   }
 }
 
@@ -395,15 +398,31 @@ function refreshSelectors(){
 function selectedSectionIds(){ return [...document.getElementById('sec-bh').selectedOptions].map(o=>o.value); }
 function renderSectionFromUI(){ renderSection(selectedSectionIds(), +document.getElementById('sec-vex').value); }
 
+// The borehole-entry panel (left) is only relevant to the Log / Cross-Section /
+// 3D tabs — hide it on the Site Map tab and give the map full width.
+function applyTabLayout(tab){
+  const hideEntry = (tab === 'map');
+  document.getElementById('entry-panel').style.display = hideEntry ? 'none' : '';
+  document.getElementById('wrap').classList.toggle('map-mode', hideEntry);
+}
+
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.tabpane').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
   document.querySelector(`.tabpane[data-pane="${t.dataset.tab}"]`).classList.add('active');
+  applyTabLayout(t.dataset.tab);
   if (t.dataset.tab==='section') renderSectionFromUI();
   if (t.dataset.tab==='log') renderLogLive();
   if (t.dataset.tab==='map') openSiteMap();
 }));
+
+// ---- global loading toast (bottom-right), shared with sitemap.js ----------
+const _toastEl = document.getElementById('toast');
+const _toastMsg = document.getElementById('toast-msg');
+function showToast(msg){ _toastMsg.textContent = msg; _toastEl.classList.add('show'); }
+function hideToast(){ _toastEl.classList.remove('show'); }
+window.GeoToast = { show: showToast, hide: hideToast };
 
 // ---- Site Map (lazy-loaded module) ----------------------------------
 let siteMapReady = false;
@@ -466,9 +485,11 @@ window.GeoBuilder = {
   loadCSV(text){ document.getElementById('csv').value=text; importCSV(); }
 };
 
-// boot with the simple sample
+// boot with the simple sample, opening on the Site Map (step 1)
 csvToState(SAMPLES.simple);
 syncDerived();
 refreshInput();
 refreshSelectors();
 renderLogLive();
+applyTabLayout('map');
+openSiteMap();

@@ -21,8 +21,31 @@ const HK1980 =
   '+units=m +no_defs';
 
 const BOREHOLE_INDEX = 'data/boreholes.csv';
+const AGS_REPNOS_URL = 'data/ags_repnos.json';              // report numbers that have digital AGS
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';   // stratigraphy backend (CEDD AGS)
 const MAX_IMPORT = 40;                                       // boreholes pushed to the builder
+
+let AGS_SET = null;   // Set of REPNOs that have AGS data
+
+async function ensureAgsSet(){
+  if (AGS_SET) return AGS_SET;
+  try {
+    const r = await fetch(AGS_REPNOS_URL);
+    AGS_SET = new Set((await r.json()).map(String));
+  } catch { AGS_SET = new Set(); }
+  return AGS_SET;
+}
+
+// status shown right below the "Load into 2D Builder" button
+function setLoadStatus(msg, cls){
+  const el = document.getElementById('load-status');
+  if (!el) return;
+  el.style.display = 'block'; el.className = 'status ' + (cls || ''); el.textContent = msg;
+}
+const toast = {
+  show(m){ window.GeoToast && window.GeoToast.show(m); },
+  hide(){ window.GeoToast && window.GeoToast.hide(); }
+};
 
 let map = null, drawnLayer = null, resultLayer = null;
 let INDEX = null;              // [{repno,statno,lat,lon,e,n,gl,depth}]
@@ -106,23 +129,27 @@ async function searchBbox(){
     setStatus('Draw a rectangle on the map first (or type a bounding box).','err'); return;
   }
   try {
-    const idx = await ensureIndex();
+    const [idx, agsSet] = await Promise.all([ensureIndex(), ensureAgsSet()]);
     const hits = idx.filter(b => b.lat>=latMin && b.lat<=latMax && b.lon>=lngMin && b.lon<=lngMax);
+    for (const b of hits) b.hasAGS = agsSet.has(String(b.repno));
     lastResults = hits;
+    const nAgs = hits.filter(b=>b.hasAGS).length;
     renderResults(hits);
     plotResults(hits);
-    setStatus(`Found ${hits.length.toLocaleString()} borehole(s) in the drawn area.`, hits.length?'ok':'err');
+    setStatus(`Found ${hits.length.toLocaleString()} borehole(s) — ${nAgs.toLocaleString()} with AGS stratigraphy (green), ${(hits.length-nAgs).toLocaleString()} location-only.`, hits.length?'ok':'err');
   } catch(e){ setStatus('Search failed: '+e.message,'err'); }
 }
 
 function renderResults(hits){
   const box=document.getElementById('map-results');
-  document.getElementById('map-count').textContent = hits.length ? `${hits.length} found` : '';
+  const nAgs = hits.filter(b=>b.hasAGS).length;
+  document.getElementById('map-count').textContent = hits.length ? `${nAgs} with AGS / ${hits.length} found` : '';
   if (!hits.length){ box.innerHTML='<p class="hint">No boreholes in this area.</p>'; return; }
   const show=hits.slice(0,200);
-  let html='<table class="mini"><tr><th>Station</th><th>Report</th><th>E</th><th>N</th><th>GL</th><th>Depth</th></tr>';
+  let html='<table class="mini"><tr><th>Station</th><th>Report</th><th>AGS</th><th>E</th><th>N</th><th>GL</th><th>Depth</th></tr>';
   for (const b of show)
-    html+=`<tr><td>${b.statno||''}</td><td>${b.repno||''}</td><td>${b.e??''}</td><td>${b.n??''}</td><td>${b.gl??''}</td><td>${b.depth??''}</td></tr>`;
+    html+=`<tr class="${b.hasAGS?'has-ags':'no-ags'}"><td>${b.statno||''}</td><td>${b.repno||''}</td>`+
+          `<td>${b.hasAGS?'✔ yes':'—'}</td><td>${b.e??''}</td><td>${b.n??''}</td><td>${b.gl??''}</td><td>${b.depth??''}</td></tr>`;
   html+='</table>';
   if (hits.length>show.length) html+=`<p class="hint">Showing first ${show.length} of ${hits.length}.</p>`;
   box.innerHTML=html;
@@ -133,8 +160,13 @@ function plotResults(hits){
   resultLayer.clearLayers();
   const cap = hits.slice(0, 800); // keep rendering snappy
   for (const b of cap){
-    L.circleMarker([b.lat,b.lon], {radius:3, color:'#1e3c12', weight:1, fillColor:'#9ac845', fillOpacity:.85})
-      .bindPopup(`<b>${b.statno||'(no id)'}</b><br>Report ${b.repno||'-'}<br>E ${b.e??'-'} N ${b.n??'-'}<br>GL ${b.gl??'-'} mPD · depth ${b.depth??'-'} m`)
+    const style = b.hasAGS
+      ? {radius:4, color:'#1e3c12', weight:1, fillColor:'#3f9b46', fillOpacity:.9}
+      : {radius:3, color:'#6b6250', weight:1, fillColor:'#a8a196', fillOpacity:.7};
+    L.circleMarker([b.lat,b.lon], style)
+      .bindPopup(`<b>${b.statno||'(no id)'}</b><br>Report ${b.repno||'-'}<br>`+
+                 `${b.hasAGS?'<b style="color:#2f5a1e">AGS stratigraphy available</b>':'Location only (no AGS)'}<br>`+
+                 `E ${b.e??'-'} N ${b.n??'-'}<br>GL ${b.gl??'-'} mPD · depth ${b.depth??'-'} m`)
       .addTo(resultLayer);
   }
 }
@@ -149,37 +181,54 @@ async function fetchStratigraphy(repnos){
 
 // ---- export to builders ---------------------------------------------
 async function loadInto2D(){
-  if (!lastResults.length){ setStatus('Search an area first.','err'); return; }
-  const picked = lastResults.slice(0, MAX_IMPORT);
+  if (!lastResults.length){ setLoadStatus('Search an area first.','err'); return; }
+  // Only boreholes that actually have AGS data (green) are exported.
+  const agsHits = lastResults.filter(b => b.hasAGS);
+  if (!agsHits.length){
+    setLoadStatus('No boreholes with AGS data in this area. Draw over some green boreholes and search again.','err');
+    return;
+  }
+  const picked = agsHits.slice(0, MAX_IMPORT);
   const repnos = [...new Set(picked.map(b=>String(b.repno)).filter(Boolean))];
 
-  setStatus(`Fetching logged stratigraphy for ${repnos.length} report(s) from CEDD AGS open data…`,'busy');
+  toast.show(`Fetching stratigraphy for ${picked.length} borehole(s)…`);
+  setLoadStatus(`Fetching logged stratigraphy for ${repnos.length} report(s) from CEDD AGS open data… (this can take a few seconds)`,'busy');
   let strat = {};
-  try { strat = await fetchStratigraphy(repnos); }
-  catch(e){ setStatus('Stratigraphy fetch failed ('+(e?.message||e)+'). Loading collars only.','err'); }
+  try {
+    strat = await fetchStratigraphy(repnos);
+  } catch(e){
+    toast.hide();
+    setLoadStatus('Stratigraphy fetch failed: '+(e?.message||e)+'. Please retry.','err');
+    return;
+  }
 
-  let withStrata = 0;
-  const boreholes = picked.map((b,i)=>{
+  const boreholes = [];
+  let skipped = 0;
+  picked.forEach((b,i)=>{
     const id = (b.statno || b.repno || `CSDI-${i+1}`).toString().trim() || `CSDI-${i+1}`;
     const rep = strat[String(b.repno)];
     const hit = rep ? (rep[id] || rep[String(b.statno).trim()]) : null;
-    let x = b.e ?? 0, y = b.n ?? 0, gl = b.gl ?? 0, layers = [];
-    if (hit && Array.isArray(hit.layers) && hit.layers.length){
-      layers = hit.layers.map(L=>({ surface:L.surface||'?', top:+L.top, base:+L.base }))
-                         .filter(L=>Number.isFinite(L.top) && Number.isFinite(L.base));
-      if (Number.isFinite(hit.x)) x = hit.x;      // prefer the logged collar values
-      if (Number.isFinite(hit.y)) y = hit.y;
-      if (Number.isFinite(hit.gl)) gl = hit.gl;
-      if (layers.length) withStrata++;
-    }
-    return { id, x, y, gl, layers };
+    const layers = (hit && Array.isArray(hit.layers) ? hit.layers : [])
+      .map(L=>({ surface:L.surface||'?', top:+L.top, base:+L.base }))
+      .filter(L=>Number.isFinite(L.top) && Number.isFinite(L.base));
+    if (!layers.length){ skipped++; return; }          // no logged strata → don't export
+    boreholes.push({
+      id,
+      x: Number.isFinite(hit.x) ? hit.x : (b.e ?? 0),
+      y: Number.isFinite(hit.y) ? hit.y : (b.n ?? 0),
+      gl: Number.isFinite(hit.gl) ? hit.gl : (b.gl ?? 0),
+      layers
+    });
   });
 
+  toast.hide();
+  if (!boreholes.length){
+    setLoadStatus('The AGS reports here contain no geological logs (e.g. CPT/penetration tests only). Nothing to load.','err');
+    return;
+  }
   if (onLoadTo2D) onLoadTo2D(boreholes);
-  const collarOnly = boreholes.length - withStrata;
-  setStatus(`Loaded ${boreholes.length} borehole(s) into the 2D Builder — `+
-            `${withStrata} with real logged stratigraphy from CEDD AGS`+
-            (collarOnly ? `, ${collarOnly} collar-only (older reports have no digital AGS)` : '')+'.','ok');
+  setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
+                (skipped ? ` (${skipped} skipped — no geological log)` : '')+'.','ok');
 }
 
 // ---- init ------------------------------------------------------------
@@ -210,7 +259,7 @@ export async function initSiteMap(opts={}){
   const drawControl = new L.Control.Draw({
     draw: { rectangle:{shapeOptions:{color:'#b8860b',weight:2}},
             polygon:false, polyline:false, circle:false, marker:false, circlemarker:false },
-    edit: { featureGroup: drawnLayer, remove:true }
+    edit: false   // no edit/delete toolbar — just the rectangle tool (draw again to replace)
   });
   map.addControl(drawControl);
 

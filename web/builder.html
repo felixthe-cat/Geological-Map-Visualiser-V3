@@ -76,6 +76,19 @@
     .toggle button.on{background:var(--forest);color:#fff}
     details{margin-top:12px;border:1px solid var(--border);border-radius:8px;background:var(--card2);padding:6px 10px}
     summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--forest-d)}
+    /* single-column when the entry panel is hidden (Site Map tab) */
+    .wrap.map-mode{grid-template-columns:1fr}
+    /* AGS-availability colours in the results table */
+    table.mini tr.has-ags td{color:#2f5a1e}
+    table.mini tr.no-ags td{color:#9a9284}
+    /* global loading toast */
+    #toast{position:fixed;right:18px;bottom:18px;z-index:9999;display:none;align-items:center;gap:10px;
+      background:var(--forest-d);color:#f0e9dc;padding:11px 16px;border-radius:10px;
+      box-shadow:0 6px 24px rgba(0,0,0,.28);font-size:13px;font-weight:600;max-width:340px}
+    #toast.show{display:flex}
+    #toast .spinner{width:15px;height:15px;border:2.5px solid rgba(240,233,220,.35);
+      border-top-color:#9ac845;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 auto}
+    @keyframes spin{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
@@ -93,9 +106,9 @@
     <a href="viewer.html">3D Viewer ↗</a>
   </header>
 
-  <div class="wrap">
+  <div class="wrap" id="wrap">
     <!-- ── INPUT PANEL ── -->
-    <div class="panel">
+    <div class="panel" id="entry-panel">
       <h2>Borehole Data Entry</h2>
       <div class="hint">Add boreholes and their layers below — the log preview updates as you type.</div>
 
@@ -158,14 +171,14 @@
     <!-- ── OUTPUT PANEL ── -->
     <div class="panel">
       <div class="tabs">
-        <button class="tab active" data-tab="log">Log (live preview)</button>
-        <button class="tab" data-tab="section">2D Cross-Section</button>
-        <button class="tab" data-tab="map">Site Map</button>
-        <button class="tab" data-tab="hf">3D via Hugging Face</button>
+        <button class="tab active" data-tab="map">1 · Site Map</button>
+        <button class="tab" data-tab="log">2 · Borehole Log</button>
+        <button class="tab" data-tab="section">3 · Cross-Section</button>
+        <button class="tab" data-tab="hf">4 · 3D via Hugging Face</button>
       </div>
 
       <!-- LOG -->
-      <div class="tabpane active" data-pane="log">
+      <div class="tabpane" data-pane="log">
         <div class="row">
           <label style="margin:0"><input type="checkbox" id="log-elev" style="width:auto" checked> show elevation (mPD)</label>
           <button class="ghost" id="log-png">Export PNG</button>
@@ -194,10 +207,14 @@
       </div>
 
       <!-- SITE MAP -->
-      <div class="tabpane" data-pane="map">
-        <div class="hint">Draw a rectangle (▭ tool, top-left of map) to select an area — the coordinates fill in automatically, then search the CSDI borehole database (bundled offline, no sync needed).</div>
+      <div class="tabpane active" data-pane="map">
+        <div class="hint">Draw a rectangle (▭ tool, top-left of map) to select a site area — the coordinates fill in automatically, then search the CSDI borehole database (bundled offline, no sync needed).</div>
         <div id="map-canvas" style="height:420px;border:1px solid var(--border);border-radius:10px;overflow:hidden"></div>
         <div id="map-status" class="status" style="display:none"></div>
+        <div class="row" style="gap:14px;margin-top:8px;font-size:12px;color:var(--muted)">
+          <span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#3f9b46;border:1px solid #1e3c12;vertical-align:middle"></span> AGS stratigraphy available</span>
+          <span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#a8a196;border:1px solid #6b6250;vertical-align:middle"></span> location only (no AGS)</span>
+        </div>
 
         <h3 style="margin-top:12px">Bounding box</h3>
         <div class="grid2">
@@ -221,7 +238,8 @@
           <button class="gold" id="map-to-2d">Load into 2D Builder (with strata) →</button>
           <button class="ghost" id="map-to-3d" title="Prototype placeholder">Send to 3D Builder (not built)</button>
         </div>
-        <div class="hint">Loading pulls the <b>logged stratigraphy</b> for each borehole on demand from the CEDD AGS open-data archive (newer reports). Older reports with no digital AGS come in collar-only.</div>
+        <div id="load-status" class="status" style="display:none"></div>
+        <div class="hint">Only boreholes with AGS data (green) are loaded — their <b>logged stratigraphy</b> is fetched on demand from the CEDD AGS open-data archive.</div>
       </div>
 
       <!-- HF -->
@@ -237,6 +255,11 @@
         <div id="hf-status" class="status" style="display:none"></div>
       </div>
     </div>
+  </div>
+
+  <!-- global loading toast (bottom-right) -->
+  <div id="toast">
+    <span class="spinner"></span><span id="toast-msg"></span>
   </div>
 
   <script type="module" src="builder.js"></script>
