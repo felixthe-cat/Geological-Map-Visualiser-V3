@@ -2,9 +2,11 @@
 // Projects boreholes onto the A→B line (HK1980 metres), keeps those within a
 // corridor either side, and orders them by distance along the line. Kept
 // dependency-free so it runs under Node for the self-check (test_section_geom.mjs).
-export function sectionStations(A, B, holes){
+export function sectionStations(A, B, holes, corridor){
   const dx=B.e-A.e, dy=B.n-A.n, len=Math.hypot(dx,dy);
-  const corridor=Math.max(30, len*0.4);          // half-width either side (m)
+  // half-width either side of the line (m). Caller may pass an explicit
+  // tolerance (slider); otherwise scale with line length.
+  if (!(corridor > 0)) corridor = Math.max(30, len*0.4);
   const stations=[], inSet=new Set();
   if (len>=1){
     for (const bh of holes){

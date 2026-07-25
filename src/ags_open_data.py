@@ -173,6 +173,104 @@ def classify_surface(geo2: str | None, leg: str | None, geol: str | None) -> str
     return (leg or geol or "").strip()
 
 
+# ── decomposition grade (GeoGuide 3, Table 4) ───────────────────────────────
+# GEOL_GEO2 is often blank in older AGS3 reports, but the material description
+# (GEOL_DESC) reliably states the weathering/decomposition grade in words —
+# "completely decomposed GRANITE", "highly decomposed", "(ALLUVIUM)" etc. We
+# read the description when GEO2 is missing so the same grading code (SANDZG,
+# SILTCS…) is correctly split into its real grade/origin. We return BOTH a
+# clean material name AND a grade tag; transported soils get no rock grade.
+_DESC_DECOMP = [                    # priority by earliest mention in the text
+    ("residual soil",        "VI"),
+    ("completely decomposed", "V"),
+    ("highly decomposed",    "IV"),
+    ("moderately decomposed", "III"),
+    ("slightly decomposed",  "II"),
+]
+_DESC_ROCK = [("granite", "Granite"), ("tuff", "Tuff"), ("rhyolite", "Rhyolite"),
+              ("volcanic", "Volcanics"), ("quartz", "Quartzite"), ("sandstone", "Sandstone"),
+              ("siltstone", "Siltstone"), ("mudstone", "Mudstone"), ("marble", "Marble"),
+              ("breccia", "Breccia")]
+_DESC_ORIGIN = [("marine", "Marine Deposit"), ("alluvi", "Alluvium"), ("colluvi", "Colluvium")]
+_ROCK_LETTER = {"Granite": "G", "Tuff": "T", "Quartzite": "QZ", "Volcanics": "V",
+                "Rhyolite": "R", "Sandstone": "SS", "Siltstone": "SLT", "Mudstone": "MD",
+                "Marble": "MB", "Breccia": "BR", "Rock": "R"}
+_DECOMP_LABEL = {"V": "Completely Decomposed", "IV": "Highly Decomposed",
+                 "III": "Moderately Decomposed", "II": "Slightly Decomposed"}
+_DECOMP_PREFIX = {"V": "C", "IV": "H", "III": "M", "II": "S"}
+
+
+def _grade_tag(roman: str, rock: str) -> str:
+    if roman == "VI":
+        return "VI (RS)"
+    if roman == "I":
+        return "I (Fresh)"
+    return f"{roman} ({_DECOMP_PREFIX[roman]}D{_ROCK_LETTER.get(rock, 'R')})"
+
+
+def _rock_in(desc: str) -> str:
+    for kw, name in _DESC_ROCK:
+        if kw in desc:
+            return name
+    return "Rock"
+
+
+def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
+    """Return (surface_label, grade_label) for one GEOL row.
+    surface = clean material name; grade = GeoGuide 3 decomposition-grade tag
+    (e.g. "V (CDG)", "IV (HDG)", "VI (RS)", "I (Fresh)") for weathered rock /
+    residual soil, or "" for transported soils (Fill/Alluvium/Marine) & unknown."""
+    d = (desc or "").lower()
+    g2 = (geo2 or "").strip().upper()
+
+    # 1. Authoritative GEO2 rock-grade code (CDG/HDG/MDG/SDG/CDT/SDQZ…)
+    if len(g2) > 2 and g2[:2] in _GRADE_PREFIX:
+        roman, label = _GRADE_PREFIX[g2[:2]]
+        rock = _ROCK_SUFFIX.get(g2[2:], g2[2:].title())
+        return f"{label} {rock} (Grade {roman})", _grade_tag(roman, rock)
+    if g2 in _ROCK_SUFFIX:                                  # bare rock code -> fresh
+        return f"Fresh {_ROCK_SUFFIX[g2]} (Grade I)", "I (Fresh)"
+    # 2. GEO2 origin codes
+    if g2 in _ORIGIN_EXACT:
+        surf = _ORIGIN_EXACT[g2]
+        return surf, ("VI (RS)" if surf == "Residual Soil" else "")
+    if g2.startswith("ALL"):
+        return "Alluvium", ""
+    if g2.startswith("MAD"):
+        return "Marine Deposit", ""
+
+    # 3. GEO2 missing/unknown -> read the description (earliest-mentioned grade wins)
+    pos, sel = None, None
+    for kw, roman in _DESC_DECOMP:
+        p = d.find(kw)
+        if p >= 0 and (pos is None or p < pos):
+            pos, sel = p, roman
+    if sel == "VI":
+        rock = _rock_in(d)
+        return (f"Residual Soil ({rock})" if rock != "Rock" else "Residual Soil"), "VI (RS)"
+    if sel:
+        rock = _rock_in(d)
+        return f"{_DECOMP_LABEL[sel]} {rock} (Grade {sel})", _grade_tag(sel, rock)
+    if "fresh" in d and _rock_in(d) != "Rock":
+        rock = _rock_in(d)
+        return f"Fresh {rock} (Grade I)", "I (Fresh)"
+    # transported soils / made ground from the description
+    if "asphalt" in d:
+        return "Made Ground (Asphalt)", ""
+    if "concrete" in d:
+        return "Made Ground (Concrete)", ""
+    for kw, origin in _DESC_ORIGIN:
+        if kw in d:
+            return origin, ""
+
+    # 4. GEOL_LEG/GEOL as a recognised origin, else raw grading code (last resort)
+    lg = (leg or geol or "").strip().upper()
+    if lg in _ORIGIN_EXACT:
+        surf = _ORIGIN_EXACT[lg]
+        return surf, ("VI (RS)" if surf == "Residual Soil" else "")
+    return ((leg or "").strip() or (geol or "").strip() or g2 or "Unknown"), ""
+
+
 def merge_consecutive_layers(layers: list[dict], eps: float = 0.05) -> list[dict]:
     """Collapse adjacent layers (already sorted by top) that share the same
     classified surface and are contiguous (small gap/overlap tolerated) —
@@ -182,7 +280,8 @@ def merge_consecutive_layers(layers: list[dict], eps: float = 0.05) -> list[dict
     out = [dict(layers[0])]
     for L in layers[1:]:
         prev = out[-1]
-        if L["surface"] == prev["surface"] and abs(L["top"] - prev["base"]) <= eps:
+        if (L["surface"] == prev["surface"] and L.get("grade") == prev.get("grade")
+                and abs(L["top"] - prev["base"]) <= eps):
             prev["base"] = max(prev["base"], L["base"])
         else:
             out.append(dict(L))
@@ -207,9 +306,10 @@ def _add_record(cur, head, row, loca, geol):
         except (TypeError, ValueError):
             pass
     elif g == "GEOL":                               # stratigraphy group
-        surface = classify_surface(rec.get("GEOL_GEO2"), rec.get("GEOL_LEG"), rec.get("GEOL_GEOL"))
+        surface, grade = classify_layer(rec.get("GEOL_GEO2"), rec.get("GEOL_LEG"),
+                                        rec.get("GEOL_GEOL"), rec.get("GEOL_DESC"))
         try:
-            geol.append((pid, float(rec["GEOL_TOP"]), float(rec["GEOL_BASE"]), surface))
+            geol.append((pid, float(rec["GEOL_TOP"]), float(rec["GEOL_BASE"]), surface, grade))
         except (KeyError, TypeError, ValueError):
             pass
 
@@ -218,7 +318,7 @@ def parse_ags_any(text: str):
     """Tolerant parser handling BOTH AGS4 (GROUP/HEADING/DATA) and AGS3
     (**GROUP / *HEADING / bare data rows). Returns (loca, geol):
         loca = {id: (nate, natn, gl)}
-        geol = [(id, top, base, surface), ...]
+        geol = [(id, top, base, surface, grade), ...]
     """
     loca: dict[str, tuple] = {}
     geol: list[tuple] = []
@@ -273,8 +373,8 @@ def parse_report(repno: str, manifest: dict) -> dict:
     loca, geol = parse_ags_any(text)
 
     layers_by_id: dict[str, list] = {}
-    for pid, top, base, surface in geol:
-        layers_by_id.setdefault(pid, []).append({"surface": surface, "top": top, "base": base})
+    for pid, top, base, surface, grade in geol:
+        layers_by_id.setdefault(pid, []).append({"surface": surface, "top": top, "base": base, "grade": grade})
     for pid, lst in layers_by_id.items():
         lst.sort(key=lambda l: l["top"])
         layers_by_id[pid] = merge_consecutive_layers(lst)
@@ -351,13 +451,27 @@ def demo():
     l3, g3 = parse_ags_any(ags3)
     lw, gw = parse_ags_any(ags3_wrapped)
     assert l4["BH1"] == (800000.0, 820000.0, 15.0), l4
-    assert len(g4) == 2 and g4[0][3] == "FILL", g4
+    assert len(g4) == 2 and g4[0][3] == "Fill", g4          # LEG=FILL -> recognised origin "Fill"
     assert l3["BH2"] == (801000.0, 821000.0, 20.0), l3
     assert len(g3) == 2 and g3[1][3] == "HDG", g3
     # wrapped-heading AGS3: id + GL recovered, and GEO2 preferred over LEG
     assert lw["B 1"] == (833678.0, 822552.0, 51.87), lw
     assert len(gw) == 2 and gw[0][0] == "B 1", gw
     assert gw[1][3] == "Completely Decomposed Granite (Grade V)", gw   # GEOL_GEO2=CDG wins over LEG=SANDZG
+
+    # decomposition grade from description text when GEOL_GEO2 is blank
+    assert classify_layer("CDG", "SANDZG", "L", "") == (
+        "Completely Decomposed Granite (Grade V)", "V (CDG)")                     # GEO2 authoritative
+    assert classify_layer("", "SANDZG", "L", "completely decomposed medium grained GRANITE") == (
+        "Completely Decomposed Granite (Grade V)", "V (CDG)")                     # from description
+    assert classify_layer("", "GRAVS", "L", "highly decomposed medium grained GRANITE") == (
+        "Highly Decomposed Granite (Grade IV)", "IV (HDG)")
+    assert classify_layer("", "GRANITE", "L", "slightly decomposed medium grained GRANITE") == (
+        "Slightly Decomposed Granite (Grade II)", "II (SDG)")
+    assert classify_layer("", "SILTCS", "Q", "Firm, grey, sandy clayey SILT. (ALLUVIUM)") == (
+        "Alluvium", "")                                                          # transported soil, no rock grade
+    assert classify_layer("", "FILL", "Q", "Brown, sandy gravel") == ("Fill", "")  # LEG=FILL origin
+    assert classify_layer("", "CLAYZ", "Q", "Stiff CLAY. (RESIDUAL SOIL)")[1] == "VI (RS)"
 
     # classification: verified against real CEDD AGS files (report 71936 BH3, report 73528)
     assert classify_geo2("FILL") == "Fill"

@@ -76,8 +76,10 @@
     .toggle button.on{background:var(--forest);color:#fff}
     details{margin-top:12px;border:1px solid var(--border);border-radius:8px;background:var(--card2);padding:6px 10px}
     summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--forest-d)}
-    /* single-column when the entry panel is hidden (Site Map tab) */
-    .wrap.map-mode{grid-template-columns:1fr}
+    /* single-column when the entry panel is hidden (Site Map tab / collapsed section) */
+    .wrap.map-mode,.wrap.section-wide{grid-template-columns:1fr}
+    /* decomposition-grade cell in the layer table */
+    table.layers td.grade{width:74px;font-size:11px;font-weight:600;color:#2f5a1e;text-align:center;white-space:nowrap}
     /* AGS-availability colours in the results table */
     table.mini tr.has-ags td{color:#2f5a1e}
     table.mini tr.no-ags td{color:#9a9284}
@@ -146,6 +148,7 @@
           <th id="th-top">From (m)</th>
           <th id="th-base">To (m)</th>
           <th>Stratum</th>
+          <th title="GeoGuide 3, Table 4">Grade</th>
           <th></th>
         </tr></thead>
         <tbody id="layer-body"></tbody>
@@ -192,19 +195,29 @@
 
       <!-- SECTION -->
       <div class="tabpane" data-pane="section">
-        <h3 style="margin:0 0 4px">Site Plan (satellite)</h3>
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h3 style="margin:0 0 4px">Site Plan (satellite)</h3>
+          <button class="ghost mini" id="sec-collapse" title="Collapse the data-entry panel for a full-width section">⟨ Collapse panel</button>
+        </div>
         <div class="hint">Drag either end of the <b style="color:#d33">red section line</b> on the satellite map to move, rotate or resize the cross-section. Boreholes near the line turn <b style="color:#2f5a1e">green</b> (included); the section below updates live.</div>
         <div class="viz" id="siteplan-viz" style="padding:0;min-height:320px"></div>
 
-        <div class="row" style="align-items:center;margin-top:14px">
-          <div class="field" style="flex:1">
-            <label>Vertical exaggeration</label>
-            <input type="range" id="sec-vex" min="1" max="10" step="0.5" value="2">
-            <span id="sec-vex-val">2×</span>
+        <div class="row" style="align-items:flex-start;margin-top:14px;gap:18px">
+          <div style="flex:1">
+            <div class="field">
+              <label>Vertical exaggeration</label>
+              <input type="range" id="sec-vex" min="1" max="10" step="0.5" value="2">
+              <span id="sec-vex-val">2×</span>
+            </div>
+            <div class="field">
+              <label>Distance tolerance</label>
+              <input type="range" id="sec-tol" min="10" max="500" step="5" value="100">
+              <span id="sec-tol-val">100 m</span>
+            </div>
           </div>
           <button class="ghost" id="sec-png">Export PNG</button>
         </div>
-        <div class="hint">Coloured bands linearly interpolate each stratum's top &amp; base between adjacent boreholes. Missing layers pinch out.</div>
+        <div class="hint">Bands are grouped &amp; coloured by <b>decomposition grade</b> (GeoGuide 3). Tolerance sets how far a borehole can sit from the section line and still be included.</div>
         <div class="viz" id="sec-viz"></div>
       </div>
 

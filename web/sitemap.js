@@ -23,7 +23,7 @@ const HK1980 =
 const BOREHOLE_INDEX = 'data/boreholes.csv';
 const AGS_REPNOS_URL = 'data/ags_repnos.json';              // report numbers that have digital AGS
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';   // stratigraphy backend (CEDD AGS)
-const MAX_IMPORT = 40;                                       // boreholes pushed to the builder
+const MAX_IMPORT = 300;                                      // safety cap on boreholes pushed to the builder
 
 let AGS_SET = null;   // Set of REPNOs that have AGS data
 
@@ -224,14 +224,23 @@ async function loadInto2D(){
     return;
   }
 
+  // per-report lookup, plus a whitespace/case-normalized index so CSDI station
+  // ids like "BH 1" still match AGS ids logged as "BH  1" / "bh1".
+  const normKey = s => String(s||'').replace(/\s+/g,' ').trim().toUpperCase();
+  const normIndex = {};
+  for (const [rep, stations] of Object.entries(strat)){
+    const m = {}; for (const k in stations) m[normKey(k)] = stations[k];
+    normIndex[rep] = m;
+  }
+
   const boreholes = [];
   let skipped = 0;
   picked.forEach((b,i)=>{
     const id = (b.statno || b.repno || `CSDI-${i+1}`).toString().trim() || `CSDI-${i+1}`;
     const rep = strat[String(b.repno)];
-    const hit = rep ? (rep[id] || rep[String(b.statno).trim()]) : null;
+    const hit = rep ? (rep[id] || rep[String(b.statno).trim()] || (normIndex[String(b.repno)]||{})[normKey(id)]) : null;
     const layers = (hit && Array.isArray(hit.layers) ? hit.layers : [])
-      .map(L=>({ surface:L.surface||'?', top:+L.top, base:+L.base }))
+      .map(L=>({ surface:L.surface||'?', top:+L.top, base:+L.base, grade:L.grade||'' }))
       .filter(L=>Number.isFinite(L.top) && Number.isFinite(L.base));
     if (!layers.length){ skipped++; return; }          // no logged strata → don't export
     boreholes.push({

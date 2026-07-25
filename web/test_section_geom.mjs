@@ -16,6 +16,10 @@ assert(inSet.has('A') && inSet.has('C'), 'endpoint boreholes must not be dropped
 assert(!inSet.has('D'), 'borehole outside the corridor must be excluded');
 assert(Math.abs(stations[1].dist - 50) < 1e-9, 'B projects to 50 m along the line');
 
+// Explicit tolerance narrows the corridor: B (5 m off) drops out at tol=3 m.
+const tight = sectionStations({e:0,n:0}, {e:100,n:0}, holes, 3);
+assert.deepStrictEqual(tight.stations.map(s=>s.id), ['A','C'], 'tol=3m excludes B (5m off the line)');
+
 // Degenerate (zero-length) line yields nothing to draw.
 assert.strictEqual(sectionStations({e:0,n:0}, {e:0,n:0}, holes).stations.length, 0, 'zero-length line -> no stations');
 

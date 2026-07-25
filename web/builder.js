@@ -61,23 +61,43 @@ function colourFor(surface){
   return `hsl(${h},45%,58%)`;
 }
 
+// ---- decomposition grade (GeoGuide 3, Table 4) ----------------------
+// Imported layers carry a `grade` tag from the backend, e.g. "V (CDG)".
+// The cross-section groups & colours by grade *numeral* (all Grade V rock is
+// one band regardless of lithology); transported soils (no grade) fall back
+// to their material name & colour.
+const GRADE_LABEL = { VI:'Grade VI · Residual Soil', V:'Grade V · Completely Decomposed',
+  IV:'Grade IV · Highly Decomposed', III:'Grade III · Moderately Decomposed',
+  II:'Grade II · Slightly Decomposed', I:'Grade I · Fresh Rock' };
+const GRADE_COLOUR = { VI:'#a9743a', V:'#d8a24a', IV:'#c07d2e', III:'#9a6a2c',
+  II:'#8a8f98', I:'#5b6068' };
+function gradeRoman(grade){ const m=/^(VI|IV|III|II|V|I)\b/.exec((grade||'').trim()); return m?m[1]:''; }
+function classKey(l){ const r=gradeRoman(l.grade); return r ? ('G'+r) : (l.surface||''); }
+function classLabel(l){ const r=gradeRoman(l.grade); return r ? GRADE_LABEL[r] : (l.surface||'(unnamed)'); }
+function classColour(l){ const r=gradeRoman(l.grade); return r ? GRADE_COLOUR[r] : colourFor(l.surface); }
+
 // ---- STATE (source of truth) ----------------------------------------
 // state.boreholes = [{id,x,y,gl, layers:[{surface,top,base}]}]  (top/base = depth below GL)
 let state = { boreholes: [], activeIdx: 0, mode: 'depth', sitePlan: null };
 // Derived (consumed by renderers)
-let BH = {}; let STRAT = [];
+let BH = {}; let STRAT = [];                 // STRAT = ordered class keys (grade or surface)
+let STRAT_LABEL = {}, STRAT_COLOUR = {};     // class key -> legend label / colour
 
 function active(){ return state.boreholes[state.activeIdx]; }
 
 function syncDerived(){
   BH = {};
   const sumTop = {}, cntTop = {};
+  STRAT_LABEL = {}; STRAT_COLOUR = {};
   for (const bh of state.boreholes){
     BH[bh.id] = { x:bh.x, y:bh.y, gl:bh.gl,
-      layers: bh.layers.map(l=>({surface:l.surface, top:l.top, base:l.base})) };
+      layers: bh.layers.map(l=>({surface:l.surface, top:l.top, base:l.base, grade:l.grade||''})) };
     for (const l of bh.layers){
-      sumTop[l.surface] = (sumTop[l.surface]||0) + l.top;
-      cntTop[l.surface] = (cntTop[l.surface]||0) + 1;
+      const k = classKey(l);
+      sumTop[k] = (sumTop[k]||0) + l.top;
+      cntTop[k] = (cntTop[k]||0) + 1;
+      STRAT_LABEL[k] = classLabel(l);
+      STRAT_COLOUR[k] = classColour(l);
     }
   }
   STRAT = Object.keys(sumTop).sort((a,b)=> sumTop[a]/cntTop[a] - sumTop[b]/cntTop[b]);
@@ -153,8 +173,9 @@ function renderLayerTable(){
     tr.innerHTML =
       `<td class="num"><input type="number" step="0.1" data-i="${i}" data-f="top"  value="${round(dispVal(l.top))}"></td>`+
       `<td class="num"><input type="number" step="0.1" data-i="${i}" data-f="base" value="${round(dispVal(l.base))}"></td>`+
-      `<td><span class="swatch" style="background:${colourFor(l.surface)}"></span>`+
+      `<td><span class="swatch" style="background:${classColour(l)}"></span>`+
         `<input type="text" data-i="${i}" data-f="surface" value="${escapeHtml(l.surface)}" style="width:calc(100% - 20px)"></td>`+
+      `<td class="grade" title="Decomposition grade (GeoGuide 3, Table 4)">${escapeHtml(l.grade||'—')}</td>`+
       `<td class="act"><span class="rm" data-rm="${i}" title="Remove">✕</span></td>`;
     body.appendChild(tr);
   });
@@ -267,8 +288,9 @@ function renderLog(id){
     const midY=(y0+y1)/2, lx=mL+colW+(showElev?46:8);
     svg.appendChild(el('line',{x1:mL+colW,y1:midY,x2:lx,y2:midY,stroke:'#b0a68f','stroke-width':.6}));
     svg.appendChild(el('rect',{x:lx,y:midY-5,width:10,height:10,fill:c,stroke:'#3d3529','stroke-width':.6}));
-    svg.appendChild(el('text',{x:lx+15,y:midY-1,'font-size':11,'font-weight':600,fill:'#1a1a0f'},l.surface||'(unnamed)'));
-    svg.appendChild(el('text',{x:lx+15,y:midY+11,'font-size':9.5,fill:'#6b6250'},`${l.top}–${l.base} m`));
+    svg.appendChild(el('text',{x:lx+15,y:midY-3,'font-size':11,'font-weight':600,fill:'#1a1a0f'},l.surface||'(unnamed)'));
+    svg.appendChild(el('text',{x:lx+15,y:midY+8,'font-size':9.5,fill:'#6b6250'},`${l.top}–${l.base} m`));
+    if (l.grade) svg.appendChild(el('text',{x:lx+15,y:midY+19,'font-size':9.5,'font-weight':600,fill:'#2f5a1e'},`Grade ${l.grade}`));
   }
   svg.appendChild(el('rect',{x:mL,y:mT,width:colW,height:plotH,fill:'none',stroke:'#3d3529'}));
   box.appendChild(svg);
@@ -340,11 +362,11 @@ async function renderSitePlan(){
   secMap.fitBounds(expanded);
   setTimeout(()=>secMap.invalidateSize(),60);
 
-  // reference site-boundary rectangle
+  // reference site-boundary rectangle (thick & bright so it reads clearly on satellite)
   if (secBoundaryRect){ secMap.removeLayer(secBoundaryRect); secBoundaryRect=null; }
   if (sp && sp.bounds && Number.isFinite(sp.bounds.latMin)){
     secBoundaryRect=L.rectangle([[sp.bounds.latMin,sp.bounds.lngMin],[sp.bounds.latMax,sp.bounds.lngMax]],
-      {color:'#b8860b',weight:1.4,dashArray:'5,3',fill:false}).addTo(secMap);
+      {color:'#ffd24a',weight:4,opacity:1,dashArray:'10,6',fill:false}).addTo(secMap);
   }
 
   if (!sectionLine) sectionLine=defaultLine(holes);
@@ -377,7 +399,9 @@ function updateSection(){
   if (!secMap || !sectionLine) return;
   const A=toEN(...sectionLine.a), B=toEN(...sectionLine.b);
   const holes=sectionHoles();
-  const { stations, inSet } = sectionStations(A, B, holes);
+  const tolEl=document.getElementById('sec-tol');
+  const corridor = tolEl ? +tolEl.value : undefined;   // task 5: user-set distance tolerance (m)
+  const { stations, inSet } = sectionStations(A, B, holes, corridor);
   secBhLayer.clearLayers();
   for (const bh of holes){
     const inSec=inSet.has(bh.id);
@@ -401,8 +425,11 @@ function buildHorizons(id){
   const horizons = [bh.gl];
   for (const s of STRAT){
     const top = horizons[horizons.length-1];
-    const layer = bh.layers.find(l=>l.surface===s);
-    horizons.push(layer ? Math.min(bh.gl - layer.base, top) : top);
+    // deepest base among all layers of this class (grade numeral or surface),
+    // so several bands that share a grade collapse to one envelope
+    const matched = bh.layers.filter(l=>classKey(l)===s);
+    const deepestBase = matched.length ? Math.max(...matched.map(l=>l.base)) : null;
+    horizons.push(deepestBase!=null ? Math.min(bh.gl - deepestBase, top) : top);
   }
   return horizons;
 }
@@ -424,7 +451,12 @@ function renderSection(stations, vex){
   for (const id of ids){ const bh=BH[id]; eMax=Math.max(eMax,bh.gl); for (const l of bh.layers) eMin=Math.min(eMin,bh.gl-l.base); }
   const eRange=(eMax-eMin)||1;
 
-  const mL=56, mR=20, mT=56, mB=40, plotW=Math.max(520,total*0.9);
+  // Fill the available container width (grows when the entry panel is collapsed),
+  // reserving a right-hand legend gutter and sensible margins.
+  const box0=document.getElementById('sec-viz');
+  const legendW=205, mL=56, mR=20+legendW, mT=56, mB=40;
+  const avail=(box0 && box0.clientWidth ? box0.clientWidth : 900) - 24; // minus viz padding
+  const plotW=Math.max(480, avail - mL - mR);
   const xPxPerM=plotW/total, yPxPerM=xPxPerM*vex, plotH=eRange*yPxPerM;
   const W=mL+plotW+mR, H=mT+plotH+mB;
   const svg=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
@@ -445,7 +477,7 @@ function renderSection(stations, vex){
 
   const horizonsByHole = {}; ids.forEach(id=>{ horizonsByHole[id]=buildHorizons(id); });
   for (let k=0;k<STRAT.length;k++){
-    const c=colourFor(STRAT[k]);
+    const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
     for (let i=0;i<ids.length-1;i++){
       const hA=horizonsByHole[ids[i]], hB=horizonsByHole[ids[i+1]];
       const topA=hA[k], baseA=hA[k+1], topB=hB[k], baseB=hB[k+1];
@@ -462,16 +494,21 @@ function renderSection(stations, vex){
     const bh=BH[id], x=X(dist[i]), w=8;
     for (const l of bh.layers){
       const y0=Y(elevAt(id,l.top)), y1=Y(elevAt(id,l.base));
-      svg.appendChild(el('rect',{x:x-w/2,y:y0,width:w,height:Math.max(0,y1-y0),fill:colourFor(l.surface),stroke:'#1a1a0f','stroke-width':.8}));
+      svg.appendChild(el('rect',{x:x-w/2,y:y0,width:w,height:Math.max(0,y1-y0),fill:classColour(l),stroke:'#1a1a0f','stroke-width':.8}));
     }
     svg.appendChild(el('line',{x1:x,y1:mT+plotH,x2:x,y2:mT+plotH+6,stroke:'#6b6250'}));
     svg.appendChild(el('text',{x:x,y:mT+plotH+18,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#1e3c12'},id));
     svg.appendChild(el('text',{x:x,y:mT+plotH+30,'font-size':9,'text-anchor':'middle',fill:'#6b6250'},`${dist[i].toFixed(0)} m`));
   });
-  let ly=mT+8;
+  // legend (by decomposition grade / material), in the right-hand gutter
+  const lx=W-mR+8;
+  svg.appendChild(el('rect',{x:lx-6,y:mT-6,width:legendW-6,height:STRAT.length*16+22,
+    fill:'#fffdf8',opacity:.92,stroke:'#c8bda8','stroke-width':.8,rx:6}));
+  svg.appendChild(el('text',{x:lx,y:mT+8,'font-size':10,'font-weight':700,fill:'#1e3c12'},'Decomposition grade'));
+  let ly=mT+24;
   STRAT.forEach(s=>{
-    svg.appendChild(el('rect',{x:W-mR-96,y:ly-8,width:10,height:10,fill:colourFor(s),stroke:'#3d3529','stroke-width':.6}));
-    svg.appendChild(el('text',{x:W-mR-82,y:ly,'font-size':10,fill:'#1a1a0f'},s)); ly+=15;
+    svg.appendChild(el('rect',{x:lx,y:ly-8,width:11,height:11,fill:STRAT_COLOUR[s]||colourFor(s),stroke:'#3d3529','stroke-width':.6}));
+    svg.appendChild(el('text',{x:lx+16,y:ly+1,'font-size':10,fill:'#1a1a0f'},STRAT_LABEL[s]||s)); ly+=16;
   });
   box.appendChild(svg);
 }
@@ -523,10 +560,15 @@ function renderSectionFromUI(){ renderSitePlan(); }
 
 // The borehole-entry panel (left) is only relevant to the Log / Cross-Section /
 // 3D tabs — hide it on the Site Map tab and give the map full width.
+let sectionCollapsed = false;
 function applyTabLayout(tab){
-  const hideEntry = (tab === 'map');
+  const hideEntry = (tab === 'map') || (tab === 'section' && sectionCollapsed);
   document.getElementById('entry-panel').style.display = hideEntry ? 'none' : '';
-  document.getElementById('wrap').classList.toggle('map-mode', hideEntry);
+  const wrap = document.getElementById('wrap');
+  wrap.classList.toggle('map-mode', tab === 'map');
+  wrap.classList.toggle('section-wide', tab === 'section' && sectionCollapsed);
+  const cb = document.getElementById('sec-collapse');
+  if (cb) cb.textContent = sectionCollapsed ? '⟩ Show panel' : '⟨ Collapse panel';
 }
 
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -587,6 +629,14 @@ document.querySelectorAll('#mode-toggle button').forEach(b=>b.addEventListener('
 document.getElementById('log-elev').addEventListener('change', renderLogLive);
 document.getElementById('log-png').addEventListener('click', ()=>exportPNG(document.querySelector('#log-viz svg'),'borehole_log.png'));
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; if (secMap) updateSection(); });
+document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
+document.getElementById('sec-collapse').addEventListener('click', ()=>{
+  sectionCollapsed = !sectionCollapsed;
+  applyTabLayout('section');
+  // let the layout reflow, then resize the map and redraw the section to fit the new width
+  if (secMap){ setTimeout(()=>{ secMap.invalidateSize(); updateSection(); }, 80); }
+  else renderSectionFromUI();
+});
 document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'),'cross_section.png'));
 document.getElementById('hf-send').addEventListener('click', sendToHF);
 
