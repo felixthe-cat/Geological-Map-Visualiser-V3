@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import zipfile
 import zlib
 from typing import Iterable
@@ -280,6 +281,20 @@ def _rock_in(desc: str) -> str:
     return "Rock"
 
 
+# "…angular fine to medium gravel OF moderately decomposed rock fragments…" is a
+# soil containing rock clasts, not a rock mass. Blank those phrases out before
+# looking for decomposition / strength terms, so they describe only the material
+# itself. (Root cause of 28 stations reporting rockhead at 0.1-0.25 m depth.)
+_CLAST_OF = re.compile(
+    r"(?:fragments?|clasts?|gravels?|cobbles?|boulders?|pebbles?|stones?)\s+of\s+"
+    r"[^.,;]{0,40}?(?:completely|completley|highly|moderately|slightly)\s+"
+    r"(?:decomposed|strong|weak)[a-z ]{0,24}")
+
+
+def _strip_clast_phrases(d: str) -> str:
+    return _CLAST_OF.sub(" ", d)
+
+
 def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
     """Return (surface_label, grade_label) for one GEOL row.
     surface = clean material name; grade = GeoGuide 3 decomposition-grade tag
@@ -309,9 +324,19 @@ def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
     if g2.startswith("MAD"):
         return "Marine Deposit", ""
 
+    # 2b. An explicit FILL layer is Fill, whatever its description mentions.
+    #     Reclamation fill is routinely logged as e.g. "silty SAND with gravel of
+    #     moderately decomposed rock fragments. (FILL)" — reading the
+    #     decomposition word there put rockhead at 0.1 m depth on real sites.
+    lgf = (leg or "").strip().upper()
+    if lgf == "FILL" or "(fill)" in d:
+        return "Fill", ""
+
     # 3. Description decomposition word (earliest-mentioned grade wins). Handle a
     #    common misspelling ("completley") seen in real logs.
-    dd = d.replace("completley", "completely")
+    #    Clast phrases are stripped first: "gravel OF moderately decomposed rock
+    #    fragments" describes the stones inside a soil, not the mass itself.
+    dd = _strip_clast_phrases(d.replace("completley", "completely"))
     pos, sel = None, None
     for kw, roman in _DESC_DECOMP:
         p = dd.find(kw)
@@ -342,10 +367,12 @@ def classify_layer(geo2, leg, geol, desc) -> tuple[str, str]:
             return origin, ""
 
     # 5. Rock named in the description but no decomposition word → use strength
+    #    (also read from the clast-stripped text: "gravel of moderately strong
+    #    rock fragments" is a soil with stones in it, not a rock mass)
     rock = _rock_in(d)
     if rock != "Rock":
         for kw, roman in _DESC_STRENGTH:
-            if kw in d:
+            if kw in dd:
                 if roman == "I":
                     return f"Fresh {rock} (Grade I)", "I (Fresh)"
                 return f"{_DECOMP_LABEL[roman]} {rock} (Grade {roman})", _grade_tag(roman, rock)
@@ -718,6 +745,25 @@ def demo():
     assert classify_layer("", "SILTCS", "Q", "Firm, grey, sandy clayey SILT. (ALLUVIUM)") == (
         "Alluvium", "")                                                          # transported soil, no rock grade
     assert classify_layer("", "FILL", "Q", "Brown, sandy gravel") == ("Fill", "")  # LEG=FILL origin
+
+    # Clasts vs mass: reclamation fill is logged as "SAND with gravel OF moderately
+    # decomposed rock fragments. (FILL)". Reading that decomposition word put
+    # rockhead at 0.1-0.25 m on 28 real stations, so it must stay Fill.
+    real_fill = ("Brown (7.5YR 5/4), spotted white, silty fine to coarse SAND with occasional "
+                 "angular fine to medium gravel of moderately decomposed rock fragments and "
+                 "concrete fragments. (FILL)")
+    assert classify_layer("", "FILL", "Q", real_fill) == ("Fill", "")
+    assert classify_layer("", "", "Q", real_fill) == ("Fill", "")          # (FILL) marker alone
+    # same clast wording with no FILL marker at all -> still not a rock grade
+    assert classify_layer("", "", "Q", "Grey silty SAND with occasional gravel of "
+                          "moderately decomposed rock fragments.")[1] == ""
+    assert classify_layer("", "", "Q", "Grey silty SAND with cobbles of moderately strong "
+                          "rock fragments.")[1] == ""
+    # a genuine rock mass is unaffected by the clast filter
+    assert classify_layer("", "", "L", "Moderately decomposed, moderately strong, grey GRANITE.") == (
+        "Moderately Decomposed Granite (Grade III)", "III (MDG)")
+    assert classify_layer("", "GRANITE", "L", "Slightly decomposed GRANITE with fragments of "
+                          "moderately decomposed granite.")[1] == "II (SDG)"
     assert classify_layer("", "CLAYZ", "Q", "Stiff CLAY. (RESIDUAL SOIL)")[1] == "VI (RS)"
 
     # classification: verified against real CEDD AGS files (report 71936 BH3, report 73528)

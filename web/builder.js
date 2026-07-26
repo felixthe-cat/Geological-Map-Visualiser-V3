@@ -653,7 +653,11 @@ const ctrOpt = id => document.getElementById(id);
 
 async function renderContour(){
   const box=document.getElementById('contour-viz');
-  const holes=sectionHoles();
+  // Trial pits are excluded by default: they bottom out in a few metres, so a
+  // "Grade III" layer in a TP is usually a boulder or obstruction rather than
+  // rockhead, and mixing them with boreholes puts spurious highs in the surface.
+  const bhOnly = ctrOpt('ctr-bh-only').checked;
+  const holes = sectionHoles().filter(b=>!bhOnly || (b.kind||'BH')!=='TP');
   const { rockheadPoints, gridInterp, contourLevels, contourLines } = await import('./contour.js');
   const maxGrade = ctrOpt('ctr-grade').value;
   const { points, missing } = rockheadPoints(holes, maxGrade);
@@ -727,7 +731,7 @@ async function renderContour(){
   const zs=points.map(p=>p.z);
   ctrCache={ points, missing, contours, isIndex, interval, ctrLabels, callouts, layout:null };
   layoutCtrLabels();
-  setCtrStatus(`${points.length} borehole(s) proved rock (Grade ${maxGrade} or better): rock level `+
+  setCtrStatus(`${points.length} ${bhOnly?'borehole':'location'}(s) proved rock (Grade ${maxGrade} or better): rock level `+
     `${Math.min(...zs).toFixed(2)} to ${Math.max(...zs).toFixed(2)} mPD. `+
     `${missing.length} borehole(s) did not reach rock (marked “rock N.E.”, excluded from the interpolation). `+
     `Contours every ${interval} m; index contours labelled.`,'ok');
@@ -1013,7 +1017,7 @@ document.getElementById('sp-base').addEventListener('change', e=>{
 document.getElementById('sp-export').addEventListener('click', exportSitePlan);
 
 // rock contour plan (task 8)
-['ctr-grade','ctr-method','ctr-int','ctr-labels','ctr-bh','ctr-boundary'].forEach(id=>
+['ctr-grade','ctr-method','ctr-int','ctr-labels','ctr-bh','ctr-bh-only','ctr-boundary'].forEach(id=>
   document.getElementById(id).addEventListener('change', renderContour));
 document.getElementById('ctr-base').addEventListener('change', e=>{
   if (ctrMap) setBase(ctrMap, 'ctr', e.target.value);
