@@ -156,6 +156,7 @@ function commit(){
   syncDerived(); renderLogLive();
   if (sectionActive() && secMap) updateSection();
   if (paneActive('contour')) renderContour();
+  if (paneActive('log')) renderLogPlan();
 }
 
 function onMetaChange(){
@@ -318,13 +319,83 @@ function renderLog(id){
 }
 function renderLogLive(){ const bh=active(); if(bh) renderLog(bh.id); }
 
+// ==== BOREHOLE LOG site map (pick a borehole) ================================
+// A plan of every borehole with coordinates, each labelled with its id. Clicking
+// one makes it the active borehole, so the data-entry panel and the log diagram
+// jump to it — the way to walk a site hole by hole.
+let lpMap=null, lpLayer=null, lpLabels=null;
+
+function logPlanHoles(){
+  return state.boreholes
+    .map((b,i)=>({ b, i }))
+    .filter(({b})=>Number.isFinite(b.x) && Number.isFinite(b.y) && (b.x||b.y));
+}
+
+async function renderLogPlan(){
+  const box=document.getElementById('logplan-viz');
+  if (!box) return;
+  const holes=logPlanHoles();
+  if (!holes.length){
+    if (lpMap){ lpMap.remove(); lpMap=null; lpLayer=lpLabels=null; }
+    box.innerHTML='<p class="hint" style="padding:8px">No borehole coordinates yet — load a site from the Site Map tab, or type an Easting/Northing in the panel on the left.</p>';
+    return;
+  }
+  await ensureMapLibs(); await ensurePlacer();
+  if (!lpMap){
+    box.innerHTML=''; box.style.padding='0';
+    lpMap=L.map(box,{zoomControl:true});
+    lpLayer=L.layerGroup().addTo(lpMap);
+    lpLabels=L.layerGroup().addTo(lpMap);
+    await setBase(lpMap, 'lp', document.getElementById('lp-base').value);
+    lpMap.fitBounds(L.latLngBounds(holes.map(({b})=>toLL(b.x,b.y))).pad(0.3));
+    // labels are placed in screen pixels, so re-solve them after any view change
+    lpMap.on('zoomend moveend', ()=>drawLogPlanMarkers());
+  }
+  setTimeout(()=>lpMap.invalidateSize(),60);
+  drawLogPlanMarkers();
+}
+
+function drawLogPlanMarkers(){
+  if (!lpMap) return;
+  const holes=logPlanHoles();
+  lpLayer.clearLayers(); lpLabels.clearLayers();
+  for (const {b,i} of holes){
+    const active = i===state.activeIdx;
+    const nLayers = b.layers.length;
+    L.circleMarker(toLL(b.x,b.y), {radius:active?8:5, color:active?'#1e3c12':'#1a1a0f',
+        weight:active?2.5:1.2, fillColor:active?'#3f9b46':(nLayers?'#e8e2d2':'#a8a196'), fillOpacity:1})
+      .bindTooltip(`<b>${esc(b.id)}</b><br>${nLayers} layer(s) · GL ${b.gl} mPD`+
+                   (active?'<br><i>shown below</i>':'<br>click to view'), {direction:'top'})
+      .on('click', ()=>selectBorehole(i))
+      .addTo(lpLayer);
+  }
+  const note=document.getElementById('lp-crowd');
+  if (document.getElementById('lp-names').checked){
+    const { dropped } = placePointLabels(lpMap, lpLabels,
+      holes.map(({b})=>({ id:b.id, ll:toLL(b.x,b.y), text:b.id })));
+    if (note) note.textContent = dropped
+      ? `${dropped} name(s) hidden — zoom in to place them (hover a symbol to identify it).` : '';
+  } else if (note) note.textContent='';
+}
+
+// Clicking a borehole on any plan makes it the one being edited & drawn.
+function selectBorehole(i){
+  if (i==null || i<0 || i>=state.boreholes.length) return;
+  state.activeIdx=i;
+  refreshInput();
+  renderLogLive();
+  drawLogPlanMarkers();     // move the highlight
+}
+
 // ---- Cross-section site map (Leaflet satellite) + draggable section line ----
 // The cross-section is defined by a draggable line drawn on a satellite map.
 // Boreholes are projected onto the line (within a corridor either side),
 // ordered by their position along it, and the section redraws live as the
 // line is moved / rotated / resized. Reuses Leaflet + proj4 from sitemap.js.
-let secMap=null, secBhLayer=null, secLinePoly=null, secHandleA=null, secHandleB=null, secBoundaryRect=null;
+let secMap=null, secBhLayer=null, secLabelLayer=null, secLinePoly=null, secHandleA=null,
+    secHandleB=null, secBoundaryRect=null;
 let sectionLine=null;   // {a:[lat,lng], b:[lat,lng]}
+let secPlanNames=[];    // solved label layout for the site-plan PNG export
 
 let _mapLibs=null;
 function ensureMapLibs(){ return _mapLibs || (_mapLibs=import('./sitemap.js').then(m=>m.ensureMapLibs())); }
@@ -345,6 +416,54 @@ async function setBase(map, key, name){
   if (_baseLayers[key]) _baseLayers[key].bringToBack();
 }
 
+// ---- de-cluttered point labels on a Leaflet map ----------------------------
+// Shared by the Borehole-Log site map and the cross-section site plan: borehole
+// ids are placed in the nearest free slot around each symbol with a leader line
+// back to it, so two holes a few metres apart never get swapped or overprinted
+// labels. Same placer as the rock-contour callouts (placeLabels in contour.js).
+// Returns the solved pixel layout so a PNG export can reproduce it exactly.
+const BHLABEL_FONT='600 11px Outfit, sans-serif';
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// The placer is loaded once up front so label drawing is SYNCHRONOUS: an async
+// version raced itself (clear-then-await-then-add), stacking three copies of
+// every name when the map fired zoomend/moveend while a placement was pending.
+let _placeLabels=null;
+async function ensurePlacer(){
+  if (!_placeLabels) _placeLabels=(await import('./contour.js')).placeLabels;
+  return _placeLabels;
+}
+function placePointLabels(map, group, items, opts={}){
+  const placeLabels = _placeLabels;
+  if (!placeLabels) return { layout:[], dropped:items.length };   // ensurePlacer() not awaited yet
+  const font = opts.font || BHLABEL_FONT;
+  const size = map.getSize();
+  const px = ll => { const p=map.latLngToContainerPoint(L.latLng(ll[0],ll[1])); return [p.x,p.y]; };
+  const toLLp = ([x,y]) => { const g=map.containerPointToLatLng(L.point(x,y)); return [g.lat,g.lng]; };
+  // every symbol is an obstacle, so a label never buries another borehole
+  const symbols = items.map(it=>{ const [x,y]=px(it.ll); return {x:x-8, y:y-8, w:16, h:16}; });
+  const anchors = items.map((it,i)=>{
+    const [x,y]=px(it.ll);
+    return { key:i, x, y, w:textWidth(it.text, font)+7, h:15 };
+  });
+  const placed = placeLabels(anchors, { obstacles:symbols,
+    bounds:{x:2, y:2, w:size.x-4, h:size.y-4} });
+  const byKey = new Map(placed.map(p=>[p.key,p]));
+  const layout=[];
+  items.forEach((it,i)=>{
+    const p=byKey.get(i);
+    if (!p || !p.placed) return;         // no room: the symbol keeps its tooltip
+    if (p.leader) L.polyline([toLLp(p.leader[0]), toLLp(p.leader[1])],
+      {color:opts.leaderColour||'#1a1a0f', weight:0.8, opacity:.85, interactive:false}).addTo(group);
+    L.marker(it.ll,{interactive:false, icon:L.divIcon({className:opts.className||'bh-label',
+      html:esc(it.text), iconSize:[p.box.w, p.box.h], iconAnchor:[-p.dx, -p.dy]})}).addTo(group);
+    const [x,y]=px(it.ll);
+    layout.push({ ll:it.ll, text:it.text, dx:p.dx, dy:p.dy,
+                  leader:p.leader ? [p.leader[1][0]-x, p.leader[1][1]-y] : null });
+  });
+  return { layout, dropped: items.length - layout.length };
+}
+
 function toLL(e,n){ const r=proj4('HK1980','EPSG:4326',[e,n]); return [r[1], r[0]]; }   // -> [lat,lng]
 function toEN(lat,lng){ const r=proj4('EPSG:4326','HK1980',[lng,lat]); return {e:r[0], n:r[1]}; }
 function sectionHoles(){ return state.boreholes.filter(b=>b.layers.length && Number.isFinite(b.x) && Number.isFinite(b.y)); }
@@ -362,7 +481,8 @@ function defaultLine(holes){
 
 function destroySecMap(){
   if (secMap){ secMap.remove(); secMap=null; }
-  secBhLayer=secLinePoly=secHandleA=secHandleB=secBoundaryRect=null;
+  secBhLayer=secLabelLayer=secLinePoly=secHandleA=secHandleB=secBoundaryRect=null;
+  secPlanNames=[];
 }
 
 async function renderSitePlan(){
@@ -374,7 +494,7 @@ async function renderSitePlan(){
     box.innerHTML='<p class="hint" style="padding:8px">Load boreholes from the Site Map tab, or add 2+ boreholes with coordinates, to define a cross-section.</p>';
     return;
   }
-  await ensureMapLibs();
+  await ensureMapLibs(); await ensurePlacer();
 
   // View bounds ≈50% larger than the site boundary (or the borehole spread).
   const lls = holes.map(b=>toLL(b.x,b.y));
@@ -393,7 +513,10 @@ async function renderSitePlan(){
     box.innerHTML=''; box.style.padding='0';
     secMap=L.map(box,{zoomControl:true});
     secBhLayer=L.layerGroup().addTo(secMap);
+    secLabelLayer=L.layerGroup().addTo(secMap);
     await setBase(secMap, 'sp', document.getElementById('sp-base').value);
+    // borehole-name placement is solved in screen pixels: re-solve on view change
+    secMap.on('zoomend moveend', ()=>drawPlanNames());
   }
   secMap.setMaxBounds(expanded);
   secMap.fitBounds(expanded);
@@ -448,7 +571,24 @@ function updateSection(){
       fillColor:inSec?'#2f5a1e':'#a8a196',fillOpacity:.9})
       .bindTooltip(bh.id).addTo(secBhLayer);
   }
+  drawPlanNames(allHoles);
   renderSection(stations, +document.getElementById('sec-vex').value, lineLen);
+}
+
+// Borehole names on the site plan (task 2). De-cluttered with leader lines so
+// closely-spaced holes can't be confused, and the solved layout is kept so the
+// PNG export puts the names exactly where the preview shows them.
+function drawPlanNames(holes){
+  if (!secMap || !secLabelLayer) return;
+  secLabelLayer.clearLayers();
+  secPlanNames=[];
+  const note=document.getElementById('sp-crowd');
+  if (!document.getElementById('sp-names')?.checked){ if (note) note.textContent=''; return; }
+  const list=(holes||sectionHoles()).map(b=>({ id:b.id, ll:toLL(b.x,b.y), text:b.id }));
+  const { layout, dropped } = placePointLabels(secMap, secLabelLayer, list);
+  secPlanNames=layout;
+  if (note) note.textContent = dropped
+    ? `${dropped} name(s) hidden to keep the plan readable — zoom in to place them.` : '';
 }
 
 // Build monotonic horizon boundaries for one borehole, in the GLOBAL
@@ -609,8 +749,10 @@ function setSpStatus(msg, cls){
 }
 async function exportSitePlan(){
   if (!secMap){ setSpStatus('Load boreholes first — there is no site plan to export yet.','err'); return; }
-  const { exportMapPNG, paintPolyline, paintMarker, paintText } = await mapExport();
+  const { exportMapPNG, paintPolyline, paintMarker, paintText,
+          paintPixelLine, paintPixelText } = await mapExport();
   const sp=state.sitePlan, holes=sectionHoles();
+  const names=secPlanNames;                     // solved against the current view
   const inSet = sectionLine
     ? sectionStations(toEN(...sectionLine.a), toEN(...sectionLine.b), holes,
         +document.getElementById('sec-tol').value).inSet
@@ -633,8 +775,15 @@ async function exportSitePlan(){
       }
       for (const bh of holes){
         const on=inSet.has(bh.id);
-        paintMarker(ctx, project, toLL(bh.x,bh.y), bh.id,
+        paintMarker(ctx, project, toLL(bh.x,bh.y), null,
           {radius:on?5:4, fill:on?'#2f5a1e':'#a8a196'});
+      }
+      // borehole names in the de-cluttered positions the preview is showing
+      for (const n of names){
+        const [x,y]=project(n.ll);
+        if (n.leader) paintPixelLine(ctx, [x,y], [x+n.leader[0], y+n.leader[1]], {weight:0.8});
+        paintPixelText(ctx, x+n.dx+3, y+n.dy+11, n.text,
+          {font:BHLABEL_FONT, color:'#fff', halo:'#000'});
       }
     }
   });
@@ -935,6 +1084,7 @@ function setPanelCollapsed(flag){
   // let the layout reflow, then resize the map & redraw the section to fit the new width
   if (secMap){ setTimeout(()=>{ secMap.invalidateSize(); if (sectionActive()) updateSection(); }, 80); }
   if (ctrMap){ setTimeout(()=>ctrMap.invalidateSize(), 80); }
+  if (lpMap){ setTimeout(()=>{ lpMap.invalidateSize(); drawLogPlanMarkers(); }, 80); }
   renderLogLive();
 }
 
@@ -945,7 +1095,7 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelector(`.tabpane[data-pane="${t.dataset.tab}"]`).classList.add('active');
   applyTabLayout(t.dataset.tab);
   if (t.dataset.tab==='section') renderSectionFromUI();
-  if (t.dataset.tab==='log') renderLogLive();
+  if (t.dataset.tab==='log'){ renderLogLive(); renderLogPlan(); }
   if (t.dataset.tab==='map') openSiteMap();
   if (t.dataset.tab==='contour') renderContour();
 }));
@@ -982,7 +1132,7 @@ async function openSiteMap(){
 }
 
 // borehole manager
-document.getElementById('bh-select').addEventListener('change', e=>{ state.activeIdx=+e.target.value; refreshInput(); renderLogLive(); });
+document.getElementById('bh-select').addEventListener('change', e=>selectBorehole(+e.target.value));
 document.getElementById('bh-add').addEventListener('click', addBorehole);
 document.getElementById('bh-del').addEventListener('click', delBorehole);
 ['m-id','m-gl','m-x','m-y'].forEach(id=>document.getElementById(id).addEventListener('input', onMetaChange));
@@ -1010,11 +1160,18 @@ document.getElementById('panel-collapse').addEventListener('click', ()=>setPanel
 document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));
 document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'),'cross_section.png'));
 
-// site plan base map + image export (task 6)
+// site plan base map + names + image export (tasks 6 & 2)
 document.getElementById('sp-base').addEventListener('change', e=>{
   if (secMap) setBase(secMap, 'sp', e.target.value);
 });
+document.getElementById('sp-names').addEventListener('change', ()=>drawPlanNames());
 document.getElementById('sp-export').addEventListener('click', exportSitePlan);
+
+// borehole-log site map: base map, name toggle (task 1)
+document.getElementById('lp-base').addEventListener('change', e=>{
+  if (lpMap) setBase(lpMap, 'lp', e.target.value);
+});
+document.getElementById('lp-names').addEventListener('change', drawLogPlanMarkers);
 
 // rock contour plan (task 8)
 ['ctr-grade','ctr-method','ctr-int','ctr-labels','ctr-bh','ctr-bh-only','ctr-boundary'].forEach(id=>

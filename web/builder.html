@@ -132,6 +132,12 @@
     .sec-handle{background:#d33;border:2px solid #fff;border-radius:50%;
       box-shadow:0 1px 4px rgba(0,0,0,.45);cursor:move}
     #siteplan-viz .leaflet-container{height:320px;border-radius:10px}
+    #logplan-viz .leaflet-container{height:300px;border-radius:10px;cursor:pointer}
+    /* borehole name on a map: white halo so it reads over satellite imagery */
+    .bh-label{font:600 11px/15px Outfit,sans-serif;color:#fff;white-space:nowrap;
+      text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
+    .bh-label-dark{font:600 11px/15px Outfit,sans-serif;color:#1a1a0f;white-space:nowrap;
+      text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
     /* rock contour plan — engineering-drawing look */
     #contour-viz .leaflet-container{height:460px;border-radius:10px;background:#fff}
     /* contour index label: centred on its line. Callouts: 2 lines at 11px, laid
@@ -243,7 +249,21 @@
 
       <!-- LOG -->
       <div class="tabpane" data-pane="log">
-        <div class="row">
+        <h3 style="margin:0 0 4px">Site Map — pick a borehole</h3>
+        <div class="hint"><b>Click a borehole</b> on the map to load it into the data-entry panel and the log below. The borehole currently shown is highlighted in <b style="color:#2f5a1e">green</b>.</div>
+        <div class="viz" id="logplan-viz" style="padding:0;min-height:300px"></div>
+        <div class="row" style="margin-top:8px;gap:10px">
+          <label style="margin:0;min-width:auto" for="lp-base">Base map</label>
+          <select id="lp-base" style="width:auto">
+            <option value="Google Hybrid">Google Hybrid (satellite + roads)</option>
+            <option value="Satellite (Esri)">Satellite (Esri imagery)</option>
+            <option value="OpenStreetMap">OpenStreetMap (streets)</option>
+          </select>
+          <label style="margin:0"><input type="checkbox" id="lp-names" style="width:auto" checked> Show borehole names</label>
+          <span id="lp-crowd" class="hint" style="margin:0"></span>
+        </div>
+
+        <div class="row" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
           <label style="margin:0"><input type="checkbox" id="log-elev" style="width:auto" checked> show elevation (mPD)</label>
           <button class="ghost" id="log-labels" title="Switch between inline labels and a legend">Labels: inline</button>
           <button class="ghost" id="log-png">Export PNG</button>
@@ -263,7 +283,9 @@
             <option value="Satellite (Esri)">Satellite (Esri imagery)</option>
             <option value="OpenStreetMap">OpenStreetMap (streets)</option>
           </select>
+          <label style="margin:0" title="Names are placed clear of each other with leader lines, so closely-spaced boreholes cannot be confused"><input type="checkbox" id="sp-names" style="width:auto" checked> Show borehole names</label>
           <button class="gold" id="sp-export" title="Export the site plan — boreholes, site boundary and section line — as a PNG for reports">⬇ Export site plan (PNG)</button>
+          <span id="sp-crowd" class="hint" style="margin:0"></span>
         </div>
         <div id="sp-status" class="status" style="display:none"></div>
 
