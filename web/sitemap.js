@@ -23,7 +23,16 @@ const HK1980 =
 const BOREHOLE_INDEX = 'data/boreholes.csv';
 const AGS_REPNOS_URL = 'data/ags_repnos.json';              // report numbers that have digital AGS
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';   // stratigraphy backend (CEDD AGS)
-const MAX_IMPORT = 300;                                      // safety cap on boreholes pushed to the builder
+// Import caps, set from measured scaling (see the benchmark in the session notes:
+// 9-layer holes, worst interaction = section/contour redraw on a 1440x900 desktop)
+//   300 -> ~115 ms   500 -> ~240 ms   800 -> ~380 ms
+//  1000 -> ~840 ms  1500 -> ~1.7 s   2000 -> everything over 800 ms
+// Real sites (CSDI index, AGS stations per 500 m box): median 10, p95 128,
+// p99 258, busiest in Hong Kong 653 — so 1000 covers every real site with room
+// to spare, and beyond it the tool stops feeling instant.
+const MAX_IMPORT = 1000;          // hard cap on boreholes pushed to the builder
+const SOFT_IMPORT = 500;          // above this, warn that redraws get slower
+const MAX_PLOT = 1500;            // markers drawn on the site map
 
 let AGS_SET = null;   // Set of REPNOs that have AGS data
 
@@ -192,7 +201,7 @@ function renderResults(hits){
 function plotResults(hits){
   if (!resultLayer) return;
   resultLayer.clearLayers();
-  const cap = hits.slice(0, 800); // keep rendering snappy
+  const cap = hits.slice(0, MAX_PLOT);   // keep panning snappy on dense areas
   for (const b of cap){
     // Before loading we only know a report exists (hasAGS). After loading we
     // know whether THIS station has a real geological log (hasLog) — green then
@@ -229,7 +238,12 @@ async function loadInto2D(){
     return;
   }
   const picked = agsHits.slice(0, MAX_IMPORT);
+  const clipped = agsHits.length - picked.length;
   const repnos = [...new Set(picked.map(b=>String(b.repno)).filter(Boolean))];
+  if (clipped){
+    setLoadStatus(`This area has ${agsHits.length.toLocaleString()} boreholes with AGS data — `+
+      `loading the first ${MAX_IMPORT.toLocaleString()}. Draw a smaller area to pick a different subset.`,'busy');
+  }
 
   toast.show(`Fetching stratigraphy for ${picked.length} borehole(s)…`);
   setLoadStatus(`Fetching logged stratigraphy for ${repnos.length} report(s) from CEDD AGS open data… (this can take a few seconds)`,'busy');
@@ -318,7 +332,12 @@ async function loadInto2D(){
   if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
   setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
                 (skipped ? ` (${skipped} with no geological log skipped)` : '')+
-                (duplicates ? ` (${duplicates} duplicate station(s) from repeated reports merged)` : '')+'.','ok');
+                (duplicates ? ` (${duplicates} duplicate station(s) from repeated reports merged)` : '')+
+                (clipped ? ` — ${clipped} more were beyond the ${MAX_IMPORT.toLocaleString()}-borehole limit` : '')+'.'+
+                (boreholes.length > SOFT_IMPORT
+                  ? `
+That is a lot of boreholes: the cross-section and contour redraws will take a moment `+
+                    `each. Draw a tighter area if you want it instant.` : ''),'ok');
 }
 
 // ---- ORIGINAL AGS download (unaltered CEDD file) ---------------------------

@@ -758,7 +758,7 @@ def fetch_raw_ags_api(repnos_json):
         raise gr.Error("Invalid repnos JSON.")
     if not isinstance(repnos, list):
         raise gr.Error("repnos must be a JSON array of report numbers.")
-    repnos = [str(r).strip() for r in repnos if str(r).strip()][:50]
+    repnos = [str(r).strip() for r in repnos if str(r).strip()][:200]   # matches the stratigraphy endpoint
     try:
         raw = get_raw_reports(repnos)
     except Exception as e:
