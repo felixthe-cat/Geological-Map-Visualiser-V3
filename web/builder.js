@@ -346,8 +346,8 @@ async function renderLogPlan(){
     lpMap=L.map(box,{zoomControl:true});
     lpLayer=L.layerGroup().addTo(lpMap);
     lpLabels=L.layerGroup().addTo(lpMap);
-    await setBase(lpMap, 'lp', document.getElementById('lp-base').value);
     lpMap.fitBounds(L.latLngBounds(holes.map(({b})=>toLL(b.x,b.y))).pad(0.3));
+    await setBase(lpMap, 'lp', document.getElementById('lp-base').value);
     // labels are placed in screen pixels, so re-solve them after any view change
     lpMap.on('zoomend moveend', ()=>drawLogPlanMarkers());
   }
@@ -356,7 +356,7 @@ async function renderLogPlan(){
 }
 
 function drawLogPlanMarkers(){
-  if (!lpMap) return;
+  if (!lpMap || !hasView(lpMap)) return;
   const holes=logPlanHoles();
   lpLayer.clearLayers(); lpLabels.clearLayers();
   for (const {b,i} of holes){
@@ -416,6 +416,12 @@ async function setBase(map, key, name){
   if (_baseLayers[key]) _baseLayers[key].bringToBack();
 }
 
+// A Leaflet map has no projection until a view is set, and every render path
+// below awaits (setBase, dynamic import) between creating the map and fitting
+// it — long enough for a re-entrant call to try to project a point and throw
+// "Set map center and zoom first.". Every draw checks first.
+function hasView(map){ try { map.getCenter(); return true; } catch { return false; } }
+
 // ---- de-cluttered point labels on a Leaflet map ----------------------------
 // Shared by the Borehole-Log site map and the cross-section site plan: borehole
 // ids are placed in the nearest free slot around each symbol with a leader line
@@ -435,7 +441,7 @@ async function ensurePlacer(){
 }
 function placePointLabels(map, group, items, opts={}){
   const placeLabels = _placeLabels;
-  if (!placeLabels) return { layout:[], dropped:items.length };   // ensurePlacer() not awaited yet
+  if (!placeLabels || !hasView(map)) return { layout:[], dropped:items.length };
   const font = opts.font || BHLABEL_FONT;
   const size = map.getSize();
   const px = ll => { const p=map.latLngToContainerPoint(L.latLng(ll[0],ll[1])); return [p.x,p.y]; };
@@ -514,6 +520,7 @@ async function renderSitePlan(){
     secMap=L.map(box,{zoomControl:true});
     secBhLayer=L.layerGroup().addTo(secMap);
     secLabelLayer=L.layerGroup().addTo(secMap);
+    secMap.fitBounds(expanded);
     await setBase(secMap, 'sp', document.getElementById('sp-base').value);
     // borehole-name placement is solved in screen pixels: re-solve on view change
     secMap.on('zoomend moveend', ()=>drawPlanNames());
@@ -556,7 +563,7 @@ function onHandleDrag(){
 // Project boreholes onto the current line, pick those within a corridor,
 // order by distance along the line, then redraw the section.
 function updateSection(){
-  if (!secMap || !sectionLine) return;
+  if (!secMap || !sectionLine || !hasView(secMap)) return;
   const A=toEN(...sectionLine.a), B=toEN(...sectionLine.b);
   const lineLen=Math.hypot(B.e-A.e, B.n-A.n);
   const allHoles=sectionHoles();
@@ -579,7 +586,7 @@ function updateSection(){
 // closely-spaced holes can't be confused, and the solved layout is kept so the
 // PNG export puts the names exactly where the preview shows them.
 function drawPlanNames(holes){
-  if (!secMap || !secLabelLayer) return;
+  if (!secMap || !secLabelLayer || !hasView(secMap)) return;
   secLabelLayer.clearLayers();
   secPlanNames=[];
   const note=document.getElementById('sp-crowd');
@@ -837,8 +844,8 @@ async function renderContour(){
     ctrMap=L.map(box,{zoomControl:true});
     ctrLayer=L.layerGroup().addTo(ctrMap);
     ctrLabelLayer=L.layerGroup().addTo(ctrMap);
-    await setBase(ctrMap, 'ctr', ctrOpt('ctr-base').value);
     ctrMap.fitBounds(L.latLngBounds(points.map(p=>toLL(p.x,p.y))).pad(0.35));
+    await setBase(ctrMap, 'ctr', ctrOpt('ctr-base').value);
     // callout placement is solved in screen pixels, so redo it whenever the
     // view changes (the contour geometry itself is zoom-independent)
     ctrMap.on('zoomend moveend', ()=>{ if (ctrCache) layoutCtrLabels(); });
@@ -901,7 +908,7 @@ function textWidth(text, font){
 }
 
 async function layoutCtrLabels(){
-  if (!ctrMap || !ctrCache) return;
+  if (!ctrMap || !ctrCache || !hasView(ctrMap)) return;
   const { placeLabels, overlaps } = await import('./contour.js');
   const showLabels=ctrOpt('ctr-labels').checked, showBh=ctrOpt('ctr-bh').checked;
   ctrLabelLayer.clearLayers();
