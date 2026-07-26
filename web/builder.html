@@ -14,11 +14,17 @@
     body{margin:0;background:var(--cream);color:var(--ink);
       font-family:'Outfit','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
     a{color:var(--forest)}
-    header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--forest-d);color:#f0e9dc}
+    /* wrap on narrow screens — the nav links + "Coming soon" badge overflowed 390px */
+    header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 20px;
+      background:var(--forest-d);color:#f0e9dc}
+    header a{white-space:nowrap}
     header .logo{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:.02em}
     header .spacer{flex:1}
     header a{color:#d8e6c4;text-decoration:none;font-size:13px}
     .wrap{display:grid;grid-template-columns:420px 1fr;gap:16px;padding:16px;max-width:1500px;margin:0 auto}
+    /* a grid track's automatic floor is its content's min-content width; without
+       min-width:0 one wide child drags the whole page past the viewport */
+    .wrap>.panel{min-width:0}
     @media(max-width:940px){.wrap{grid-template-columns:1fr}}
     .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;
       box-shadow:0 2px 10px rgba(0,0,0,.06);padding:14px}
@@ -37,10 +43,14 @@
     button.mini{padding:4px 9px;font-size:12px}
     button.danger{background:#b34a3a}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .row>*{flex:0 0 auto}
+    .row>*{flex:0 0 auto;min-width:0}
+    /* caption text in a row must wrap, not push the page wider than the
+       viewport (flex:0 0 auto keeps a long sentence on one 800px+ line) */
+    .row>span,.row>.hint{flex:1 1 auto;min-width:0}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .grid2 label{margin:4px 0 2px}
-    .tabs{display:flex;gap:4px;border-bottom:2px solid var(--border);margin-bottom:12px}
+    /* 5 tabs do not fit one 390px row — wrap instead of overflowing the page */
+    .tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:2px solid var(--border);margin-bottom:12px}
     .tab{padding:8px 14px;border-radius:8px 8px 0 0;background:transparent;color:var(--muted);
       font-weight:600;border:1px solid transparent;border-bottom:none}
     .tab.active{background:var(--card2);color:var(--forest-d);border-color:var(--border)}
@@ -115,10 +125,12 @@
     #siteplan-viz .leaflet-container{height:320px;border-radius:10px}
     /* rock contour plan — engineering-drawing look */
     #contour-viz .leaflet-container{height:460px;border-radius:10px;background:#fff}
-    .ctr-label{font:700 10px/1 Outfit,sans-serif;color:#000;white-space:nowrap;
-      text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
-    .ctr-bh{font:600 10px/1.2 Outfit,sans-serif;color:#000;white-space:nowrap;
-      text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
+    /* contour index label: centred on its line. Callouts: 2 lines at 11px, laid
+       out in pixel space by placeLabels() with a leader line back to the hole. */
+    .ctr-label{font:700 10px/13px Outfit,sans-serif;color:#000;white-space:nowrap;
+      text-align:center;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
+    .ctr-bh{font:600 10px/11px Outfit,sans-serif;color:#000;white-space:nowrap;
+      padding-top:1px;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
   </style>
 </head>
 <body>
@@ -133,12 +145,15 @@
     </span>
     <span class="spacer"></span>
     <a href="index.html">← Home</a>
-    <a href="viewer.html" data-lock3d>3D Viewer ↗</a>
+    <a href="viewer.html" class="locked3d" data-lock3d aria-disabled="true">3D Viewer ↗<span class="coming-soon">Coming soon</span></a>
   </header>
 
-  <div class="wrap" id="wrap">
+  <!-- boots on the Site Map tab, where the entry panel is hidden and the map
+       spans full width. Rendering that state in the markup avoids a ~0.29 CLS
+       jump when builder.js (a deferred module) applies it. -->
+  <div class="wrap map-mode" id="wrap">
     <!-- ── INPUT PANEL ── -->
-    <div class="panel" id="entry-panel">
+    <div class="panel" id="entry-panel" style="display:none">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h2 style="margin:0">Borehole Data Entry</h2>
         <button class="ghost mini" id="panel-collapse" title="Collapse this panel for a wider view">⟨ Collapse</button>
@@ -214,7 +229,7 @@
         <button class="tab" data-tab="log">2 · Borehole Log</button>
         <button class="tab" data-tab="section">3 · Cross-Section</button>
         <button class="tab" data-tab="contour">4 · Rock Contour</button>
-        <button class="tab" data-tab="hf" id="tab-hf" data-lock3d>5 · 3D via Hugging Face</button>
+        <button class="tab locked3d" data-tab="hf" id="tab-hf" data-lock3d aria-disabled="true">5 · 3D via Hugging Face<span class="coming-soon">Coming soon</span></button>
       </div>
 
       <!-- LOG -->
@@ -339,6 +354,7 @@
             </div>
           </div>
         </details>
+        <div id="ctr-crowd" class="hint"></div>
         <div id="ctr-status" class="status" style="display:none"></div>
       </div>
 
@@ -346,7 +362,10 @@
       <div class="tabpane active" data-pane="map">
         <div class="hint">Draw a rectangle (▭ tool, top-left of map) to select a site area — the coordinates fill in automatically, then search the CSDI borehole database (bundled offline, no sync needed).</div>
         <div id="map-canvas" style="height:420px;border:1px solid var(--border);border-radius:10px;overflow:hidden"></div>
-        <div id="map-status" class="status" style="display:none"></div>
+        <!-- kept in flow (empty = transparent) so revealing the first "Loading
+             map… / Map ready" message does not shift the page — that was an
+             intermittent CLS spike of ~0.29 on load -->
+        <div id="map-status" class="status" style="min-height:30px"></div>
         <div class="row" style="gap:14px;margin-top:8px;font-size:12px;color:var(--muted)">
           <span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#3f9b46;border:1px solid #1e3c12;vertical-align:middle"></span> AGS stratigraphy available</span>
           <span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#a8a196;border:1px solid #6b6250;vertical-align:middle"></span> location only (no AGS)</span>
@@ -408,12 +427,12 @@
 
   <script src="admin.js"></script>
   <script>
-    // Grey out 3D features for normal users (admin unlocks them via the landing page).
-    if (!window.GeoAdmin.isAdmin()) {
+    // 3D features ship locked in the markup — no post-paint layout shift, and no
+    // window where a normal user can click through. Admin login unlocks them.
+    if (window.GeoAdmin.isAdmin()) {
       document.querySelectorAll('[data-lock3d]').forEach(el => {
-        el.classList.add('locked3d');
-        const b = document.createElement('span'); b.className = 'coming-soon'; b.textContent = 'Coming soon';
-        el.appendChild(b);
+        el.classList.remove('locked3d');
+        el.querySelectorAll('.coming-soon').forEach(b => b.remove());
       });
     }
   </script>

@@ -25,6 +25,9 @@ function toEmbedUrl(url) {
 }
 
 function loadSpace(url) {
+  // Only viewer.html has the iframe. Other pages that load this script (the
+  // landing page did) must not throw on a missing element.
+  if (!iframe) return;
   if (!url || url.includes('YOUR_USERNAME')) {
     console.warn('[GeoVisualise] Set HF_SPACE_URL in app.js to your Hugging Face Space URL.');
     return;

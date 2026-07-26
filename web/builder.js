@@ -644,7 +644,7 @@ async function exportSitePlan(){
 // ==== ROCK CONTOUR PLAN (task 8) ===========================================
 // Plan view of interpolated rockhead level, styled like an engineering drawing:
 // thin black contours, thicker labelled index contours, borehole callouts.
-let ctrMap=null, ctrLayer=null, ctrCache=null;
+let ctrMap=null, ctrLayer=null, ctrLabelLayer=null, ctrCache=null;
 function setCtrStatus(msg, cls){
   const s=document.getElementById('ctr-status');
   s.style.display='block'; s.className='status '+(cls||''); s.textContent=msg;
@@ -683,59 +683,155 @@ async function renderContour(){
     box.innerHTML=''; box.style.padding='0';
     ctrMap=L.map(box,{zoomControl:true});
     ctrLayer=L.layerGroup().addTo(ctrMap);
+    ctrLabelLayer=L.layerGroup().addTo(ctrMap);
     await setBase(ctrMap, 'ctr', ctrOpt('ctr-base').value);
     ctrMap.fitBounds(L.latLngBounds(points.map(p=>toLL(p.x,p.y))).pad(0.35));
+    // callout placement is solved in screen pixels, so redo it whenever the
+    // view changes (the contour geometry itself is zoom-independent)
+    ctrMap.on('zoomend moveend', ()=>{ if (ctrCache) layoutCtrLabels(); });
   }
   setTimeout(()=>ctrMap.invalidateSize(),60);
   ctrLayer.clearLayers();
 
-  const showLabels=ctrOpt('ctr-labels').checked, showBh=ctrOpt('ctr-bh').checked;
   const sp=state.sitePlan;
   if (ctrOpt('ctr-boundary').checked && sp && sp.bounds && Number.isFinite(sp.bounds.latMin)){
     const {latMin,latMax,lngMin,lngMax}=sp.bounds;
     L.rectangle([[latMin,lngMin],[latMax,lngMax]],
       {color:'#000',weight:1.6,dashArray:'12,5',fill:false}).addTo(ctrLayer);
   }
+  const ctrLabels=[];                       // {ll, text} — contour index labels
   for (const c of contours){
     const idx=isIndex(c.level);
     for (const line of c.lines){
       const lls=line.map(([x,y])=>toLL(x,y));
       L.polyline(lls,{color:'#000',weight:idx?1.7:0.7,opacity:1})
         .bindTooltip(c.level.toFixed(1)+' mPD',{sticky:true}).addTo(ctrLayer);
-      if (showLabels && idx && line.length>6){
-        L.marker(lls[Math.floor(lls.length/2)],
-          {interactive:false, icon:L.divIcon({className:'ctr-label',
-            html:c.level.toFixed(interval<1?1:0), iconSize:null})}).addTo(ctrLayer);
-      }
+      // keep the whole line so the label can slide along it to dodge others
+      if (idx && line.length>6)
+        ctrLabels.push({ lls, text:c.level.toFixed(interval<1?1:0) });
     }
   }
-  if (showBh){
-    for (const p of points){
-      const ll=toLL(p.x,p.y);
-      L.circleMarker(ll,{radius:4,color:'#000',weight:1.6,fillColor:'#fff',fillOpacity:1}).addTo(ctrLayer);
-      L.marker(ll,{interactive:false,icon:L.divIcon({className:'ctr-bh',iconSize:null,
-        html:`${p.id}<br>RL ${p.z.toFixed(2)}`})}).addTo(ctrLayer)
-        .setZIndexOffset(500);
-    }
-    for (const m of missing){
-      const ll=toLL(m.x,m.y);
-      L.circleMarker(ll,{radius:4,color:'#666',weight:1.4,fillColor:'#fff',fillOpacity:1,dashArray:'2,2'}).addTo(ctrLayer);
-      L.marker(ll,{interactive:false,icon:L.divIcon({className:'ctr-bh',iconSize:null,
-        html:`${m.id}<br>rock N.E. (${m.depth.toFixed(1)} m)`})}).addTo(ctrLayer);
-    }
+  // borehole symbols (the callout text is placed separately, de-cluttered)
+  const callouts=[];                        // {ll, lines[], dashed}
+  for (const p of points){
+    const ll=toLL(p.x,p.y);
+    L.circleMarker(ll,{radius:4,color:'#000',weight:1.6,fillColor:'#fff',fillOpacity:1}).addTo(ctrLayer);
+    callouts.push({ key:p.id, ll, lines:[p.id, 'RL '+p.z.toFixed(2)] });
   }
+  for (const m of missing){
+    const ll=toLL(m.x,m.y);
+    L.circleMarker(ll,{radius:4,color:'#666',weight:1.4,fillColor:'#fff',fillOpacity:1,dashArray:'2,2'}).addTo(ctrLayer);
+    callouts.push({ key:m.id, ll, lines:[m.id, `rock N.E. (${m.depth.toFixed(1)} m)`], dashed:true });
+  }
+
   const zs=points.map(p=>p.z);
-  ctrCache={ points, missing, contours, isIndex, interval };
+  ctrCache={ points, missing, contours, isIndex, interval, ctrLabels, callouts, layout:null };
+  layoutCtrLabels();
   setCtrStatus(`${points.length} borehole(s) proved rock (Grade ${maxGrade} or better): rock level `+
     `${Math.min(...zs).toFixed(2)} to ${Math.max(...zs).toFixed(2)} mPD. `+
     `${missing.length} borehole(s) did not reach rock (marked “rock N.E.”, excluded from the interpolation). `+
     `Contours every ${interval} m; index contours labelled.`,'ok');
 }
 
+// ---- callout de-clutter (leader lines) -------------------------------------
+// Borehole callouts on a tight site sat on top of each other (and on the contour
+// labels). Placement is solved in screen pixels by placeLabels() in contour.js:
+// each callout takes the nearest free slot around its borehole and keeps a
+// leader line back to it. The solved layout is reused verbatim by the PNG export
+// so the image matches the preview.
+const CALLOUT_FONT='600 10px Outfit, sans-serif', CTRLABEL_FONT='700 10px Outfit, sans-serif';
+let _measureCtx=null;
+function textWidth(text, font){
+  if (!_measureCtx) _measureCtx=document.createElement('canvas').getContext('2d');
+  _measureCtx.font=font;
+  return _measureCtx.measureText(text).width;
+}
+
+async function layoutCtrLabels(){
+  if (!ctrMap || !ctrCache) return;
+  const { placeLabels, overlaps } = await import('./contour.js');
+  const showLabels=ctrOpt('ctr-labels').checked, showBh=ctrOpt('ctr-bh').checked;
+  ctrLabelLayer.clearLayers();
+  const px = ll => { const p=ctrMap.latLngToContainerPoint(L.latLng(ll[0],ll[1])); return [p.x,p.y]; };
+  const toLLp = ([x,y]) => { const g=ctrMap.containerPointToLatLng(L.point(x,y)); return [g.lat,g.lng]; };
+  const size = ctrMap.getSize();
+  const onScreen = b => b.x>-10 && b.y>-10 && b.x+b.w<size.x+10 && b.y+b.h<size.y+10;
+
+  // Contour index labels are centred ON their line. A label may slide to another
+  // vertex of the same line to dodge one already placed; if the line has no free
+  // spot the label is dropped (normal survey practice — not every segment of a
+  // contour is annotated). Placed first, they become obstacles for the callouts.
+  const obstacles=[], ctrLabelBoxes=[];
+  if (showLabels){
+    for (const cl of ctrCache.ctrLabels){
+      const n=cl.lls.length, w=textWidth(cl.text, CTRLABEL_FONT)+6, h=13;
+      const cands=[0.5,0.35,0.65,0.2,0.8].map(f=>Math.min(n-1,Math.max(0,Math.floor(n*f))));
+      let chosen=null;
+      for (const i of cands){
+        const [x,y]=px(cl.lls[i]);
+        const box={x:x-w/2, y:y-h/2, w, h};
+        if (!onScreen(box)) continue;
+        if (!obstacles.some(b=>overlaps(box,b))){ chosen={ll:cl.lls[i], box}; break; }
+      }
+      if (!chosen) continue;
+      obstacles.push(chosen.box);
+      ctrLabelBoxes.push({ ll:chosen.ll, text:cl.text, box:chosen.box });
+      L.marker(chosen.ll,{interactive:false, icon:L.divIcon({className:'ctr-label',
+        html:cl.text, iconSize:[w,h], iconAnchor:[w/2,h/2]})}).addTo(ctrLabelLayer);
+    }
+  }
+  // borehole symbols are obstacles too — never bury another hole's marker
+  const symbols = ctrCache.callouts.map(c=>{ const [x,y]=px(c.ll); return {x:x-7,y:y-7,w:14,h:14}; });
+
+  let layout=[], dropped=0;
+  if (showBh){
+    // keyed by index, not borehole id — two holes sharing a name must still get
+    // their own slot rather than being drawn on top of each other
+    const anchors = ctrCache.callouts.map((c,i)=>{
+      const [x,y]=px(c.ll);
+      const w=Math.max(...c.lines.map(t=>textWidth(t, CALLOUT_FONT)))+6;
+      return { key:i, x, y, w, h:24 };
+    });
+    const placed = placeLabels(anchors, { obstacles: obstacles.concat(symbols),
+      bounds:{x:4, y:4, w:size.x-8, h:size.y-8} });
+    const byKey = new Map(placed.map(p=>[p.key,p]));
+    ctrCache.callouts.forEach((c,ci)=>{
+      const p = byKey.get(ci);
+      const [x,y]=px(c.ll);
+      // No free slot on the drawing: keep the symbol and put the text in a hover
+      // tooltip rather than overprinting a contour or another callout.
+      if (!p || !p.placed){
+        L.circleMarker(c.ll,{radius:6, opacity:0, fillOpacity:0})
+          .bindTooltip(c.lines.join(' · ')).addTo(ctrLabelLayer);
+        dropped++;
+        return;
+      }
+      if (p.leader){                        // draw the leader first, under the text
+        L.polyline([toLLp(p.leader[0]), toLLp(p.leader[1])],
+          {color:'#000', weight:0.6, opacity:.85, interactive:false}).addTo(ctrLabelLayer);
+      }
+      L.marker(c.ll,{interactive:false, icon:L.divIcon({className:'ctr-bh',
+        html:c.lines.join('<br>'), iconSize:[p.box.w, p.box.h], iconAnchor:[-p.dx, -p.dy]})})
+        .addTo(ctrLabelLayer);
+      layout.push({ ll:c.ll, lines:c.lines, dx:p.dx, dy:p.dy,
+                    leader:p.leader ? [p.leader[1][0]-x, p.leader[1][1]-y] : null });
+    });
+  }
+  ctrCache.layout = { callouts:layout, ctrLabels:ctrLabelBoxes.map(b=>({ll:b.ll, text:b.text})) };
+  ctrCache.dropped = dropped;
+  const note = document.getElementById('ctr-crowd');
+  if (note) note.textContent = dropped
+    ? `${dropped} borehole callout(s) hidden to keep the drawing readable — hover the symbol, or zoom in to place them.`
+    : '';
+}
+
 async function exportContour(){
   if (!ctrMap || !ctrCache){ setCtrStatus('Nothing to export yet.','err'); return; }
-  const { exportMapPNG, paintPolyline, paintMarker, paintText } = await mapExport();
+  const { exportMapPNG, paintPolyline, paintMarker, paintText,
+          paintPixelLine, paintPixelText } = await mapExport();
   const { points, missing, contours, isIndex, interval } = ctrCache;
+  await layoutCtrLabels();                     // solve against the current view
+  const layout = ctrCache.layout || { callouts:[], ctrLabels:[] };
   const sp=state.sitePlan;
   setCtrStatus('Rendering image…','busy');
   const msg = await exportMapPNG(ctrMap, {
@@ -751,15 +847,20 @@ async function exportContour(){
       for (const c of contours) for (const line of c.lines)
         paintPolyline(ctx, project, line.map(([x,y])=>toLL(x,y)),
           {color:'#000', weight:isIndex(c.level)?1.7:0.7});
-      if (ctrOpt('ctr-labels').checked)
-        for (const c of contours) if (isIndex(c.level)) for (const line of c.lines)
-          if (line.length>6) paintText(ctx, project, toLL(...line[Math.floor(line.length/2)]),
-            c.level.toFixed(interval<1?1:0), {});
-      if (ctrOpt('ctr-bh').checked){
-        for (const p of points) paintMarker(ctx, project, toLL(p.x,p.y),
-          `${p.id}  RL ${p.z.toFixed(2)}`, {radius:4, fill:'#fff', stroke:'#000', weight:1.6});
-        for (const m of missing) paintMarker(ctx, project, toLL(m.x,m.y),
-          `${m.id}  rock N.E.`, {radius:4, fill:'#fff', stroke:'#666', weight:1.4});
+      // contour index labels — centred on their line, same as the preview
+      for (const cl of layout.ctrLabels)
+        paintText(ctx, project, cl.ll, cl.text, {font:CTRLABEL_FONT, align:'center'});
+      // borehole symbols, then the de-cluttered callouts + leader lines, using
+      // the exact pixel layout the preview is showing
+      for (const p of points) paintMarker(ctx, project, toLL(p.x,p.y), null,
+        {radius:4, fill:'#fff', stroke:'#000', weight:1.6});
+      for (const m of missing) paintMarker(ctx, project, toLL(m.x,m.y), null,
+        {radius:4, fill:'#fff', stroke:'#666', weight:1.4});
+      for (const c of layout.callouts){
+        const [x,y]=project(c.ll);
+        if (c.leader) paintPixelLine(ctx, [x,y], [x+c.leader[0], y+c.leader[1]], {weight:0.6});
+        // +10/+21: text baselines for the two 11 px lines inside the 24 px box
+        c.lines.forEach((t,i)=> paintPixelText(ctx, x+c.dx+3, y+c.dy+10+i*11, t, {font:CALLOUT_FONT}));
       }
     }
   });

@@ -60,4 +60,27 @@ for (const method of ['linear','mono','nearest']){
     assert(Math.abs(curves[k][s*20] - e) < 1e-9, `${method}: horizon ${k} wrong at station ${s}`)));
 }
 
-console.log('ok — section projection + interpolation checks pass');
+// Two boreholes projecting to the SAME distance along the line must not produce
+// NaN/Infinity — the 0/0 slope case that showed up as "<polygon> points: NaN".
+const tieX = [0, 100, 100, 200];
+for (const method of ['linear','mono','nearest']){
+  for (const tieY of [[10, 8, 8, 4],      // equal values at the tie -> 0/0
+                      [10, 8, 6, 4],      // different values -> ±Infinity slope
+                      [10, 10, 10, 10]]){ // completely flat
+    const v = interpolateSeries(tieX, tieY, xq.concat([100, 99.999, 100.001]), method);
+    assert(v.every(Number.isFinite), `${method} produced a non-finite value for ties ${tieY}: `+
+      v.filter(x=>!Number.isFinite(x)).slice(0,3));
+  }
+}
+// and the stacked-horizon path with tied stations stays finite AND ordered
+const tiedH = [[20,15,9,2],[18,12,12,5],[18,12,12,5],[25,20,11,0]];
+for (const method of ['linear','mono','nearest']){
+  const curves = interpolateHorizons([0,100,100,200], tiedH, xq.concat([100]), method);
+  for (let k=0;k<curves.length;k++){
+    assert(curves[k].every(Number.isFinite), `${method}: NaN in tied horizon ${k}`);
+    if (k<curves.length-1) for (let q=0;q<curves[k].length;q++)
+      assert(curves[k][q] >= curves[k+1][q] - 1e-9, `${method}: tied horizons crossed at q=${q}`);
+  }
+}
+
+console.log('ok — section projection + interpolation checks pass (incl. tied stations)');

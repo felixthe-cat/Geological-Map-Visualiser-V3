@@ -142,13 +142,24 @@ function fillBboxFields(bounds){
 }
 
 // ---- search ----------------------------------------------------------
+// An empty <input type=number> reads as '' and `+'' === 0`, which is a finite
+// number — so a blank box used to "search" lat/lng 0,0 and report 0 boreholes
+// instead of telling the user to draw a rectangle. Treat blank as missing.
+function readCoord(id){
+  const el=document.getElementById(id);
+  const raw=(el && el.value || '').trim();
+  return raw === '' ? NaN : +raw;
+}
 async function searchBbox(){
-  const latMin=+document.getElementById('bb-lat-min').value;
-  const latMax=+document.getElementById('bb-lat-max').value;
-  const lngMin=+document.getElementById('bb-lng-min').value;
-  const lngMax=+document.getElementById('bb-lng-max').value;
+  const latMin=readCoord('bb-lat-min');
+  const latMax=readCoord('bb-lat-max');
+  const lngMin=readCoord('bb-lng-min');
+  const lngMax=readCoord('bb-lng-max');
   if (![latMin,latMax,lngMin,lngMax].every(Number.isFinite)){
-    setStatus('Draw a rectangle on the map first (or type a bounding box).','err'); return;
+    setStatus('Draw a rectangle on the map first (or type a full bounding box — all four values).','err'); return;
+  }
+  if (latMin>=latMax || lngMin>=lngMax){
+    setStatus('That bounding box is empty — each “min” must be smaller than its “max”.','err'); return;
   }
   try {
     const [idx, agsSet] = await Promise.all([ensureIndex(), ensureAgsSet()]);
@@ -241,19 +252,32 @@ async function loadInto2D(){
   }
 
   const boreholes = [];
-  let skipped = 0;
+  let skipped = 0, duplicates = 0;
+  // CEDD sometimes publishes the same GI report under two REPNOs (62076/62077 on
+  // the reference test site), so the same physical borehole can arrive twice.
+  // Same id AND same position (<1 m) => one hole, keep the first. Same id but a
+  // different position => genuinely different holes that share a name, so tag
+  // the later one with its report number rather than dropping data.
+  const seen = new Map();     // id -> {x,y}
   picked.forEach((b,i)=>{
-    const id = (b.statno || b.repno || `CSDI-${i+1}`).toString().trim() || `CSDI-${i+1}`;
+    const base = (b.statno || b.repno || `CSDI-${i+1}`).toString().trim() || `CSDI-${i+1}`;
     const rep = strat[String(b.repno)];
-    const hit = rep ? (rep[id] || rep[String(b.statno).trim()] || (normIndex[String(b.repno)]||{})[normKey(id)]) : null;
+    const hit = rep ? (rep[base] || rep[String(b.statno).trim()] || (normIndex[String(b.repno)]||{})[normKey(base)]) : null;
     const layers = (hit && Array.isArray(hit.layers) ? hit.layers : [])
       .map(L=>({ surface:L.surface||'?', top:+L.top, base:+L.base, grade:L.grade||'' }))
       .filter(L=>Number.isFinite(L.top) && Number.isFinite(L.base));
     if (!layers.length){ skipped++; return; }          // no logged strata → don't export
+    const x = Number.isFinite(hit.x) ? hit.x : (b.e ?? 0);
+    const y = Number.isFinite(hit.y) ? hit.y : (b.n ?? 0);
+    let id = base;
+    const prev = seen.get(id);
+    if (prev){
+      if (Math.hypot(prev.x - x, prev.y - y) < 1){ duplicates++; return; }
+      id = `${base} [${b.repno}]`;
+    }
+    seen.set(id, {x, y});
     boreholes.push({
-      id,
-      x: Number.isFinite(hit.x) ? hit.x : (b.e ?? 0),
-      y: Number.isFinite(hit.y) ? hit.y : (b.n ?? 0),
+      id, x, y,
       gl: Number.isFinite(hit.gl) ? hit.gl : (b.gl ?? 0),
       kind: isTrialPit(b) ? 'TP' : 'BH',
       layers
@@ -293,7 +317,8 @@ async function loadInto2D(){
 
   if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
   setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
-                (skipped ? ` (${skipped} with no geological log skipped)` : '')+'.','ok');
+                (skipped ? ` (${skipped} with no geological log skipped)` : '')+
+                (duplicates ? ` (${duplicates} duplicate station(s) from repeated reports merged)` : '')+'.','ok');
 }
 
 // ---- ORIGINAL AGS download (unaltered CEDD file) ---------------------------

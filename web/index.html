@@ -6,7 +6,9 @@
   <title>GeoVisualise 3D — Interactive Geological Mapping</title>
   <link rel="stylesheet" href="style.css">
   <style>
-    .locked3d{position:relative;opacity:.5;cursor:not-allowed;filter:grayscale(.6)}
+    /* pointer-events blocks the click in CSS — the markup ships locked, so there
+       is no JS handler (and no post-paint shift) doing it */
+    .locked3d{position:relative;opacity:.5;cursor:not-allowed;filter:grayscale(.6);pointer-events:none}
     .coming-soon{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:10px;
       font-size:10px;font-weight:700;letter-spacing:.03em;background:#b8860b;color:#fff;vertical-align:middle}
     #admin-btn{position:fixed;right:14px;bottom:14px;z-index:9999;border:none;cursor:pointer;
@@ -58,7 +60,7 @@
           </svg>
         </a>
         <a href="builder.html" class="nav-link">2D Builder</a>
-        <a href="viewer.html" class="nav-link" data-lock3d>3D Viewer</a>
+        <a href="viewer.html" class="nav-link locked3d" data-lock3d aria-disabled="true">3D Viewer<span class="coming-soon">Coming soon</span></a>
         <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
       </div>
     </nav>
@@ -80,13 +82,13 @@
           </svg>
           2D Log &amp; Cross-Section Builder
         </a>
-        <a href="viewer.html" class="hero-cta hero-cta-primary" data-lock3d>
+        <a href="viewer.html" class="hero-cta hero-cta-primary locked3d" data-lock3d aria-disabled="true">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
           </svg>
-          3D Geological Map Visualiser
+          3D Geological Map Visualiser<span class="coming-soon">Coming soon</span>
         </a>
       </div>
     </div>
@@ -112,10 +114,10 @@
           <p>Enter boreholes layer-by-layer with a live log preview, then generate interpolated cross-sections. Runs instantly in your browser.</p>
           <span class="about-card-cta">Open 2D Builder →</span>
         </a>
-        <a href="viewer.html" class="about-card" data-lock3d>
+        <a href="viewer.html" class="about-card locked3d" data-lock3d aria-disabled="true">
           <h3>3D Geological Map Visualiser</h3>
           <p>Implicit 3D modelling with GemPy — rotate, slice and export interactive geological surfaces and volumetric strata. Powered by Hugging Face Spaces.</p>
-          <span class="about-card-cta">Open 3D Viewer →</span>
+          <span class="about-card-cta">Open 3D Viewer →<span class="coming-soon">Coming soon</span></span>
         </a>
       </div>
     </div>
@@ -146,14 +148,14 @@
   <script>
     (function () {
       const admin = window.GeoAdmin;
-      // grey out & disable 3D features for normal users
-      if (!admin.isAdmin()) {
+      // 3D features ship LOCKED in the markup (greyed + "Coming soon" badge), so
+      // there is no post-paint layout shift and no window where a normal user can
+      // click through. Admin login unlocks them here instead.
+      if (admin.isAdmin()) {
         document.querySelectorAll('[data-lock3d]').forEach(el => {
-          el.classList.add('locked3d');
-          el.setAttribute('aria-disabled', 'true');
-          el.addEventListener('click', e => e.preventDefault());
-          const b = document.createElement('span'); b.className = 'coming-soon'; b.textContent = 'Coming soon';
-          el.appendChild(b);
+          el.classList.remove('locked3d');
+          el.removeAttribute('aria-disabled');
+          el.querySelectorAll('.coming-soon').forEach(b => b.remove());
         });
       }
       const btn = document.getElementById('admin-btn');
@@ -167,6 +169,7 @@
       });
     })();
   </script>
-  <script src="app.js"></script>
+  <!-- app.js drives viewer.html's HF iframe; the landing page has no iframe, so
+       it does not load it (it was throwing on every visit). -->
 </body>
 </html>

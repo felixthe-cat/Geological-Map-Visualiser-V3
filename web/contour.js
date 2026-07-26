@@ -143,3 +143,79 @@ export function contourLines(grid, levels){
   return levels.map(level=>({ level, lines: stitch(levelSegments(grid, level), grid.cell/4)
     .filter(l=>l.length>=2) }));
 }
+
+// ---- label de-clutter (screen pixels) --------------------------------------
+// Borehole callouts on a dense site overlap each other, the borehole symbols and
+// the contour-level labels. Same idea as the borehole log's label placement:
+// push each callout to the first free slot around its point and draw a leader
+// line back to it, rather than letting boxes pile up.
+//
+// ponytail: greedy first-fit over a fixed ring of candidate slots — O(n²)
+// overlap tests, fine for the ~10² callouts a site plan ever shows. A proper
+// force-directed / simulated-annealing placer only earns its keep beyond that.
+export function overlaps(a, b, pad=1){
+  return a.x < b.x+b.w+pad && b.x < a.x+a.w+pad && a.y < b.y+b.h+pad && b.y < a.y+a.h+pad;
+}
+function overlapArea(a, b){
+  const w = Math.min(a.x+a.w, b.x+b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y+a.h, b.y+b.h) - Math.max(a.y, b.y);
+  return (w>0 && h>0) ? w*h : 0;
+}
+
+/**
+ * @param anchors   [{key, x, y, w, h}] — point to label (px) + the label box size
+ * @param obstacles [{x, y, w, h}] — boxes already on the drawing (contour labels,
+ *                  borehole symbols) that callouts must dodge
+ * @param radii     distances from the point to try, nearest first
+ * @returns [{key, x, y, dx, dy, box, leader:[[x,y],[x,y]], placed}]
+ *          `dx/dy` = box top-left relative to the point; `leader` = the line
+ *          from the point to the nearest edge of the box (null when it touches).
+ */
+export function placeLabels(anchors, opts={}){
+  // A dense site (50+ holes) needs to search well beyond the symbol: the whole
+  // point of a leader line is that the text can sit some distance away.
+  const { obstacles=[], radii=[9, 16, 26, 40, 58, 80, 110, 145, 185, 230],
+          dirs=12, bounds=null } = opts;
+  const taken = obstacles.slice();
+  const out = [];
+  // label the tightest-packed points first: they have the fewest free slots
+  const density = a => anchors.reduce((n,b)=> n + ((b!==a && Math.hypot(b.x-a.x, b.y-a.y) < 70) ? 1 : 0), 0);
+  const order = anchors.map(a=>({a, d:density(a)})).sort((p,q)=> q.d-p.d || p.a.y-q.a.y);
+  const inBounds = b => !bounds ||
+    (b.x >= bounds.x && b.y >= bounds.y && b.x+b.w <= bounds.x+bounds.w && b.y+b.h <= bounds.y+bounds.h);
+
+  for (const { a } of order){
+    let best=null, bestPen=Infinity, clean=null;
+    for (const r of radii){
+      for (let k=0; k<dirs && !clean; k++){
+        // slot centres ring the point; east at k=0 reproduces the tight "text to
+        // the right of the symbol" placement an uncrowded label should get
+        const ang=(k/dirs)*2*Math.PI, c=Math.cos(ang), s=Math.sin(ang);
+        const dx=c*(r + a.w/2) - a.w/2, dy=s*(r + a.h/2) - a.h/2;
+        const box={ x:a.x+dx, y:a.y+dy, w:a.w, h:a.h };
+        if (!inBounds(box)) continue;
+        let pen=r*0.35;                      // prefer slots close to the point
+        for (const t of taken) if (overlaps(box,t)) pen += overlapArea(box,t) + 40;
+        if (pen < bestPen){ bestPen=pen; best={dx,dy,box}; }
+        if (pen <= r*0.35+1e-9) clean=best;   // genuinely free slot — take it
+      }
+      if (clean) break;
+    }
+    if (!best) continue;                     // nowhere on the canvas at all
+    // No free slot anywhere: drop the label rather than overprint the drawing.
+    // The caller keeps the symbol (with a hover tooltip) and reports the count.
+    if (!clean){
+      out.push({ key:a.key, x:a.x, y:a.y, dx:best.dx, dy:best.dy, box:best.box,
+                 leader:null, placed:false });
+      continue;
+    }
+    taken.push(clean.box);
+    // leader line: point -> nearest edge of the box (skip when the box touches it)
+    const cx=Math.max(clean.box.x, Math.min(a.x, clean.box.x+clean.box.w));
+    const cy=Math.max(clean.box.y, Math.min(a.y, clean.box.y+clean.box.h));
+    const leader = Math.hypot(cx-a.x, cy-a.y) > 4 ? [[a.x,a.y],[cx,cy]] : null;
+    out.push({ key:a.key, x:a.x, y:a.y, dx:clean.dx, dy:clean.dy, box:clean.box,
+               leader, placed:true });
+  }
+  return out;
+}

@@ -33,6 +33,22 @@ export function sectionStations(A, B, holes, corridor){
 //               the midpoint of the gap (a "no interpolation" honest view).
 export const INTERP_METHODS = ['linear', 'mono', 'nearest'];
 
+// Two boreholes can project to the SAME distance along the section line (they
+// sit either side of it, or they are co-located). A zero-length interval makes
+// every slope (y[i+1]-y[i])/0 either ±Infinity or — when the two values are
+// equal, which is the common case for a stratum absent from both logs — 0/0 =
+// NaN, which then poisons the whole curve. Collapse ties to one station holding
+// the mean before interpolating.
+function mergeTies(xs, ys, eps=1e-6){
+  const ox=[], oy=[], n=[];
+  for (let i=0;i<xs.length;i++){
+    if (ox.length && xs[i]-ox[ox.length-1] <= eps){
+      const j=oy.length-1; n[j]++; oy[j] += (ys[i]-oy[j])/n[j];      // running mean
+    } else { ox.push(xs[i]); oy.push(ys[i]); n.push(1); }
+  }
+  return [ox, oy];
+}
+
 function pchipTangents(xs, ys){
   const n=xs.length, d=new Array(n-1), m=new Array(n);
   for (let i=0;i<n-1;i++) d[i]=(ys[i+1]-ys[i])/(xs[i+1]-xs[i]);
@@ -49,6 +65,7 @@ function pchipTangents(xs, ys){
 
 /** Interpolate the series (xs, ys) at each query x in `xq`. */
 export function interpolateSeries(xs, ys, xq, method='linear'){
+  [xs, ys] = mergeTies(xs, ys);
   const n=xs.length;
   if (n===0) return xq.map(()=>0);
   if (n===1) return xq.map(()=>ys[0]);

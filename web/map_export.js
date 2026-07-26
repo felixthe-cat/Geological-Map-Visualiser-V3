@@ -133,6 +133,22 @@ export function paintMarker(ctx, project, ll, label, style={}){
   }
   ctx.restore();
 }
+// pixel-space variants, for overlays whose layout was already solved in screen
+// pixels (the de-cluttered contour callouts)
+export function paintPixelLine(ctx, p0, p1, style={}){
+  ctx.save();
+  ctx.strokeStyle=style.color||'#000'; ctx.lineWidth=style.weight||0.6;
+  ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke();
+  ctx.restore();
+}
+export function paintPixelText(ctx, x, y, text, style={}){
+  ctx.save();
+  ctx.font=style.font||'600 10px Outfit, sans-serif';
+  ctx.textAlign=style.align||'left';
+  ctx.lineWidth=3.5; ctx.strokeStyle=style.halo||'#fff'; ctx.strokeText(text,x,y);
+  ctx.fillStyle=style.color||'#000'; ctx.fillText(text,x,y);
+  ctx.restore();
+}
 export function paintText(ctx, project, ll, text, style={}){
   const [x,y]=project(ll);
   ctx.save();
