@@ -2,25 +2,27 @@
 // GeoVisualise — export a Leaflet map view (basemap tiles + our own
 // overlays) to a PNG the user can drop straight into a report.
 //
-// Why we redraw instead of screenshotting: a canvas is *tainted* by any image
-// fetched without CORS headers, and toDataURL() then throws. Google's tile
-// servers send no Access-Control-Allow-Origin, so Google tiles can be shown on
-// screen but can never be exported. OSM and Esri World Imagery both send
-// `ACAO: *`, so those export fine — and when the user is viewing Google
-// Hybrid we substitute Esri imagery for the exported image (same satellite
-// view, exportable) and say so in the status line.
+// Why we redraw instead of screenshotting: a canvas can only be read back with
+// toDataURL() if every image drawn into it came with CORS headers. Verified
+// against the live servers: Google (mt1.google.com), Esri World Imagery and OSM
+// all send `Access-Control-Allow-Origin: *`, so all three export as-is —
+// whatever the user picked is what lands in the PNG, no substitution.
+//
+// `maxNativeZoom` is the deepest zoom a source actually holds imagery for.
+// Beyond it a server returns a placeholder ("Map data not yet available" grey
+// for Esri), so we fetch the deepest real tiles and scale them up, exactly as
+// Leaflet does on screen.
 // ================================================================
 
 export const BASEMAPS = {
   'Google Hybrid': { url:'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-                     maxZoom:20, attribution:'Google Hybrid', exportUrl:'esri' },
+                     maxZoom:20, maxNativeZoom:20, attribution:'Google Hybrid' },
   'Satellite (Esri)': { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                     maxZoom:19, attribution:'Imagery © Esri, Maxar, Earthstar Geographics' },
+                     maxZoom:20, maxNativeZoom:19, attribution:'Imagery © Esri, Maxar, Earthstar Geographics' },
   'OpenStreetMap': { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                     maxZoom:19, attribution:'© OpenStreetMap contributors' },
+                     maxZoom:20, maxNativeZoom:19, attribution:'© OpenStreetMap contributors' },
   'Plain (no basemap)': { url:null, attribution:'' }
 };
-const ESRI = BASEMAPS['Satellite (Esri)'];
 
 function loadImg(src){
   return new Promise(res=>{
@@ -36,14 +38,20 @@ function tileUrl(tpl, x, y, z){
 }
 
 // Paint the basemap tiles covering the map's current view into `ctx`.
-async function drawTiles(map, ctx, tpl){
-  const pb = map.getPixelBounds(), z = map.getZoom(), ts = 256;
+// When the view is zoomed past the source's real imagery, tiles are taken from
+// its deepest available zoom and drawn scaled up — same as Leaflet on screen,
+// and it avoids the servers' "no data" placeholder tiles.
+async function drawTiles(map, ctx, tpl, maxNativeZoom){
+  const pb = map.getPixelBounds(), z = map.getZoom();
+  const zt = Math.min(z, maxNativeZoom==null ? z : maxNativeZoom);
+  const ts = 256 * Math.pow(2, z - zt);          // screen px covered by one source tile
   const jobs = [];
   for (let tx=Math.floor(pb.min.x/ts); tx<=Math.floor(pb.max.x/ts); tx++)
     for (let ty=Math.floor(pb.min.y/ts); ty<=Math.floor(pb.max.y/ts); ty++)
       jobs.push({ tx, ty, px: tx*ts - pb.min.x, py: ty*ts - pb.min.y });
-  const imgs = await Promise.all(jobs.map(j=>loadImg(tileUrl(tpl, j.tx, j.ty, z))));
+  const imgs = await Promise.all(jobs.map(j=>loadImg(tileUrl(tpl, j.tx, j.ty, zt))));
   jobs.forEach((j,i)=>{ if (imgs[i]) ctx.drawImage(imgs[i], j.px, j.py, ts, ts); });
+  return imgs.filter(Boolean).length + '/' + jobs.length;
 }
 
 /**
@@ -64,14 +72,14 @@ export async function exportMapPNG(map, opts={}){
   ctx.scale(scale, scale);
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,size.x,size.y);
 
+  // Export the base map the user actually chose — no substitution.
   const bm = BASEMAPS[opts.basemap] || null;
   let note = '';
-  let tpl = bm ? bm.url : null;
-  if (bm && bm.exportUrl === 'esri'){                 // Google can't be exported (see header)
-    tpl = ESRI.url;
-    note = ' Google tiles cannot be exported (no CORS) — used Esri satellite imagery instead.';
+  if (bm && bm.url){
+    const got = await drawTiles(map, ctx, bm.url, bm.maxNativeZoom);
+    const [ok, all] = got.split('/').map(Number);
+    if (ok < all) note = ` (${all-ok} of ${all} ${opts.basemap} tiles did not load)`;
   }
-  if (tpl) await drawTiles(map, ctx, tpl);
 
   const project = ll => { const p = map.latLngToContainerPoint(L.latLng(ll[0], ll[1])); return [p.x, p.y]; };
   if (opts.draw) opts.draw(ctx, project);
@@ -95,10 +103,10 @@ export async function exportMapPNG(map, opts={}){
 
   let url;
   try { url = cv.toDataURL('image/png'); }
-  catch { return 'Export failed: the basemap tiles blocked canvas export. Switch the basemap to OpenStreetMap or Esri and retry.'; }
+  catch { return 'Export failed: the base map blocked canvas read-back. Switch the base map (or pick “Plain”) and retry.'; }
   const a=document.createElement('a'); a.download=opts.name||'map.png'; a.href=url;
   document.body.appendChild(a); a.click(); a.remove();
-  return '✓ Image exported ('+cv.width+'×'+cv.height+' px).'+note;
+  return '✓ Image exported ('+cv.width+'×'+cv.height+' px, '+(opts.basemap||'no base map')+').'+note;
 }
 
 // ---- overlay painters shared by the site plan & contour exports -------------

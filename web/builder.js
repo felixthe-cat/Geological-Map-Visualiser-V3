@@ -338,7 +338,10 @@ async function setBase(map, key, name){
   const { BASEMAPS } = await mapExport();
   const bm = BASEMAPS[name];
   if (_baseLayers[key]){ map.removeLayer(_baseLayers[key]); _baseLayers[key]=null; }
-  if (bm && bm.url) _baseLayers[key]=L.tileLayer(bm.url,{maxZoom:bm.maxZoom||19,attribution:bm.attribution}).addTo(map);
+  // maxNativeZoom lets Leaflet upscale the deepest real tiles instead of asking
+  // for zooms the source has no imagery for (Esri returns grey placeholders).
+  if (bm && bm.url) _baseLayers[key]=L.tileLayer(bm.url,
+    {maxZoom:bm.maxZoom||20, maxNativeZoom:bm.maxNativeZoom, attribution:bm.attribution}).addTo(map);
   if (_baseLayers[key]) _baseLayers[key].bringToBack();
 }
 
