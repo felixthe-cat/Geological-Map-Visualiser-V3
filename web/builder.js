@@ -544,20 +544,81 @@ async function renderSitePlan(){
 function drawSectionLine(){
   const {a,b}=sectionLine;
   if (!secLinePoly){
-    secLinePoly=L.polyline([a,b],{color:'#d33',weight:3}).addTo(secMap);
+    secLinePoly=L.polyline([a,b],{color:'#d33',weight:3, interactive:true}).addTo(secMap);
     const mk=ll=>L.marker(ll,{draggable:true,
       icon:L.divIcon({className:'sec-handle',iconSize:[16,16],iconAnchor:[8,8]})}).addTo(secMap);
     secHandleA=mk(a); secHandleB=mk(b);
     secHandleA.on('drag',onHandleDrag); secHandleB.on('drag',onHandleDrag);
+    enableLineDrag();
   } else {
     secLinePoly.setLatLngs([a,b]); secHandleA.setLatLng(a); secHandleB.setLatLng(b);
   }
+  syncAbFields();
 }
+
+// Drag the line itself to translate the whole section (the handles move each end).
+function enableLineDrag(){
+  let from=null;
+  secLinePoly.on('mousedown', e=>{
+    from=e.latlng;
+    secMap.dragging.disable();
+    secMap.on('mousemove', onMove);
+    secMap.once('mouseup', ()=>{ secMap.off('mousemove', onMove); secMap.dragging.enable(); from=null; });
+    L.DomEvent.stop(e);
+  });
+  function onMove(e){
+    if (!from) return;
+    const dLat=e.latlng.lat-from.lat, dLng=e.latlng.lng-from.lng;
+    from=e.latlng;
+    sectionLine={ a:[sectionLine.a[0]+dLat, sectionLine.a[1]+dLng],
+                  b:[sectionLine.b[0]+dLat, sectionLine.b[1]+dLng] };
+    secLinePoly.setLatLngs([sectionLine.a, sectionLine.b]);
+    secHandleA.setLatLng(sectionLine.a); secHandleB.setLatLng(sectionLine.b);
+    syncAbFields();
+    updateSection();
+  }
+}
+
 function onHandleDrag(){
   const a=secHandleA.getLatLng(), b=secHandleB.getLatLng();
   sectionLine={ a:[a.lat,a.lng], b:[b.lat,b.lng] };
   secLinePoly.setLatLngs([sectionLine.a, sectionLine.b]);
+  syncAbFields();
   updateSection();   // live redraw of the cross-section as the line moves
+}
+
+// ---- A/B coordinate fields (two-way with the map) --------------------------
+// The section line is stored as lat/lng but HK engineers work in HK1980 grid
+// metres, so the boxes are E/N. `_abTyping` stops the map's own updates from
+// re-writing the box under the user's cursor mid-edit.
+let _abTyping=false;
+function syncAbFields(){
+  if (_abTyping || !sectionLine) return;
+  const A=toEN(...sectionLine.a), B=toEN(...sectionLine.b);
+  const set=(id,v)=>{ const el=document.getElementById(id); if (el && document.activeElement!==el) el.value=v.toFixed(1); };
+  set('sec-ae',A.e); set('sec-an',A.n); set('sec-be',B.e); set('sec-bn',B.n);
+  const info=document.getElementById('sec-ab-info');
+  if (info){
+    const len=Math.hypot(B.e-A.e, B.n-A.n);
+    let brg=(Math.atan2(B.e-A.e, B.n-A.n)*180/Math.PI)%360; if (brg<0) brg+=360;
+    info.textContent=`length ${len.toFixed(1)} m · bearing ${brg.toFixed(1)}° (grid north)`;
+  }
+}
+// typed coordinates -> move the line (live, on every keystroke)
+function abFieldsToLine(){
+  const v=id=>{ const raw=(document.getElementById(id).value||'').trim(); return raw===''?NaN:+raw; };
+  const ae=v('sec-ae'), an=v('sec-an'), be=v('sec-be'), bn=v('sec-bn');
+  if (![ae,an,be,bn].every(Number.isFinite)) return;          // mid-typing / blank
+  if (Math.hypot(be-ae, bn-an) < 1) return;                   // degenerate line
+  _abTyping=true;
+  sectionLine={ a:toLL(ae,an), b:toLL(be,bn) };
+  if (secLinePoly){
+    secLinePoly.setLatLngs([sectionLine.a, sectionLine.b]);
+    secHandleA.setLatLng(sectionLine.a); secHandleB.setLatLng(sectionLine.b);
+  }
+  updateSection();
+  _abTyping=false;
+  syncAbFields();                                             // refresh length/bearing
 }
 
 // Project boreholes onto the current line, pick those within a corridor,
@@ -1172,6 +1233,9 @@ document.getElementById('sp-base').addEventListener('change', e=>{
   if (secMap) setBase(secMap, 'sp', e.target.value);
 });
 document.getElementById('sp-names').addEventListener('change', ()=>drawPlanNames());
+// A/B coordinate boxes: live in both directions (task 4)
+['sec-ae','sec-an','sec-be','sec-bn'].forEach(id=>
+  document.getElementById(id).addEventListener('input', abFieldsToLine));
 document.getElementById('sp-export').addEventListener('click', exportSitePlan);
 
 // borehole-log site map: base map, name toggle (task 1)

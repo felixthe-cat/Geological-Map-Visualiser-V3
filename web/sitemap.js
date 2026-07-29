@@ -201,7 +201,11 @@ function renderResults(hits){
 function plotResults(hits){
   if (!resultLayer) return;
   resultLayer.clearLayers();
-  const cap = hits.slice(0, MAX_PLOT);   // keep panning snappy on dense areas
+  // task: let the user hide the location-only points so a dense area shows just
+  // the boreholes that actually carry stratigraphy
+  const showNoAgs = document.getElementById('map-show-noags')?.checked ?? true;
+  const shown = showNoAgs ? hits : hits.filter(b => (b.hasLog !== undefined) ? b.hasLog : b.hasAGS);
+  const cap = shown.slice(0, MAX_PLOT);   // keep panning snappy on dense areas
   for (const b of cap){
     // Before loading we only know a report exists (hasAGS). After loading we
     // know whether THIS station has a real geological log (hasLog) — green then
@@ -218,6 +222,81 @@ function plotResults(hits){
                  `E ${b.e??'-'} N ${b.n??'-'}<br>GL ${b.gl??'-'} mPD · depth ${b.depth??'-'} m`)
       .addTo(resultLayer);
   }
+}
+
+// ---- AGS coverage layer ----------------------------------------------------
+// "Where is there any data at all?" — so a site can be chosen deliberately
+// instead of by drawing boxes until one comes back non-empty.
+// 35,326 of the 80,000 indexed stations have AGS, which is far too many markers,
+// so the layer aggregates into ~500 m density cells and only switches to
+// individual points once zoomed in far enough for them to be distinguishable.
+const COV_ZOOM_POINTS = 15;        // at/above this zoom, draw stations not cells
+const COV_CELL_LAT = 0.0045;       // ≈500 m
+const COV_CELL_LNG = 0.0049;       // ≈500 m at Hong Kong's latitude
+const COV_MAX_POINTS = 4000;
+const COV_BANDS = [                // count -> colour (light = sparse, dark = dense)
+  [100, '#1b3d0e'], [50, '#2f5a1e'], [20, '#4a7c2a'], [5, '#7aa945'], [1, '#b9d18a']
+];
+const covColour = n => (COV_BANDS.find(([m]) => n >= m) || COV_BANDS[COV_BANDS.length-1])[1];
+
+let coverLayer = null, coverRenderer = null;
+
+function drawCoverage(){
+  const on = document.getElementById('map-coverage')?.checked;
+  const legend = document.getElementById('cov-legend');
+  if (!coverLayer) return;
+  coverLayer.clearLayers();
+  if (!on || !INDEX){ if (legend) legend.textContent=''; return; }
+
+  const z = map.getZoom(), view = map.getBounds();
+  const agsPts = INDEX.filter(b => b.hasAGSIdx);
+  if (z >= COV_ZOOM_POINTS){
+    const inView = agsPts.filter(b => view.contains([b.lat, b.lon]));
+    for (const b of inView.slice(0, COV_MAX_POINTS))
+      L.circleMarker([b.lat,b.lon], {renderer:coverRenderer, radius:3, stroke:false,
+        fillColor:'#2f5a1e', fillOpacity:.55}).addTo(coverLayer);
+    if (legend) legend.textContent =
+      `${inView.length.toLocaleString()} AGS station(s) in view`+
+      (inView.length > COV_MAX_POINTS ? ` (showing ${COV_MAX_POINTS.toLocaleString()})` : '')+
+      ' — draw a rectangle over a cluster.';
+    return;
+  }
+  // aggregate into cells; only cells overlapping the current view are drawn
+  const cells = new Map();
+  for (const b of agsPts){
+    const i = Math.floor(b.lat/COV_CELL_LAT), j = Math.floor(b.lon/COV_CELL_LNG);
+    const k = i+'|'+j;
+    const c = cells.get(k);
+    if (c) c.n++; else cells.set(k, {i, j, n:1});
+  }
+  let drawn = 0, total = 0;
+  for (const c of cells.values()){
+    total += c.n;
+    const lat0=c.i*COV_CELL_LAT, lng0=c.j*COV_CELL_LNG;
+    const b = [[lat0, lng0], [lat0+COV_CELL_LAT, lng0+COV_CELL_LNG]];
+    if (!view.intersects(b)) continue;
+    drawn++;
+    L.rectangle(b, {renderer:coverRenderer, color:covColour(c.n), weight:0.5,
+        fillColor:covColour(c.n), fillOpacity:.45})
+      .bindTooltip(`${c.n} borehole(s) with AGS data in this 500 m cell`, {sticky:true})
+      .addTo(coverLayer);
+  }
+  if (legend) legend.textContent =
+    `${total.toLocaleString()} AGS boreholes across ${cells.size.toLocaleString()} 500 m cells `+
+    `(${drawn.toLocaleString()} in view) — darker = denser. Zoom to ${COV_ZOOM_POINTS} for individual stations.`;
+}
+
+async function toggleCoverage(){
+  const on = document.getElementById('map-coverage').checked;
+  if (on){
+    setStatus('Building AGS coverage…','busy');
+    const [idx, agsSet] = await Promise.all([ensureIndex(), ensureAgsSet()]);
+    // cache the AGS flag on the index once (the search sets `hasAGS` per result)
+    if (idx.length && idx[0].hasAGSIdx === undefined)
+      for (const b of idx) b.hasAGSIdx = agsSet.has(String(b.repno));
+    setStatus('AGS coverage shown — darker cells hold more boreholes with stratigraphy.','ok');
+  }
+  drawCoverage();
 }
 
 // ---- stratigraphy from CEDD AGS open data (via HF Space) -------------
@@ -387,8 +466,13 @@ export async function initSiteMap(opts={}){
   google.addTo(map);
   L.control.layers({ 'Google Hybrid':google, 'OpenStreetMap':osm }).addTo(map);
 
+  // coverage sits under everything else and uses a canvas renderer — thousands
+  // of cells/points as individual SVG nodes would crawl
+  coverRenderer = L.canvas({ padding: 0.2 });
+  coverLayer = L.layerGroup().addTo(map);
   drawnLayer = new L.FeatureGroup().addTo(map);
   resultLayer = new L.FeatureGroup().addTo(map);
+  map.on('moveend zoomend', drawCoverage);
 
   const drawControl = new L.Control.Draw({
     draw: { rectangle:{shapeOptions:{color:'#b8860b',weight:2}},
@@ -416,6 +500,9 @@ export async function initSiteMap(opts={}){
   });
 
   document.getElementById('map-search').addEventListener('click', searchBbox);
+  document.getElementById('map-coverage').addEventListener('change', toggleCoverage);
+  document.getElementById('map-show-noags').addEventListener('change',
+    ()=>{ plotResults(lastResults); renderResults(lastResults); });
   document.getElementById('map-to-2d').addEventListener('click', loadInto2D);
   const _dl=document.getElementById('map-download-ags');
   if (_dl) _dl.addEventListener('click', downloadAgs);
