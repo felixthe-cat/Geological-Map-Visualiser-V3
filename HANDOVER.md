@@ -1,196 +1,210 @@
-# Handover Note — 2026-07-26
+# Handover Note — 2026-07-26 (evening session)
 
-> Read `SOUL.md` first per CLAUDE.md's instruction. This file picks up from there with
-> where things actually stand after this session's work (cross-section redesign +
-> AGS classification overhaul + project save/resume + admin gate).
+> Read `SOUL.md` first per CLAUDE.md. This note replaces the earlier 2026-07-26 one and
+> carries forward its still-open items. Everything below was verified against the live
+> sites, not just pushed — see "Deploy state".
 
-## What this project is
+## What this project is (unchanged)
 
-Free, open-source 3D/2D geological modelling tool for Hong Kong ground-investigation data.
-Two live surfaces:
-- **Vercel** (`web/`) — static JS frontend: landing page, 2D log/cross-section builder, site map.
+Free, open-source 2D/3D geological modelling tool for Hong Kong ground-investigation data.
+- **Vercel** (`web/`) — static JS frontend: landing page + 2D Builder.
   Live at **https://geological-map-visualiser.vercel.app**
-- **Hugging Face Space** (`app.py` + `src/`) — Gradio app running GemPy for heavy 3D modelling.
-  Live at **https://ferxxxxx-geological-map-visualiser-v3.hf.space**
+- **Hugging Face Space** (`app.py` + `src/`) — Gradio backend: CEDD AGS open-data fetch/parse
+  and (admin-gated) GemPy 3D. Live at **https://ferxxxxx-geological-map-visualiser-v3.hf.space**
 
-Architecture decision unchanged: light/instant features (2D log, cross-section, site map,
-borehole entry) live in the Vercel/JS layer; HF Spaces stays the specialist heavy-compute
-backend for GemPy 3D.
+The 2D Builder now has **5 tabs**: 1 Site Map · 2 Borehole Log · 3 Cross-Section ·
+4 Rock Contour · 5 3D via Hugging Face (admin-gated).
 
-## Deploy mechanics (unchanged, still the workflow used every commit this session)
+## Deploy mechanics (unchanged)
 
-- **GitHub**: `main` → `origin/main`. A GitHub push alone only updates the Vercel **Preview**.
-- **Vercel production**: run `vercel --prod --yes` from repo root after every push — do not
-  rely on the GitHub push alone.
-- **Hugging Face**: separate branch `hf-deploy`, pushed to remote `space`:
-  ```bash
-  git checkout hf-deploy
-  git checkout main -- app.py src/        # NOTE: now syncs ALL of src/, not just 1-2 files —
-                                           # this was a real bug this session, see "Fixed" below
-  git commit -m "sync: ..."
-  git push space hf-deploy:main
-  git checkout main
-  ```
-  Then poll `https://huggingface.co/api/spaces/ferxxxxx/Geological-Map-Visualiser-V3/runtime`
-  for `"stage":"RUNNING"` before trusting the new endpoint.
-- **Always verify live after deploying** — this session's pattern: drive the actual
-  `https://geological-map-visualiser.vercel.app/builder` page via the browser tool (fill the
-  bbox, click through the real UI, read back DOM state), and call the HF endpoint directly
-  via `gradio_client` in Python, before declaring anything done.
-- `.claude/auto_push.ps1` (the Stop hook) now uses `git add -A` (was `git add -u`) and syncs
-  all of `src/` to HF — see "Fixed this session" below for why.
+- GitHub `main` → `origin/main`. **A GitHub push only updates the Vercel Preview** —
+  always run `vercel --prod --yes` from the repo root afterwards.
+- Hugging Face: branch `hf-deploy`, `git checkout main -- app.py src/`, commit,
+  `git push space hf-deploy:main`, then poll
+  `https://huggingface.co/api/spaces/ferxxxxx/Geological-Map-Visualiser-V3/runtime`
+  for `"stage":"RUNNING"`.
+- `.claude/auto_push.ps1` (Stop hook) auto-commits/pushes and syncs the Space.
 
-## Fixed this session (real bugs, not just features)
+## What changed this session
 
-1. **Live production was broken at the start of this session** — `web/builder.js` imported
-   `./section_geom.js`, but that file had never been committed (the old hook's `git add -u`
-   only stages tracked files). Fixed: committed the file, deployed, verified. Also fixed the
-   root cause — hook now uses `git add -A` and a `.gitignore` that excludes `/data/`,
-   `scratch/`, `.claude/`, `.env*.local` so `-A` is safe.
-2. **AGS3 headings that wrap across multiple lines** were being overwritten instead of
-   accumulated, silently dropping key columns (`HOLE_ID`, `GEOL_TOP`/`BASE`) and making whole
-   AGS3 reports parse to **zero** boreholes. This was the actual cause of "only a few of many
-   AGS boreholes import" — not a hard data limitation. Fixed by accumulating wrapped heading
-   lines and merging `<CONT>` continuation rows back into the record (so wrapped
-   `GEOL_DESC` text is captured in full too).
-3. **`MAX_IMPORT` in `sitemap.js`** raised from 40 → 300 (was silently capping imports on
-   large sites).
-4. **The auto-push hook only synced `app.py` + `src/map_view.py` to HF** — backend fixes to
-   `src/ags_open_data.py` (the module that actually runs `/fetch_stratigraphy` on HF) were
-   landing on GitHub but never reaching the Space. Now syncs all of `src/`.
+Roughly in the order the user asked for it.
 
-## What's built and verified working (as of commit `b7ea2ef`)
+### 1. Borehole log rendering (`web/builder.js` `renderLog`)
+mPD axis got its own 60 px lane with ticks; the label/legend column is now **sized to its
+longest text** instead of a fixed width, so nothing is clipped and the legend can't collide
+with the mPD numbers.
 
-### Web frontend (`web/`)
-- `index.html` — landing page. 3D Viewer link/card now gated behind an **admin login**
-  (see "Admin gate" below) — greyed out with a "Coming soon" badge for normal users.
-- `builder.html` + `builder.js` — 4 tabs: **1 Site Map → 2 Borehole Log → 3 Cross-Section →
-  4 3D via Hugging Face** (tab 4 also admin-gated).
-  - **Cross-Section tab redesigned this session**: the old static SVG site plan was replaced
-    with a live **Leaflet satellite map** (`renderSitePlan()`), showing the site boundary
-    (thick yellow dashed rectangle, `maxBounds` ≈50% larger than the drawn site) and a
-    **draggable red section line** with two handles (`drawSectionLine()`/`onHandleDrag()`).
-    Dragging live-updates which boreholes are included (`sectionStations()` in
-    `web/section_geom.js` — pure, Node-testable projection/corridor logic;
-    `web/test_section_geom.mjs` is its self-check) and re-renders the section.
-  - **Cross-section diagram (`renderSection()`)**: grouped/coloured by **decomposition
-    grade** (not raw stratum name) via `classKey()`/`classColour()`/`classLabel()`; a
-    collapsible **options panel** (`#sec-options`) above it holds: custom title (live-updates),
-    vertical exaggeration, distance-tolerance slider, show/hide logs, show/hide names,
-    trial-pits-only filter. Hover a band/log-strip/legend entry highlights that class and dims
-    the rest. A/B markers on the diagram match the section-line ends on the map. Regular
-    x-axis (distance) added alongside the existing y-axis (elevation). The **legend only
-    lists grade classes currently present** in the section — updates live as boreholes
-    enter/leave while dragging.
-  - **Borehole Log tab**: de-cluttered label placement (leader lines, no overlap on thin
-    layers) + a **Labels: inline/legend** toggle button next to Export PNG.
-  - **Panel collapse**: "⟨ Collapse" button top-right of the data-entry panel; when
-    collapsed, a floating `⟩` button (top-left, fixed position) re-expands it. Applies on
-    any tab (not just Cross-Section).
-  - **Project save/resume** (new "Save / resume project" section under Import/export CSV):
-    "⬇ Download project CSV" exports all boreholes/trial pits **with decomposition grade,
-    kind (BH/TP), site boundary, and the current section line** in one CSV (`#GEOVIS {...}`
-    JSON header line + a 9-column CSV body — see `stateToProjectCSV()`/`projectCSVToState()`
-    in `builder.js`). A drag-and-drop zone (`#proj-drop`) + "Load project into 2D Builder"
-    button restores everything, including re-drawing the site boundary and section line.
-- `sitemap.js`:
-  - `MAX_IMPORT` now 300 (was 40).
-  - After loading, AGS points that turned out to have **no geological log** (trial pit /
-    CPT / plate-load stations) are recoloured grey on the map (previously stayed green just
-    because the *report* had AGS). The status text under the map now reports the breakdown:
-    "N with a geological log (green). M AGS point(s) with no solid/rock log — trial pit / CPT
-    (now grey). K location-only."
-  - **"⬇ Download extracted data (AGS)"** button at the bottom of the Site Map tab —
-    regenerates a minimal valid **AGS4** file (LOCA + GEOL groups) from whatever was loaded
-    into the 2D Builder (classified stratum + grade). This is NOT the original CEDD AGS
-    file byte-for-byte — it's our re-derived data. Flagged to the user as a known limitation;
-    they haven't asked for the original-file variant yet.
-  - Exports `ensureMapLibs()` (Leaflet/Draw/proj4 loader) so `builder.js` can reuse the same
-    CDN libs for the satellite section map without a second load.
-- `admin.js` (new) — client-side admin gate. `window.GeoAdmin = {isAdmin, tryLogin, logout}`.
-  Stores only a **SHA-256 hash** of the password (not the plaintext) in the source; sets
-  `localStorage['geovis_admin']='1'` on success. **Not real security** — a determined user
-  can bypass a client-side check. Elements tagged `data-lock3d` (3D Viewer link/card on
-  `index.html`, viewer link + HF tab on `builder.html`) get `.locked3d` (greyed,
-  non-clickable) + a "Coming soon" badge unless admin. Admin button is bottom-right of the
-  landing page. **The plaintext admin password was given to Felix directly in chat, not
-  stored in any repo file or memory** — if it needs rotating, regenerate the SHA-256 and
-  replace `HASH` in `admin.js`.
+### 2. AGS download is now the ORIGINAL CEDD file (`src/ags_open_data.py`, `app.py`, `web/sitemap.js`)
+New `/fetch_raw_ags` endpoint returns CEDD's `GI_AGS/<REPNO>.zip` bytes untouched (one report
+→ that zip; several → a `ZIP_STORED` container). The derived AGS4 exporter was **deleted**.
+`build_manifest()` now also records CRC-32 + uncompressed size from CEDD's own central
+directory, and `fetch_report_bytes()` verifies both — that's the proof of byte-fidelity, since
+there is no per-report URL to diff against (`GI_AGS/<REPNO>.zip` 404s; only the 635 MB archive
+exists). **`test_raw_ags.py`** (repo root, needs network) checks outer CRC, inner member CRCs,
+fetch determinism, and that the multi-report container preserves every byte.
 
-### Backend (`app.py`, `src/`)
-- `src/ags_open_data.py` — significantly overhauled this session. `classify_layer()` is now
-  the core function (returns `(surface_label, grade_label)` per GEOL row); grade format is
-  e.g. `"V (CDG)"`, `"IV (HDG)"`, `"VI (RS)"`, `"I (Fresh)"`. Decision order (see
-  `docs/AGS_CLASSIFICATION.md` for full detail + tables):
-  1. `GEOL_GEO2` grade code (authoritative) → 2. `GEOL_GEO2` origin code → 3. Description
-  decomposition word ("completely/highly/moderately/slightly decomposed", handles the
-  "completley" typo) → 4. Description special/origin markers (topsoil, shell→Marine,
-  asphalt/concrete/shotcrete→Made Ground, brick/rubble→Fill, diamict→Superficial Deposit,
-  alluvium/colluvium) → 5. Rock **strength term** when a rock is named but "decomposed" isn't
-  (extremely weak→V, weak→IV, moderately weak/strong→III, strong→II, very/extremely strong→I)
-  → 6. **`WETH` group join by depth** (authoritative weathering grade when nothing else
-  resolved it — new this session, `_weth_grade_at()`) → 7. Quaternary (`GEOL_GEOL='Q'`) with
-  no other signal → "Superficial Deposit" → 8. **Option-A default**: a bare granular grading
-  code (SAND/SILT/CLAY/GRAV/CBBL/BLDR…) with zero other signal defaults to **CDG Grade V**
-  (`guess_bare_grade()`) — confirmed by the user as the desired behaviour for HK
-  weathered-granite terrain.
-  - Also captures **AGS3 `<CONT>` continuation rows** now (merged back into the record before
-    classification), so wrapped `GEOL_DESC` text isn't lost.
-  - Result: 0 raw grading codes left on the user's test site (was previously showing
-    `SANDZG`/`SILTS` etc. unclassified); ~1 unclassifiable row per 3,800 across a broad
-    60-report sweep (a genuine note-only row with no material).
-  - Self-check: `python -m src.ags_open_data` — extensive asserts covering AGS3/AGS4 parsing,
-    wrapped headings, WETH join, strength terms, special materials, option-A default.
-- `app.py` — three Gradio endpoints unchanged (`build_model`, `build_model_csv`,
-  `fetch_stratigraphy`).
+### 3. Project CSV round trip (`web/project_csv.js` + `web/test_project_csv.mjs`)
+Format logic moved out of `builder.js` into a pure module with proper RFC4180 quoting — the
+old writer stripped commas/newlines out of stratum descriptions, which **was** losing data.
+Round trip verified lossless end-to-end (export → drop → load → re-export is byte-identical).
 
-### New reference doc
-- **`docs/AGS_CLASSIFICATION.md`** — explains, for a human reviewer: where the AGS fields
-  come from, the GeoGuide 3 Table 4 grade table, the full classification decision order, and
-  worked examples. Written this session at the user's request so they can audit the logic.
+### 4. Removed the "load sample" datasets. The app boots with one blank borehole.
 
-### Data files (unchanged)
-- `data/gi_spatial_index.sqlite` — local only, not committed (now enforced via `.gitignore`).
-- `web/data/boreholes.csv` / `ags_repnos.json` — committed, live site reads these.
+### 5. "Trial pits only" → **"Boreholes only (exclude trial pits)"** on the cross-section.
 
-## Known gaps / open questions — ASK THE USER, don't assume
+### 6. Site-plan image export + base maps (`web/map_export.js`)
+"⬇ Export site plan (PNG)" draws basemap + site boundary + red A–B line + boreholes at 2×.
+Base map switches between Google Hybrid / Satellite (Esri) / OpenStreetMap.
 
-1. **Pending confirmation from the user** (asked at the end of this session, not yet
-   answered): is it OK that `Topsoil`, `Superficial Deposit`, `No Recovery`, `Wash Boring`,
-   and `Made Ground` are treated as valid non-grade materials (alongside Fill/Alluvium/
-   Marine Deposit/Colluvium/Concrete/Asphalt that the user explicitly named)? Don't assume
-   yes — check the transcript / ask again if it's been a while.
-2. **AGS download (task 4) is re-derived data, not the original file.** If the user later
-   wants the byte-for-byte original CEDD AGS report(s) instead of/alongside our regenerated
-   AGS4, that needs a new backend endpoint (fetch + zip the original report files) — not
-   built.
-3. **Admin gate is NOT real security** — purely a UX deterrent for hiding half-built 3D
-   features from casual visitors. If the user ever wants genuine access control, that's a
-   different (server-side) piece of work.
-4. **3D-from-map button is still a stub** ("Send to 3D Builder (not built)") — unchanged
-   from before, still an intentional placeholder.
-5. **`src/ingest_ags.py`** (the direct-file-upload AGS parser for the main 3D pipeline) still
-   has NOT been updated with the new classification logic — only the `ags_open_data.py` /
-   `fetch_stratigraphy` path (used by the site map) has it. Follow-up task if the user wants
-   consistent grading when uploading their own AGS file to the 3D tab.
-6. **Duplicate-report edge case** (same station under two REPNOs) still not deduplicated —
-   harmless, not fixed, not asked for.
-7. The **project CSV format is a new, homegrown format** (`#GEOVIS {json}` header + 9-column
-   body) — not AGS, not a standard. It's only readable by this tool's own import. Fine for
-   its stated purpose (save/resume a session) but don't confuse it with the AGS download.
+### 7. Esri removed from the Site Map tab's layer control.
 
-## Reference docs already in the repo
-- `COMPETITOR_ANALYSIS.md`, `PROJECT.md`, `IMPLEMENTATION_PLAN.md` (older, partially stale)
-- `docs/AGS_CLASSIFICATION.md` — **new this session**, read this before touching
-  `classify_layer()` / `guess_bare_grade()` again.
-- `SOUL.md` — the actual agent system prompt (CLAUDE.md just points here).
+### 8. New **Rock Contour** tab (`web/contour.js` + `web/test_contour.mjs`)
+Rockhead contours from the loaded logs: rock = top of the shallowest layer at Grade III (or
+II) or better; IDW or nearest-neighbour interpolation; marching squares; engineering-drawing
+style (thin black lines, heavier labelled index contours, borehole callouts, optional plain
+white base). Boreholes that never proved rock are marked "rock N.E." and **excluded** from the
+interpolation. PNG export included.
+
+### 9. Cross-section interpolation options (`web/section_geom.js`)
+Linear (default) / **monotone cubic (PCHIP)** / nearest neighbour. Horizons are interpolated
+as *top surface + thicknesses*, so bands can pinch out but **never cross** — asserted in
+`web/test_section_geom.mjs` against a pinched-out stratum. (Assessment of the Gemini
+suggestions: both are appropriate; a *natural* cubic spline would not be, because it
+overshoots and can invent rock above ground.)
+
+### Then: export fidelity fix
+The grey "Map data not yet available" export was **Esri's placeholder tile**: the exporter
+silently substituted Esri for Google, and Esri has no imagery at z19–20 over the reference
+site. Re-measured against the live servers — Google, Esri and OSM **all** send
+`Access-Control-Allow-Origin: *`, so the CORS limitation the substitution was built around
+does not exist. Substitution removed; `maxNativeZoom` added per source (Esri/OSM 19,
+Google 20) for both live layers and the exporter.
+
+### Then: full QA audit (Playwright, 3 breakpoints + 37 interaction checks) and its fixes
+- **Horizontal page scroll on tablet/mobile** (docWidth 913 vs 390): a long caption in `.row`
+  with `flex:0 0 auto` couldn't wrap and a grid track's min-content floor propagated it to the
+  whole page. Fixed with caption flex rules, `.wrap>.panel{min-width:0}`, wrapping header and
+  tab bar.
+- **CLS 0.287 → 0.002**: the markup rendered the two-column layout and the deferred module
+  then switched to the Site-Map (full-width) layout. Markup now ships in the boot state.
+- `index.html` loaded `app.js` (viewer.html's iframe controller) and threw on every visit.
+- The admin gate injected "Coming soon" badges after paint (layout shift + a window where the
+  locked 3D links were live). 3D features now ship **locked in the markup**; admin unlocks.
+- **Blank bbox fields read as 0** (`+'' === 0` is finite) so an empty search silently reported
+  "0 boreholes" at lat/lng 0,0. Blank is now missing; `min >= max` rejected.
+- `<polygon> points: NaN` console errors: two boreholes projecting to the **same distance**
+  along the section line gave a 0/0 PCHIP slope. Tied stations are merged to their mean
+  (`mergeTies` in `section_geom.js`), regression-tested.
+- **Duplicate reports** (CEDD publishes some GI twice, e.g. 62076/62077) loaded the same
+  borehole twice and drew doubled callouts. Same id + same position merges; same id at a
+  different position is tagged `[REPNO]`.
+- Lighthouse: perf 79→82, **a11y 92→100, best-practices 93→96, SEO 91→100**. Added preconnect
+  for tile/CDN origins + Leaflet preload (LCP 5.2 s → 4.6 s), inline SVG favicon (killed the
+  only console error, a 404), `for` on 15 labels, darkened `--gold` #b8860b → #8a6508 for
+  contrast, meta descriptions.
+
+### Then: fill clasts misread as rockhead (commit `afef3ad`)
+**This one matters geotechnically.** The contour plan exposed 28 stations "proving rock" at
+0.1–0.25 m depth (+5.5 mPD) in reclaimed Yau Ma Tei. In `classify_layer()` the description
+decomposition rule ran *before* the origin markers, so reclamation fill logged as
+`GEOL_LEG=FILL, "...gravel OF moderately decomposed rock fragments..."` was promoted to Grade
+III rock. Two narrow guards above the decomposition rule: `LEG=FILL`/`(FILL)` ⇒ Fill, full
+stop; and clast phrases (`<clast noun> of <decomp/strength term>`) are blanked before matching.
+Genuine rock masses unaffected (asserted). Reference site: false shallow rockheads 28 → 0,
+rock level range −48.43..+5.78 → −48.43..−23.35 mPD. Also added **"Boreholes only"** to the
+contour tab (default on) — a trial pit meeting Grade III at 1–3 m is a boulder, not rockhead.
+
+### Then: callout de-clutter + two new plan features
+- `placeLabels()` in `contour.js`: each callout takes the nearest free slot (12 directions,
+  radii to 230 px) around its symbol with a **leader line**, dodging contour labels and other
+  symbols; contour index labels slide along their own line and are dropped where there's no
+  room; anything unplaceable becomes a hover tooltip and is counted in the UI.
+- **Borehole picker map on the Log tab** — every borehole with coordinates, labelled; clicking
+  one drives the data-entry panel, the log diagram and the dropdown (and vice versa).
+- **Borehole names on the cross-section site plan**, included in the PNG export at exactly the
+  previewed positions. Both use one shared `placePointLabels()` helper.
+- Placement is **synchronous on purpose**: the async version raced itself (clear → await →
+  add) and drew three copies of every name on zoom/moveend.
+
+### Then: import limit raised 300 → 1000, measured (`web/sitemap.js`)
+Benchmarked with synthetic 9-layer boreholes; worst interaction (section/contour redraw) on a
+1440×900 desktop: **300 → ~115 ms, 500 → ~240 ms, 800 → ~380 ms, 1000 → ~840 ms,
+1500 → ~1.7 s, 2000 → everything >800 ms**. Heap 29 MB → 68 MB over that range; no errors.
+Sized against reality: AGS stations per 500 m box in the CSDI index are median 10, p95 128,
+p99 258, **busiest in HK 653** (a 1 km box reaches 1,420). Backend is not the limit either —
+`/fetch_stratigraphy` returns 40 reports / 853 stations in 7.4 s. So `MAX_IMPORT` 300 → **1000**,
+site-map markers 800 → 1500, raw-AGS report cap 50 → 200. Truncation used to be **silent** and
+is now reported before and after the fetch, with a warning over 500.
+Verified on HK's densest 500 m box: 655 stations → **421 boreholes** loaded, section redraw
+90 ms. 1 km worst case caps cleanly at 1,000 requested → 659 loaded.
+
+### Then: `Set map center and zoom first.` (commit `5f950c7`)
+Each render awaits (`setBase`, dynamic import) between constructing a Leaflet map and fitting
+its bounds; on a big site that window let a re-entrant draw project against a view-less map.
+View is now set before the first await, plus a `hasView(map)` guard (public `getCenter()`) on
+every draw entry point.
+
+### Finally: three site-map/section usability features (commit `7861430`)
+- **"Show AGS data coverage (whole territory)"** — shades all of HK by AGS borehole density so
+  a site can be picked deliberately. 35,326 AGS stations is far too many markers, so it
+  aggregates into 500 m cells (1,207 of them) and switches to individual stations at zoom 15+,
+  on a **canvas** renderer, culled to the view. Paints in ~0.6 s.
+- **"Show boreholes without AGS data"** toggle for the search results (map + table).
+- **A/B section-line coordinate boxes** (HK1980 E/N), live in both directions: type to move the
+  line; drag a handle or **drag the line body** (new — translates both ends) and the numbers
+  follow. Length + grid bearing shown alongside.
+
+## Deploy state (verified at the end of this session, not just pushed)
+
+- **`main` @ `7861430`**, working tree clean, pushed to `origin/main`.
+- **Vercel production live and confirmed**: `/builder` serves `id="map-coverage"`,
+  `id="sec-ae"`, `id="lp-base"`, the `4 · Rock Contour` tab, and `MAX_IMPORT = 1000`.
+- **HF Space `RUNNING`** (cpu-basic). `hf-deploy` @ `ef5ea48`; `app.py` and
+  `src/ags_open_data.py` are **in sync with `main`** (checked by diff). Both endpoints
+  answered live: `/fetch_raw_ags` → `71936.zip` in 9.1 s, `/fetch_stratigraphy` → 14 stations
+  in 2.6 s.
+- **Tests green**: `python -m src.ags_open_data`, `node web/test_section_geom.mjs`,
+  `node web/test_contour.mjs`, `node web/test_project_csv.mjs`.
+- Last full browser runs: **37/37** interaction checks, **15/15** log-plan/name checks,
+  **14/14** coverage/no-AGS/A-B checks, all three breakpoints with no console errors.
+
+## Known gaps / open questions
+
+1. **The user has explicitly paused the feature roadmap.** SPT / RQD / groundwater / φ′-c′ were
+   researched and planned in detail this session, then the user said *"stop with the feature
+   plan for now — the current feature set is sufficient"*. **Do not start it unless asked.**
+   The research, if it's ever wanted: across 60 random CEDD reports, ISPT (SPT N) is in 30% of
+   reports, CORE (TCR/SCR/RQD) 47%, TRIG (c′/φ′/cu) 37%, CLSS 37%, GRAD 33%, POBS (groundwater)
+   25% — and all four reference-site reports have ISPT + CORE.
+2. **The Playwright harnesses are NOT committed** — they live in this session's scratchpad
+   (`audit_visual.py`, `audit_functional.py` 37 checks, `bench_scale.py`, `test_logplan.py`,
+   `test_new3.py`, `test_dense.py`) and will be lost. Offer to commit them under `tests/` if
+   the user wants the audit repeatable.
+3. **Admin gate is not real security** — client-side SHA-256 only. Unchanged.
+4. **3D-from-map button is still a stub** ("Send to 3D Builder (not built)").
+5. **`src/ingest_ags.py`** (direct-upload AGS parser for the 3D pipeline) still does **not**
+   use the new classification logic — only `ags_open_data.py` / `fetch_stratigraphy` does.
+   The fill-clast fix therefore does not apply to user-uploaded AGS files.
+6. **Project CSV is a homegrown format** (`#GEOVIS {json}` header + 9 columns). Not AGS. Now
+   correctly quoted and round-trip tested, but only this tool reads it.
+7. **Contour callouts are dropped when they can't fit** (hover tooltip + a count in the UI).
+   At ~300 boreholes most are hidden; that's a display limit, not a bug.
+8. Esri imagery stops at z19 over some HK sites (handled by `maxNativeZoom`; no longer visible
+   to users, but remember it if another basemap is added).
+9. Resolved this session (were open before): `Topsoil`, `Superficial Deposit`, `No Recovery`,
+   `Wash Boring`, `Made Ground` **are** accepted as valid non-grade materials — user confirmed.
+   Duplicate stations across repeated reports are now deduplicated.
 
 ## If continuing, good first moves
-- Re-verify live state before assuming this note is still accurate — curl the Vercel URL,
-  poll the HF Space `/runtime` endpoint, and if touching AGS classification, re-run
-  `python -m src.ags_open_data` plus the bbox check against reports `71936/62077/62076/66636`
-  (the user's test site — lat 22.306412–22.311633, lng 114.159939–114.166977, expect 55
-  boreholes with logs of 133 "green" AGS points).
-- Check `git log --oneline -15` and `git status` — last known-good commit this session was
-  `b7ea2ef`, working tree clean.
-- Resolve open question #1 above before making further changes to the allowed-non-grade list.
+
+- Don't trust this note over the repo: `git log --oneline -8`, `git status`, and re-check the
+  live URLs before assuming anything is still true.
+- Re-run the four self-checks above (seconds) before touching classification, interpolation,
+  contouring or the project CSV.
+- Reference test site: bbox lat 22.306412–22.311633, lng 114.159939–114.166977 (reports
+  71936/62077/62076/66636) → expect ~142 stations found, ~39 boreholes loaded after dedupe.
+  For stress testing, HK's densest box is E834000–834500 / N840000–840500
+  (lat 22.499611–22.504127, lng 114.154833–114.159692) → ~421 boreholes.
+- If you touch `classify_layer()`, read `docs/AGS_CLASSIFICATION.md` first, and keep the
+  clast/FILL guards **above** the decomposition rule.
+- Ask before starting the geotechnical feature roadmap (item 1) — it is deliberately parked.
