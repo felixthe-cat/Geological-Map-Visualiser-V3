@@ -1261,6 +1261,33 @@ function importCSV(){
 document.getElementById('csv-import').addEventListener('click', importCSV);
 document.getElementById('csv-export').addEventListener('click', ()=>{ document.getElementById('csv').value=stateToCSV(); document.getElementById('parse-info').textContent='✓ exported to textbox'; });
 
+// ---- example datasets -----------------------------------------------------
+// Real transcribed site-investigation records (web/examples.js), stored as
+// project CSV so grades, coordinates and ground levels all survive the load.
+// The CSV also lands in the textarea so the format is visible and editable.
+(async ()=>{
+  const { EXAMPLES, exampleById } = await import('./examples.js');
+  const sel  = document.getElementById('example-select');
+  const note = document.getElementById('example-note');
+  sel.innerHTML = '';
+  EXAMPLES.forEach(ex => sel.appendChild(new Option(ex.name, ex.id)));
+  const showNote = ()=>{ const ex=exampleById(sel.value); note.textContent = ex ? ex.note : ''; };
+  showNote();
+  sel.addEventListener('change', showNote);
+  document.getElementById('example-load').addEventListener('click', ()=>{
+    const ex = exampleById(sel.value);
+    if (!ex){ note.textContent='No example selected.'; return; }
+    try {
+      loadProjectCSV(ex.csv);
+      setMode(state.mode);
+      document.getElementById('csv').value = ex.csv;
+      refreshInput(); commit();
+      note.textContent = `✓ Loaded ${state.boreholes.length} drillhole(s) — ${ex.name}`;
+      document.querySelector('.tab[data-tab="log"]').click();
+    } catch(err){ note.textContent = '✗ '+err.message; }
+  });
+})();
+
 // ---- project save / resume (tasks 5 & 6) ----------------------------
 document.getElementById('proj-export').addEventListener('click', ()=>{
   const stamp=new Date().toISOString().slice(0,10);

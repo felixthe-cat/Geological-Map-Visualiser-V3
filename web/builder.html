@@ -213,8 +213,17 @@
       <button class="ghost mini" id="layer-add" style="margin-top:6px">＋ Add layer</button>
 
       <details>
-        <summary>Import / export CSV</summary>
-        <label style="margin-top:8px">CSV (borehole_id, x, y, surface, top_depth, base_depth, ground_level)</label>
+        <summary>Import / export CSV &amp; examples</summary>
+
+        <h3 style="margin-top:10px">Example dataset</h3>
+        <div class="hint">Real drillhole records transcribed from a published site-investigation report — a working site to explore before loading your own.</div>
+        <div class="row" style="margin:6px 0">
+          <select id="example-select" style="flex:1;min-width:0"></select>
+          <button class="mini" id="example-load">Load example</button>
+        </div>
+        <div id="example-note" class="hint"></div>
+
+        <label style="margin-top:14px">CSV (borehole_id, x, y, surface, top_depth, base_depth, ground_level)</label>
         <textarea id="csv" spellcheck="false"></textarea>
         <div class="row" style="margin-top:6px">
           <button class="mini" id="csv-import">Import CSV → table</button>
