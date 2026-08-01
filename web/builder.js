@@ -694,9 +694,20 @@ function renderSection(stations, vex, lineLen){
   if (lineLen>=1){ total=lineLen; dist=stations.map(s=>s.dist); }   // A at 0, B at lineLen
   else { const d0=stations[0].dist; dist=stations.map(s=>s.dist-d0); total=dist[dist.length-1]||(ids.length-1); if(total===0){ dist=dist.map((_,i)=>i); total=ids.length-1; } }
 
-  const showLogs  = document.getElementById('sec-show-logs')?.checked ?? true;
-  const showNames = document.getElementById('sec-show-names')?.checked ?? true;
+  const showLogs   = document.getElementById('sec-show-logs')?.checked ?? true;
+  const showNames  = document.getElementById('sec-show-names')?.checked ?? true;
+  const showOffset = document.getElementById('sec-show-offset')?.checked ?? true;
   const titleTxt  = (document.getElementById('sec-title')?.value || '').trim() || 'Cross-section A–B';
+  // Perpendicular distance of each borehole from the A–B line (task: offset
+  // honesty). A borehole off the line is PROJECTED onto it — its log is real,
+  // but the ground between it and the line may not be, so the further off it
+  // sits relative to the chosen tolerance, the less its projected position
+  // should be trusted. Flagged at >50%/>85% of the tolerance rather than a
+  // fixed metre value, since "close" is relative to how wide a corridor the
+  // user chose to include.
+  const corridor = +document.getElementById('sec-tol')?.value || 100;
+  const perp = stations.map(s=>s.perp||0);
+  const offsetSeverity = p => p > corridor*0.85 ? 'high' : p > corridor*0.5 ? 'med' : 'low';
 
   let eMin=Infinity, eMax=-Infinity;
   for (const id of ids){ const bh=BH[id]; eMax=Math.max(eMax,bh.gl); for (const l of bh.layers) eMin=Math.min(eMin,bh.gl-l.base); }
@@ -764,15 +775,26 @@ function renderSection(stations, vex, lineLen){
   svg.appendChild(el('polyline',{points:xq.map((d,q)=>`${X(d)},${Y(curves[0][q])}`).join(' '),
     fill:'none',stroke:'#3d3529','stroke-width':1.4}));
 
+  const OFFSET_COLOUR={low:'#6b6250', med:'#b8860b', high:'#b02a2a'};
   ids.forEach((id,i)=>{
-    const bh=BH[id], x=X(dist[i]), w=8;
+    const bh=BH[id], x=X(dist[i]), w=8, sev=offsetSeverity(perp[i]);
     if (showLogs) for (const l of bh.layers){                      // task 6: toggle borehole logs
       const y0=Y(elevAt(id,l.top)), y1=Y(elevAt(id,l.base));
-      svg.appendChild(el('rect',{x:x-w/2,y:y0,width:w,height:Math.max(0,y1-y0),fill:classColour(l),stroke:'#1a1a0f','stroke-width':.8,'data-cls':classKey(l)}));
+      // off-line boreholes are dashed, not solid — the log itself is real data,
+      // but its horizontal position on THIS section is a projection, and the
+      // dash says so at a glance without needing the legend read first.
+      const rectAttrs={x:x-w/2,y:y0,width:w,height:Math.max(0,y1-y0),fill:classColour(l),
+        stroke:'#1a1a0f','stroke-width':.8,'data-cls':classKey(l)};
+      if (sev!=='low') rectAttrs['stroke-dasharray']='2,1.5';
+      svg.appendChild(el('rect',rectAttrs));
     }
     if (showNames){                                                // task 6: toggle borehole names
       svg.appendChild(el('line',{x1:x,y1:yAxis,x2:x,y2:yAxis+6,stroke:'#6b6250'}));
       svg.appendChild(el('text',{x:x,y:yAxis+30,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#1e3c12'},id));
+      if (showOffset && perp[i]>0.05){                              // offset from the section line
+        svg.appendChild(el('text',{x:x,y:yAxis+43,'font-size':9,'text-anchor':'middle',fill:OFFSET_COLOUR[sev]},
+          `${perp[i].toFixed(1)} m off-line`));
+      }
     }
   });
 
@@ -1222,7 +1244,7 @@ document.getElementById('log-png').addEventListener('click', ()=>exportPNG(docum
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; if (secMap) updateSection(); });
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
-['sec-show-logs','sec-show-names','sec-bh-only','sec-interp'].forEach(id=>
+['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp'].forEach(id=>
   document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
 document.getElementById('panel-collapse').addEventListener('click', ()=>setPanelCollapsed(true));
 document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));

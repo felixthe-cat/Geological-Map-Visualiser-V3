@@ -14,7 +14,7 @@ export function sectionStations(A, B, holes, corridor){
       const perp=Math.abs((bh.x-A.e)*dy - (bh.y-A.n)*dx)/len;   // distance from the line
       // small margin so boreholes on the endpoints survive floating-point
       // round-trip error, and ones just past an end still count
-      if (t>=-0.02 && t<=1.02 && perp<=corridor){ stations.push({id:bh.id, dist:t*len}); inSet.add(bh.id); }
+      if (t>=-0.02 && t<=1.02 && perp<=corridor){ stations.push({id:bh.id, dist:t*len, perp}); inSet.add(bh.id); }
     }
     stations.sort((p,q)=>p.dist-q.dist);
   }

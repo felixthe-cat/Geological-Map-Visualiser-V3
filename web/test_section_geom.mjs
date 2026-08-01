@@ -15,6 +15,8 @@ assert.deepStrictEqual(stations.map(s=>s.id), ['A','B','C'], 'D must be excluded
 assert(inSet.has('A') && inSet.has('C'), 'endpoint boreholes must not be dropped by fp round-trip');
 assert(!inSet.has('D'), 'borehole outside the corridor must be excluded');
 assert(Math.abs(stations[1].dist - 50) < 1e-9, 'B projects to 50 m along the line');
+assert(Math.abs(stations[1].perp - 5) < 1e-9, 'B is 5 m off the line — perpendicular offset carried through');
+assert(Math.abs(stations[0].perp - 0) < 1e-9, 'A sits exactly on the line — zero offset');
 
 // Explicit tolerance narrows the corridor: B (5 m off) drops out at tol=3 m.
 const tight = sectionStations({e:0,n:0}, {e:100,n:0}, holes, 3);
