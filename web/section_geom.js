@@ -93,11 +93,14 @@ export function interpolateSeries(xs, ys, xq, method='linear'){
  * @param horizons  horizons[s] = [topElev, boundary1, boundary2, …] for station s
  *                  (non-increasing within each station)
  * @param xq        query distances
+ * @param topOverride  optional precomputed top surface (e.g. terrain-derived,
+ *                     see terrain.js) to hang the strata bands from instead
+ *                     of the boreholes' own interpolated ground level
  * @returns curves[k][q] = elevation of horizon k at xq[q]
  */
-export function interpolateHorizons(xs, horizons, xq, method='linear'){
+export function interpolateHorizons(xs, horizons, xq, method='linear', topOverride=null){
   const nH = horizons[0].length;
-  const top = interpolateSeries(xs, horizons.map(h=>h[0]), xq, method);
+  const top = topOverride || interpolateSeries(xs, horizons.map(h=>h[0]), xq, method);
   const curves = [top];
   const running = top.slice();
   for (let k=1;k<nH;k++){

@@ -338,8 +338,16 @@
                   <option value="nearest">Nearest neighbour (stepped, no interpolation)</option>
                 </select>
               </div>
-              <div></div>
+              <div class="field" style="margin:0">
+                <label style="min-width:150px" title="How the ground surface between boreholes is drawn. Boreholes are point measurements — between them the interpolated option assumes a straight/smooth ground line, which can miss a real crest or gully on a hillside.">Ground surface</label>
+                <select id="sec-ground">
+                  <option value="interp">Interpolated between boreholes (current)</option>
+                  <option value="dtm-fit">LandsD 5 m DTM, fitted to collars (recommended)</option>
+                  <option value="dtm-raw">LandsD 5 m DTM, raw (comparison)</option>
+                </select>
+              </div>
             </div>
+            <div class="hint" id="sec-ground-note" style="margin-top:2px"></div>
             <div class="row" style="margin-top:10px;gap:16px">
               <label style="margin:0"><input type="checkbox" id="sec-show-logs" style="width:auto" checked> Show borehole logs</label>
               <label style="margin:0"><input type="checkbox" id="sec-show-names" style="width:auto" checked> Show borehole names</label>

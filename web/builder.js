@@ -5,6 +5,7 @@
 // ================================================================
 
 import { sectionStations, interpolateHorizons } from './section_geom.js';
+import { tileCoord, sampleElevation, tilesForLine, correctedProfile, TILE_LOD } from './terrain.js';
 import { stateToProjectCSV, projectCSVToState, csvToBoreholes } from './project_csv.js';
 
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
@@ -402,6 +403,37 @@ function ensureMapLibs(){ return _mapLibs || (_mapLibs=import('./sitemap.js').th
 let _mapExport=null;
 function mapExport(){ return _mapExport || (_mapExport=import('./map_export.js')); }
 
+// ---- LandsD 5 m DTM (terrain ground surface — see docs/PLAN_TERRAIN_PROFILE.md) ----
+// LERC decoder is only fetched (117 KB wasm + 14 KB JS) the first time a
+// "Ground surface" mode other than "interpolated" is actually used.
+let _lerc=null;
+function ensureLerc(){
+  return _lerc || (_lerc=import('https://unpkg.com/lerc@4.0.4/LercDecode.es.js').then(async m=>{ await m.load(); return m; }));
+}
+const DTM_TILE_URL='https://tiles.arcgis.com/tiles/6j1KwZfY2fZrfNMR/arcgis/rest/services/HK_DTM/ImageServer/tile';
+const dtmTileCache=new Map();      // "lod/row/col" -> Float32Array(256*256) | null (fetch failed)
+function dtmTileGetter(lod,row,col){ return dtmTileCache.get(`${lod}/${row}/${col}`) || null; }
+async function fetchDtmTile(lod,row,col){
+  const key=`${lod}/${row}/${col}`;
+  if (dtmTileCache.has(key)) return dtmTileCache.get(key);
+  let arr=null;
+  try {
+    const lerc=await ensureLerc();
+    const res=await fetch(`${DTM_TILE_URL}/${lod}/${row}/${col}`);
+    if (res.ok) arr=lerc.decode(await res.arrayBuffer()).pixels[0];
+  } catch {}
+  dtmTileCache.set(key, arr);
+  return arr;
+}
+// Fetch every tile a line touches, then invoke `onReady` (a redraw) once done —
+// so a first-time drag renders with today's interpolated surface immediately,
+// then upgrades to terrain a moment later rather than blocking the drag.
+function prefetchDtmForLine(lngA,latA,lngB,latB, onReady){
+  const tiles=tilesForLine(lngA,latA,lngB,latB,TILE_LOD).filter(t=>!dtmTileCache.has(`${t.lod}/${t.row}/${t.col}`));
+  if (!tiles.length) return;
+  Promise.all(tiles.map(t=>fetchDtmTile(t.lod,t.row,t.col))).then(onReady);
+}
+
 // Swappable base map for the site plan / contour plan (task 6). `key` namespaces
 // the remembered layer so the two maps can show different basemaps at once.
 const _baseLayers={};
@@ -640,7 +672,14 @@ function updateSection(){
       .bindTooltip(bh.id).addTo(secBhLayer);
   }
   drawPlanNames(allHoles);
-  renderSection(stations, +document.getElementById('sec-vex').value, lineLen);
+  const groundMode = document.getElementById('sec-ground')?.value || 'interp';
+  if (groundMode!=='interp' && lineLen>=1){
+    // Redraw is fire-and-forget: renders now with whatever tiles are already
+    // cached (falling back to the interpolated surface if none are), then
+    // re-fires once the DTM tiles for this line finish loading.
+    prefetchDtmForLine(sectionLine.a[1], sectionLine.a[0], sectionLine.b[1], sectionLine.b[0], updateSection);
+  }
+  renderSection(stations, +document.getElementById('sec-vex').value, lineLen, A, B);
 }
 
 // Borehole names on the site plan (task 2). De-cluttered with leader lines so
@@ -683,7 +722,7 @@ function buildHorizons(id){
 
 // stations = [{id, dist}] ordered by distance along the section line (dist
 // measured from end A). lineLen = full A→B length in metres (0 = degenerate).
-function renderSection(stations, vex, lineLen){
+function renderSection(stations, vex, lineLen, A, B){
   const box = document.getElementById('sec-viz');
   box.innerHTML='';
   stations = (stations||[]).filter(s=>BH[s.id] && BH[s.id].layers.length);
@@ -709,8 +748,61 @@ function renderSection(stations, vex, lineLen){
   const perp = stations.map(s=>s.perp||0);
   const offsetSeverity = p => p > corridor*0.85 ? 'high' : p > corridor*0.5 ? 'med' : 'low';
 
+  // Container width (independent of elevation range) is needed up front so the
+  // query-point spacing below can be chosen — and so a terrain top surface can
+  // be sampled — before the elevation axis (which the terrain surface can
+  // extend) is finalised.
+  const legendW=205, mL=56, mR=20+legendW;
+  const avail=(box.clientWidth ? box.clientWidth : 900) - 24;
+  const plotW=Math.max(480, avail - mL - mR);
+
+  // coloured grade bands, interpolated between boreholes by the chosen method
+  // (task 9). Horizons are interpolated as top-surface + thicknesses, so bands
+  // can pinch out but never cross — see interpolateHorizons().
+  const method = document.getElementById('sec-interp')?.value || 'linear';
+  const groundMode = document.getElementById('sec-ground')?.value || 'interp';
+  const horizons = ids.map(id=>buildHorizons(id));
+  // Sample every ~3 px for linear/nearest fidelity, smooth cubic curves, AND
+  // whenever a terrain ground surface is in play — the DTM has real shape
+  // between boreholes even where the strata bands are drawn as straight lines,
+  // and a 2-point "linear" xq would flatten it back to a straight line too.
+  const nQ = (method==='linear' && groundMode==='interp') ? 0 : Math.max(ids.length, Math.round(plotW/3));
+  let xq = nQ ? Array.from({length:nQ+1},(_,i)=>dist[0]+(dist[dist.length-1]-dist[0])*i/nQ) : dist.slice();
+  // Terrain mode must reproduce each collar's GL EXACTLY (see terrain.js
+  // correctedProfile) — that only holds where a query point exactly equals a
+  // station's distance, so merge the stations' own distances into the grid
+  // rather than rely on luck. (Cheap: at most a few extra points.)
+  if (groundMode!=='interp') xq = [...new Set([...xq, ...dist])].sort((a,b)=>a-b);
+
+  // ---- ground surface: interpolated between boreholes, or terrain-derived ----
+  // See docs/PLAN_TERRAIN_PROFILE.md. "dtm-fit" adds the DTM's own local shape
+  // on top of the usual borehole-interpolated surface (correctedProfile), so
+  // it still passes exactly through every surveyed collar; "dtm-raw" shows
+  // the DTM as-is for comparison, with a strong caveat since it can include
+  // vegetation canopy / bridge decks.
+  let topOverride=null, groundNote='';
+  if (groundMode!=='interp' && A && B && total>=1){
+    const pointLL = d => { const t=d/total; return toLL(A.e+(B.e-A.e)*t, A.n+(B.n-A.n)*t); };
+    const dtmAt = d => { const [lat,lng]=pointLL(d); return sampleElevation(dtmTileGetter, lng, lat); };
+    const queryDtm = xq.map(dtmAt);
+    if (queryDtm.every(v=>v!=null)){
+      if (groundMode==='dtm-raw'){
+        topOverride = queryDtm;
+        groundNote = 'Ground surface: LandsD 5 m DTM, raw — includes vegetation canopy height and elevated structures where present (±5 m stated accuracy). Not fitted to the boreholes.';
+      } else {
+        topOverride = correctedProfile(dist, ids.map(id=>BH[id].gl), xq, queryDtm);
+        groundNote = 'Ground surface: LandsD 5 m DTM shape, fitted to pass exactly through each borehole’s surveyed ground level — the shape between them follows real terrain instead of a straight/smooth guess.';
+      }
+    } else {
+      groundNote = 'Terrain tiles still loading for this line — showing the interpolated surface for now.';
+    }
+  }
+  const groundNoteEl = document.getElementById('sec-ground-note');
+  if (groundNoteEl) groundNoteEl.textContent = groundNote;
+
   let eMin=Infinity, eMax=-Infinity;
   for (const id of ids){ const bh=BH[id]; eMax=Math.max(eMax,bh.gl); for (const l of bh.layers) eMin=Math.min(eMin,bh.gl-l.base); }
+  if (topOverride) for (const v of topOverride){ eMax=Math.max(eMax,v); eMin=Math.min(eMin,v); }
   const eRange=(eMax-eMin)||1;
 
   // classes actually present in the CURRENTLY-included boreholes — the legend
@@ -720,11 +812,9 @@ function renderSection(stations, vex, lineLen){
   for (const id of ids) for (const l of BH[id].layers) present.add(classKey(l));
   const activeStrat = STRAT.filter(s=>present.has(s));
 
-  // Fill the available container width (grows when the panel is collapsed),
-  // reserving a right-hand legend gutter and sensible margins.
-  const legendW=205, mL=56, mR=20+legendW, mT=56, mB=showNames?66:44;
-  const avail=(box.clientWidth ? box.clientWidth : 900) - 24;
-  const plotW=Math.max(480, avail - mL - mR);
+  // Elevation axis + canvas sizing now that eRange (possibly widened by the
+  // terrain surface above) is known.
+  const mT=56, mB=showNames?66:44;
   const xPxPerM=plotW/total, yPxPerM=xPxPerM*vex, plotH=eRange*yPxPerM;
   const W=mL+plotW+mR, H=mT+plotH+mB;
   const svg=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
@@ -754,15 +844,7 @@ function renderSection(stations, vex, lineLen){
   }
   svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'));
 
-  // coloured grade bands, interpolated between boreholes by the chosen method
-  // (task 9). Horizons are interpolated as top-surface + thicknesses, so bands
-  // can pinch out but never cross — see interpolateHorizons().
-  const method = document.getElementById('sec-interp')?.value || 'linear';
-  const horizons = ids.map(id=>buildHorizons(id));
-  // sample every ~3 px for linear/nearest fidelity and smooth cubic curves
-  const nQ = method==='linear' ? 0 : Math.max(ids.length, Math.round(plotW/3));
-  const xq = nQ ? Array.from({length:nQ+1},(_,i)=>dist[0]+(dist[dist.length-1]-dist[0])*i/nQ) : dist.slice();
-  const curves = interpolateHorizons(dist, horizons, xq, method);
+  const curves = interpolateHorizons(dist, horizons, xq, method, topOverride);
   for (let k=0;k<STRAT.length;k++){
     const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
     const top=curves[k], base=curves[k+1];
@@ -1244,7 +1326,7 @@ document.getElementById('log-png').addEventListener('click', ()=>exportPNG(docum
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; if (secMap) updateSection(); });
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
-['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp'].forEach(id=>
+['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp','sec-ground'].forEach(id=>
   document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
 document.getElementById('panel-collapse').addEventListener('click', ()=>setPanelCollapsed(true));
 document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));
