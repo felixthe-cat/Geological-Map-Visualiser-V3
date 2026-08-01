@@ -2,19 +2,27 @@
 // Projects boreholes onto the A→B line (HK1980 metres), keeps those within a
 // corridor either side, and orders them by distance along the line. Kept
 // dependency-free so it runs under Node for the self-check (test_section_geom.mjs).
-export function sectionStations(A, B, holes, corridor){
+// @param extension  how far beyond A and B (metres, along the line's own
+//   direction) a borehole may still project and count — lets a hole just
+//   "behind" either end help the interpolation instead of being dropped the
+//   instant it's outside the drawn segment. 0 = only between A and B (plus
+//   the small fp-rounding margin below).
+export function sectionStations(A, B, holes, corridor, extension=0){
   const dx=B.e-A.e, dy=B.n-A.n, len=Math.hypot(dx,dy);
   // half-width either side of the line (m). Caller may pass an explicit
   // tolerance (slider); otherwise scale with line length.
   if (!(corridor > 0)) corridor = Math.max(30, len*0.4);
   const stations=[], inSet=new Set();
   if (len>=1){
+    // small margin so boreholes on the endpoints survive floating-point
+    // round-trip error, and ones just past an end still count; `extension`
+    // (metres) widens that margin deliberately, expressed as a fraction of
+    // the line length since t is fractional (0=A, 1=B).
+    const tMargin = 0.02 + Math.max(0, extension)/len;
     for (const bh of holes){
       const t=((bh.x-A.e)*dx + (bh.y-A.n)*dy)/(len*len);        // 0..1 along the line
       const perp=Math.abs((bh.x-A.e)*dy - (bh.y-A.n)*dx)/len;   // distance from the line
-      // small margin so boreholes on the endpoints survive floating-point
-      // round-trip error, and ones just past an end still count
-      if (t>=-0.02 && t<=1.02 && perp<=corridor){ stations.push({id:bh.id, dist:t*len, perp}); inSet.add(bh.id); }
+      if (t>=-tMargin && t<=1+tMargin && perp<=corridor){ stations.push({id:bh.id, dist:t*len, perp}); inSet.add(bh.id); }
     }
     stations.sort((p,q)=>p.dist-q.dist);
   }

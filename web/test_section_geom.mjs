@@ -2,18 +2,21 @@
 import assert from 'node:assert';
 import { sectionStations, interpolateSeries, interpolateHorizons } from './section_geom.js';
 
-// A→B along the x-axis, 0..100 m. C sits on it, D is 500 m off to the side.
+// A→B along the x-axis, 0..100 m. C sits on it, D is 500 m off to the side,
+// E sits 20 m past B ON the line (tests the `extension` param below).
 const holes = [
   { id:'A', x:0,   y:0   },
   { id:'B', x:50,  y:5   },   // 5 m off the line — inside the 40 m corridor
   { id:'C', x:100, y:0   },   // exactly on the far endpoint
   { id:'D', x:150, y:500 },   // far past the end and way off to the side
+  { id:'E', x:120, y:0   },   // 20 m past B, on-line — behind the endpoint, not off to the side
 ];
 const { stations, inSet } = sectionStations({e:0,n:0}, {e:100,n:0}, holes);
 
-assert.deepStrictEqual(stations.map(s=>s.id), ['A','B','C'], 'D must be excluded; A/B/C ordered along the line');
+assert.deepStrictEqual(stations.map(s=>s.id), ['A','B','C'], 'D and E must be excluded by default; A/B/C ordered along the line');
 assert(inSet.has('A') && inSet.has('C'), 'endpoint boreholes must not be dropped by fp round-trip');
 assert(!inSet.has('D'), 'borehole outside the corridor must be excluded');
+assert(!inSet.has('E'), 'borehole past B must be excluded with no extension');
 assert(Math.abs(stations[1].dist - 50) < 1e-9, 'B projects to 50 m along the line');
 assert(Math.abs(stations[1].perp - 5) < 1e-9, 'B is 5 m off the line — perpendicular offset carried through');
 assert(Math.abs(stations[0].perp - 0) < 1e-9, 'A sits exactly on the line — zero offset');
@@ -21,6 +24,16 @@ assert(Math.abs(stations[0].perp - 0) < 1e-9, 'A sits exactly on the line — ze
 // Explicit tolerance narrows the corridor: B (5 m off) drops out at tol=3 m.
 const tight = sectionStations({e:0,n:0}, {e:100,n:0}, holes, 3);
 assert.deepStrictEqual(tight.stations.map(s=>s.id), ['A','C'], 'tol=3m excludes B (5m off the line)');
+
+// `extension` lets a borehole behind an endpoint count too. E is 20 m past B.
+const noExt = sectionStations({e:0,n:0}, {e:100,n:0}, holes, 40, 0);
+assert(!noExt.inSet.has('E'), 'extension=0 (default) still excludes E');
+const withExt = sectionStations({e:0,n:0}, {e:100,n:0}, holes, 40, 25);
+assert(withExt.inSet.has('E'), 'extension=25m includes E (20m past B)');
+const eStation = withExt.stations.find(s=>s.id==='E');
+assert(Math.abs(eStation.dist - 120) < 1e-9, 'E still projects to its true distance (120m) past B, not clamped to the line');
+// D stays excluded regardless of extension — it's off to the side, not behind an end.
+assert(!withExt.inSet.has('D'), 'extension does not widen the corridor — D (500m off-line) still excluded');
 
 // Degenerate (zero-length) line yields nothing to draw.
 assert.strictEqual(sectionStations({e:0,n:0}, {e:0,n:0}, holes).stations.length, 0, 'zero-length line -> no stations');

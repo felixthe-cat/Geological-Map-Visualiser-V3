@@ -663,7 +663,8 @@ function updateSection(){
   const bhOnly = document.getElementById('sec-bh-only')?.checked;
   const secHoles = bhOnly ? allHoles.filter(b=>(b.kind||'BH')!=='TP') : allHoles;
   const corridor = +document.getElementById('sec-tol').value;   // task 5: distance tolerance (m)
-  const { stations, inSet } = sectionStations(A, B, secHoles, corridor);
+  const extension = +document.getElementById('sec-ext')?.value || 0;   // include boreholes behind A/B
+  const { stations, inSet } = sectionStations(A, B, secHoles, corridor, extension);
   secBhLayer.clearLayers();
   for (const bh of allHoles){
     const inSec=inSet.has(bh.id);
@@ -674,10 +675,18 @@ function updateSection(){
   drawPlanNames(allHoles);
   const groundMode = document.getElementById('sec-ground')?.value || 'interp';
   if (groundMode!=='interp' && lineLen>=1){
+    // Prefetch tiles for the EXTENDED span, not just the drawn A-B segment —
+    // a borehole pulled in by "Include beyond A/B" needs terrain out there
+    // too, or it's stuck showing "still loading" forever (nothing ever asks
+    // for those tiles otherwise).
+    const tExt = extension/lineLen;
+    const extA = { e:A.e-(B.e-A.e)*tExt, n:A.n-(B.n-A.n)*tExt };
+    const extB = { e:B.e+(B.e-A.e)*tExt, n:B.n+(B.n-A.n)*tExt };
+    const [aLat,aLng]=toLL(extA.e,extA.n), [bLat,bLng]=toLL(extB.e,extB.n);
     // Redraw is fire-and-forget: renders now with whatever tiles are already
     // cached (falling back to the interpolated surface if none are), then
     // re-fires once the DTM tiles for this line finish loading.
-    prefetchDtmForLine(sectionLine.a[1], sectionLine.a[0], sectionLine.b[1], sectionLine.b[0], updateSection);
+    prefetchDtmForLine(aLng, aLat, bLng, bLat, updateSection);
   }
   renderSection(stations, +document.getElementById('sec-vex').value, lineLen, A, B);
 }
@@ -729,9 +738,21 @@ function renderSection(stations, vex, lineLen, A, B){
   if (stations.length < 2){ box.innerHTML='<p class="hint" style="padding:10px">Drag the section line over at least 2 boreholes (widen the distance tolerance if needed).</p>'; return; }
 
   const ids = stations.map(s=>s.id);
-  let total, dist;
-  if (lineLen>=1){ total=lineLen; dist=stations.map(s=>s.dist); }   // A at 0, B at lineLen
-  else { const d0=stations[0].dist; dist=stations.map(s=>s.dist-d0); total=dist[dist.length-1]||(ids.length-1); if(total===0){ dist=dist.map((_,i)=>i); total=ids.length-1; } }
+  // dist can now be <0 (before A) or >lineLen (past B) — "Include beyond A/B"
+  // (sec-ext) lets a station project outside the drawn segment and still
+  // count. dMin/dMax always cover the drawn line's own 0..lineLen too, so A
+  // and B stay on the plot even when nothing sits near an end.
+  let dist, dMin, dMax;
+  if (lineLen>=1){
+    dist=stations.map(s=>s.dist);                     // A at 0, B at lineLen
+    dMin=Math.min(0, ...dist); dMax=Math.max(lineLen, ...dist);
+  } else {
+    const d0=stations[0].dist; dist=stations.map(s=>s.dist-d0);
+    let span=dist[dist.length-1]||(ids.length-1);
+    if (span===0){ dist=dist.map((_,i)=>i); span=ids.length-1; }
+    dMin=0; dMax=span;
+  }
+  const plotSpan = (dMax-dMin) || 1;
 
   const showLogs   = document.getElementById('sec-show-logs')?.checked ?? true;
   const showNames  = document.getElementById('sec-show-names')?.checked ?? true;
@@ -780,18 +801,30 @@ function renderSection(stations, vex, lineLen, A, B){
   // it still passes exactly through every surveyed collar; "dtm-raw" shows
   // the DTM as-is for comparison, with a strong caveat since it can include
   // vegetation canopy / bridge decks.
+  // Strata layers are ALWAYS built the same way regardless of ground-surface
+  // mode: each stratum's THICKNESS at each borehole (never its raw elevation)
+  // is interpolated between boreholes, then the layers are stacked downward
+  // from whichever top surface is selected below. So the layer geometry
+  // itself never changes — only what it hangs from does. See the layer note
+  // set for every mode below (sec-ground-note).
+  const LAYER_NOTE = ' Soil/rock layers themselves are unchanged by this: each stratum’s thickness at each borehole is interpolated between boreholes as before, then stacked down from this surface — the layers are not re-derived from the DTM.';
   let topOverride=null, groundNote='';
-  if (groundMode!=='interp' && A && B && total>=1){
-    const pointLL = d => { const t=d/total; return toLL(A.e+(B.e-A.e)*t, A.n+(B.n-A.n)*t); };
+  if (groundMode==='interp'){
+    groundNote = 'Ground surface: interpolated between each borehole’s own surveyed ground level.'+LAYER_NOTE;
+  } else if (A && B && lineLen>=1){
+    // t deliberately allowed outside [0,1] — a station included via "Include
+    // beyond A/B" projects to d<0 or d>lineLen, and this just extrapolates
+    // along the same line bearing to sample the DTM out there too.
+    const pointLL = d => { const t=d/lineLen; return toLL(A.e+(B.e-A.e)*t, A.n+(B.n-A.n)*t); };
     const dtmAt = d => { const [lat,lng]=pointLL(d); return sampleElevation(dtmTileGetter, lng, lat); };
     const queryDtm = xq.map(dtmAt);
     if (queryDtm.every(v=>v!=null)){
       if (groundMode==='dtm-raw'){
         topOverride = queryDtm;
-        groundNote = 'Ground surface: LandsD 5 m DTM, raw — includes vegetation canopy height and elevated structures where present (±5 m stated accuracy). Not fitted to the boreholes.';
+        groundNote = 'Ground surface: LandsD 5 m DTM, raw — includes vegetation canopy height and elevated structures where present (±5 m stated accuracy). Not fitted to the boreholes, so it will disagree with each borehole’s own collar level (and its log rectangle, which is always drawn at the true surveyed level).'+LAYER_NOTE;
       } else {
         topOverride = correctedProfile(dist, ids.map(id=>BH[id].gl), xq, queryDtm);
-        groundNote = 'Ground surface: LandsD 5 m DTM shape, fitted to pass exactly through each borehole’s surveyed ground level — the shape between them follows real terrain instead of a straight/smooth guess.';
+        groundNote = 'Ground surface: LandsD 5 m DTM shape, fitted to pass exactly through each borehole’s surveyed ground level — the shape between them follows real terrain instead of a straight/smooth guess.'+LAYER_NOTE;
       }
     } else {
       groundNote = 'Terrain tiles still loading for this line — showing the interpolated surface for now.';
@@ -815,14 +848,17 @@ function renderSection(stations, vex, lineLen, A, B){
   // Elevation axis + canvas sizing now that eRange (possibly widened by the
   // terrain surface above) is known.
   const mT=56, mB=showNames?66:44;
-  const xPxPerM=plotW/total, yPxPerM=xPxPerM*vex, plotH=eRange*yPxPerM;
+  const xPxPerM=plotW/plotSpan, yPxPerM=xPxPerM*vex, plotH=eRange*yPxPerM;
   const W=mL+plotW+mR, H=mT+plotH+mB;
   const svg=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
   svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#fffdf8'}));
-  const X=d=>mL+d*xPxPerM, Y=e=>mT+(eMax-e)*yPxPerM, elevAt=(id,d)=>BH[id].gl-d;
+  // X is offset by dMin so a station pulled in from before A (negative dist)
+  // still lands inside the plot instead of off its left edge.
+  const X=d=>mL+(d-dMin)*xPxPerM, Y=e=>mT+(eMax-e)*yPxPerM, elevAt=(id,d)=>BH[id].gl-d;
+  const bMarkerD = lineLen>=1 ? lineLen : dMax;     // B's own position — see A/B markers below
 
   svg.appendChild(el('text',{x:mL,y:24,'font-size':15,'font-weight':700,fill:'#1e3c12'},titleTxt));
-  svg.appendChild(el('text',{x:mL,y:40,'font-size':11,fill:'#6b6250'},`Vertical exaggeration ${vex}×  ·  length ${total.toFixed(0)} m`));
+  svg.appendChild(el('text',{x:mL,y:40,'font-size':11,fill:'#6b6250'},`Vertical exaggeration ${vex}×  ·  length ${bMarkerD.toFixed(0)} m`));
 
   // Y grid (elevation)
   const estep=niceStep(eRange), e0=Math.ceil(eMin/estep)*estep;
@@ -834,9 +870,11 @@ function renderSection(stations, vex, lineLen, A, B){
   }
   svg.appendChild(el('text',{x:mL-46,y:mT-10,'font-size':10,'font-weight':600,fill:'#6b6250'},'mPD'));
 
-  // X grid (distance along the line) — task 8
-  const xstep=niceStep(total), yAxis=mT+plotH;
-  for (let d=0; d<=total+0.001; d+=xstep){
+  // X grid (distance along the line, A=0) — task 8. Starts from the first
+  // nice step at/below dMin so labels stay meaningful (and negative) for any
+  // stretch pulled in from before A by "Include beyond A/B".
+  const xstep=niceStep(plotSpan), yAxis=mT+plotH;
+  for (let d=Math.ceil(dMin/xstep)*xstep; d<=dMax+0.001; d+=xstep){
     const x=X(d);
     svg.appendChild(el('line',{x1:x,y1:mT,x2:x,y2:yAxis,stroke:'#f0e8d6'}));
     svg.appendChild(el('line',{x1:x,y1:yAxis,x2:x,y2:yAxis+4,stroke:'#6b6250'}));
@@ -881,7 +919,7 @@ function renderSection(stations, vex, lineLen, A, B){
   });
 
   // A / B end markers matching the section line on the map — task 9
-  [[X(0),'A','start'],[X(total),'B','end']].forEach(([x,lab])=>{
+  [[X(0),'A','start'],[X(bMarkerD),'B','end']].forEach(([x,lab])=>{
     svg.appendChild(el('line',{x1:x,y1:mT,x2:x,y2:yAxis,stroke:'#d33','stroke-width':1.2,'stroke-dasharray':'4,3'}));
     svg.appendChild(el('circle',{cx:x,cy:mT-10,r:9,fill:'#d33'}));
     svg.appendChild(el('text',{x:x,y:mT-6,'font-size':11,'font-weight':700,'text-anchor':'middle',fill:'#fff'},lab));
@@ -1325,6 +1363,7 @@ document.getElementById('log-labels').addEventListener('click', e=>{
 document.getElementById('log-png').addEventListener('click', ()=>exportPNG(document.querySelector('#log-viz svg'),'borehole_log.png'));
 document.getElementById('sec-vex').addEventListener('input', e=>{ document.getElementById('sec-vex-val').textContent=e.target.value+'×'; if (secMap) updateSection(); });
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
+document.getElementById('sec-ext').addEventListener('input', e=>{ document.getElementById('sec-ext-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
 ['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp','sec-ground'].forEach(id=>
   document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
