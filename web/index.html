@@ -64,8 +64,14 @@
         <a href="builder.html" class="nav-link">2D Builder</a>
         <a href="viewer.html" class="nav-link locked3d" data-lock3d aria-disabled="true">3D Viewer<span class="coming-soon">Coming soon</span></a>
         <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+        <!-- only rendered once cloud accounts are configured (web/supabase_config.js) -->
+        <a href="account.html" class="nav-link" id="nav-account" style="display:none">My projects</a>
       </div>
     </nav>
+    <script type="module">
+      import { isConfigured } from './cloud.js';
+      if (isConfigured()) document.getElementById('nav-account').style.display='';
+    </script>
 
     <!-- Hero copy -->
     <div class="hero-content">

@@ -161,6 +161,7 @@
     <span class="spacer"></span>
     <a href="index.html">← Home</a>
     <a href="viewer.html" class="locked3d" data-lock3d aria-disabled="true">3D Viewer ↗<span class="coming-soon">Coming soon</span></a>
+    <span id="auth-slot"></span>
   </header>
 
   <!-- boots on the Site Map tab, where the entry panel is hidden and the map
@@ -231,7 +232,32 @@
         </div>
         <div id="parse-info" class="hint"></div>
 
-        <h3 style="margin-top:14px">Save / resume project</h3>
+        <!-- Cloud accounts. Entirely hidden unless supabase_config.js is filled
+             in, so the page is unchanged for an unconfigured deploy. -->
+        <div id="cloud-block" style="display:none">
+          <h3 style="margin-top:14px">My account</h3>
+          <div id="cloud-signedout">
+            <div class="hint">Sign in with Google to save this project to your account and resume it on any device.</div>
+            <div class="row" style="margin:6px 0">
+              <button class="mini" id="cloud-signin">Sign in with Google</button>
+            </div>
+          </div>
+          <div id="cloud-signedin" style="display:none">
+            <div class="hint">Saved projects keep <b>everything</b> — boreholes, trial pits, grades, the site boundary and the cross-section line.</div>
+            <div class="row" style="margin:6px 0">
+              <select id="cloud-list" style="flex:1;min-width:0"></select>
+              <button class="mini" id="cloud-open" disabled>Open</button>
+            </div>
+            <div class="row" style="margin:6px 0">
+              <button class="gold mini" id="cloud-save">☁ Save to my account</button>
+              <button class="mini" id="cloud-update" disabled>Save over current</button>
+              <a href="account.html" class="hint" style="margin-left:auto">Manage all projects →</a>
+            </div>
+          </div>
+          <div id="cloud-info" class="hint"></div>
+        </div>
+
+        <h3 style="margin-top:14px">Save / resume project (file)</h3>
         <div class="hint">Export <b>everything</b> — all boreholes &amp; trial pits, grades, the site boundary and section line — to one CSV, then drag it back here in a new session to resume.</div>
         <div class="row" style="margin:6px 0">
           <button class="gold mini" id="proj-export">⬇ Download project CSV</button>

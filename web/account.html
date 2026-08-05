@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoVisualise — My projects</title>
+  <meta name="description" content="Sign in to GeoVisualise to save your borehole projects and cross-sections and resume them from any device.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ac845' stroke-width='2'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <style>
+    :root{
+      --cream:#f0e9dc; --card:#fffdf8; --card2:#f7f2e8; --border:#c8bda8;
+      --ink:#1a1a0f; --forest:#2f5a1e; --forest-d:#1e3c12; --gold:#8a6508; --lime:#6f9a2e;
+      --muted:#6b6250;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--cream);color:var(--ink);
+      font-family:'Outfit','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
+    a{color:var(--forest)}
+    header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 20px;
+      background:var(--forest-d);color:#d8e6c4}
+    header .logo{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:.02em}
+    header .spacer{flex:1}
+    header a{color:#d8e6c4;text-decoration:none;font-size:13px;white-space:nowrap}
+    header a:hover{text-decoration:underline}
+    main{max-width:860px;margin:0 auto;padding:26px 20px 60px}
+    h1{font-size:22px;margin:0 0 4px;color:var(--forest-d)}
+    .hint{color:var(--muted);font-size:12.5px;margin:4px 0}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;margin-top:18px}
+    button{font:inherit;cursor:pointer;border-radius:7px;padding:8px 14px;
+      border:1px solid var(--border);background:var(--card2);color:var(--ink)}
+    button:hover{background:#efe7d7}
+    button.gold{background:var(--gold);border-color:var(--gold);color:#fff}
+    button.gold:hover{filter:brightness(1.08)}
+    button.danger{color:#b02a2a;border-color:#e0bcbc;background:#fff6f6}
+    button.danger:hover{background:#ffecec}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    ul.projects{list-style:none;margin:12px 0 0;padding:0}
+    ul.projects li{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+      padding:11px 12px;border:1px solid var(--border);border-radius:8px;
+      background:var(--card2);margin-bottom:8px}
+    ul.projects .nm{font-weight:600;color:var(--forest-d)}
+    ul.projects .meta{color:var(--muted);font-size:12.5px}
+    ul.projects .grow{flex:1;min-width:180px}
+    .empty{padding:22px;text-align:center;color:var(--muted);
+      border:1px dashed var(--border);border-radius:8px;margin-top:12px}
+    .notice{padding:12px 14px;border-radius:8px;border:1px solid #e0cf9b;
+      background:#fdf6e3;color:#6b5406;margin-top:14px;font-size:13px}
+    code{background:#f2ecdd;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ac845" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        <polyline points="2 17 12 22 22 17"></polyline>
+        <polyline points="2 12 12 17 22 12"></polyline>
+      </svg>
+      GeoVisualise — My projects
+    </span>
+    <span class="spacer"></span>
+    <a href="index.html">← Home</a>
+    <a href="builder.html">2D Builder</a>
+    <span id="auth-slot"></span>
+  </header>
+
+  <main>
+    <h1>My projects</h1>
+    <p class="hint">Projects you save from the 2D Builder — boreholes, trial pits, grades, the site boundary
+      and the cross-section line — stored against your Google account so you can resume them on any device.</p>
+
+    <!-- shown when supabase_config.js has not been filled in -->
+    <div id="unconfigured" class="notice" style="display:none">
+      <b>Cloud accounts are not switched on yet.</b><br>
+      Add your Supabase Project URL and anon key to <code>web/supabase_config.js</code>, and run
+      <code>docs/supabase_schema.sql</code> in the Supabase SQL editor. Full steps are in
+      <code>docs/PLAN_ACCOUNTS_SUPABASE.md</code>. Until then the 2D Builder still works normally —
+      use <b>Download project CSV</b> to save your work to a file.
+    </div>
+
+    <!-- signed out -->
+    <div id="signed-out" class="card" style="display:none">
+      <h2 style="margin:0 0 6px;font-size:17px;color:var(--forest-d)">Sign in</h2>
+      <p class="hint" style="margin-bottom:12px">Use your Google account. We only read your name, email
+        and profile picture — nothing else, and nothing is shared.</p>
+      <button class="gold" id="btn-signin">Sign in with Google</button>
+      <p class="hint" style="margin-top:12px">You don’t need an account to use the 2D Builder —
+        signing in just adds saving and resuming. <a href="builder.html">Open the 2D Builder →</a></p>
+    </div>
+
+    <!-- signed in -->
+    <div id="signed-in" class="card" style="display:none">
+      <div class="row">
+        <div class="grow" style="flex:1">
+          <div id="proj-count" class="hint" style="margin:0"></div>
+        </div>
+        <button id="btn-refresh">Refresh</button>
+        <a href="builder.html"><button class="gold">+ New project in 2D Builder</button></a>
+      </div>
+      <ul class="projects" id="proj-list"></ul>
+      <div class="empty" id="proj-empty" style="display:none">
+        No saved projects yet.<br>
+        <span class="hint">Open the 2D Builder, load some boreholes, then use
+          <b>Save / resume project → Save to my account</b>.</span>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { isConfigured, onAuthChange, signInWithGoogle,
+             listProjects, deleteProject, renameProject, whenLabel } from './cloud.js';
+    import { mountAuthControl } from './auth_ui.js';
+
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    if (!isConfigured()){
+      $('unconfigured').style.display = 'block';
+    } else {
+      mountAuthControl($('auth-slot'), { showProjects:false });
+      $('btn-signin').addEventListener('click', async e => {
+        e.target.disabled = true;
+        try { await signInWithGoogle(location.href); }
+        catch (err){ alert('Sign-in failed: '+(err?.message||err)); e.target.disabled = false; }
+      });
+      $('btn-refresh').addEventListener('click', refresh);
+
+      onAuthChange(user => {
+        $('signed-out').style.display = user ? 'none' : 'block';
+        $('signed-in').style.display  = user ? 'block' : 'none';
+        if (user) refresh();
+      });
+    }
+
+    async function refresh(){
+      const rows = await listProjects();
+      const list = $('proj-list'), empty = $('proj-empty');
+      $('proj-count').textContent = rows.length
+        ? `${rows.length} saved project${rows.length===1?'':'s'}` : '';
+      empty.style.display = rows.length ? 'none' : 'block';
+      list.innerHTML = rows.map(r => {
+        const m = r.meta || {};
+        const bits = [];
+        if (m.boreholes != null) bits.push(`${m.boreholes} borehole${m.boreholes===1?'':'s'}`);
+        if (m.trialPits) bits.push(`${m.trialPits} trial pit${m.trialPits===1?'':'s'}`);
+        if (m.hasSection) bits.push('cross-section saved');
+        return `<li data-id="${esc(r.id)}">
+          <span class="grow">
+            <span class="nm">${esc(r.name)}</span><br>
+            <span class="meta">${esc(bits.join(' · '))}${bits.length?' · ':''}updated ${esc(whenLabel(r.updated_at))}</span>
+          </span>
+          <button data-act="open">Open →</button>
+          <button data-act="rename">Rename</button>
+          <button class="danger" data-act="delete">Delete</button>
+        </li>`;
+      }).join('');
+    }
+
+    $('proj-list').addEventListener('click', async e => {
+      const btn = e.target.closest('button[data-act]'); if (!btn) return;
+      const li = btn.closest('li'), id = li.getAttribute('data-id');
+      const name = li.querySelector('.nm').textContent;
+      const act = btn.getAttribute('data-act');
+      if (act === 'open'){
+        // builder.js reads this on load and opens the project.
+        location.href = 'builder.html?project=' + encodeURIComponent(id);
+      } else if (act === 'rename'){
+        const next = prompt('Rename project', name);
+        if (next && next.trim() && next !== name){
+          try { await renameProject(id, next); refresh(); }
+          catch (err){ alert('Rename failed: '+(err?.message||err)); }
+        }
+      } else if (act === 'delete'){
+        if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+        try { await deleteProject(id); refresh(); }
+        catch (err){ alert('Delete failed: '+(err?.message||err)); }
+      }
+    });
+  </script>
+</body>
+</html>

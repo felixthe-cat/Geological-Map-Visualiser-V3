@@ -1462,6 +1462,97 @@ _projLoad.addEventListener('click', ()=>{
   }catch(err){ _projInfo.textContent='✗ '+err.message; }
 });
 
+// ---- cloud accounts: save/open projects against a Google sign-in -----------
+// Reuses the SAME project-CSV blob the file save/resume above produces, so the
+// cloud copy can never drift from the local format (and test_project_csv.mjs
+// already guards that round trip). Entirely inert when Supabase isn't
+// configured — the whole block stays display:none and no network call is made.
+(async function initCloud(){
+  const cloud = await import('./cloud.js');
+  if (!cloud.isConfigured()) return;          // unconfigured deploy: leave the UI hidden
+
+  const { mountAuthControl } = await import('./auth_ui.js');
+  const $ = id => document.getElementById(id);
+  const block=$('cloud-block'), out=$('cloud-signedout'), inn=$('cloud-signedin');
+  const list=$('cloud-list'), info=$('cloud-info');
+  const btnOpen=$('cloud-open'), btnSave=$('cloud-save'), btnUpdate=$('cloud-update');
+  let currentId=null;                          // project currently open, for "Save over"
+
+  block.style.display='';
+  mountAuthControl($('auth-slot'), { onLight:false });
+  $('cloud-signin').addEventListener('click', async e=>{
+    e.target.disabled=true;
+    try{ await cloud.signInWithGoogle(); }
+    catch(err){ info.textContent='✗ '+(err?.message||err); e.target.disabled=false; }
+  });
+
+  async function refreshList(selectId){
+    const rows = await cloud.listProjects();
+    list.innerHTML = rows.length
+      ? rows.map(r=>`<option value="${r.id}">${r.name.replace(/</g,'&lt;')} — ${cloud.whenLabel(r.updated_at)}</option>`).join('')
+      : '<option value="">(no saved projects yet)</option>';
+    if (selectId) list.value=selectId;
+    const has = rows.length>0;
+    btnOpen.disabled=!has;
+    btnUpdate.disabled=!currentId;
+    return rows;
+  }
+
+  // ?project=<id> — deep link from account.html "Open →"
+  async function openProject(id){
+    const row = await cloud.getProject(id);
+    if (!row){ info.textContent='✗ Could not open that project.'; return; }
+    try{
+      loadProjectCSV(row.csv);
+      setMode(state.mode); refreshInput(); commit();
+      currentId=row.id; btnUpdate.disabled=false;
+      info.textContent=`✓ Opened “${row.name}” — ${state.boreholes.length} borehole(s).`;
+      document.querySelector('.tab[data-tab="log"]').click();
+    }catch(err){ info.textContent='✗ '+err.message; }
+  }
+
+  btnOpen.addEventListener('click', ()=>{ if (list.value) openProject(list.value); });
+
+  btnSave.addEventListener('click', async ()=>{
+    if (!state.boreholes.length){ info.textContent='Nothing to save yet — load or enter boreholes first.'; return; }
+    const name=prompt('Name this project', `Project ${new Date().toISOString().slice(0,10)}`);
+    if (!name || !name.trim()) return;
+    btnSave.disabled=true; info.textContent='Saving…';
+    try{
+      const row=await cloud.createProject(name, stateToProjectCSV(state, sectionLine),
+                                          cloud.summarise(state, sectionLine));
+      currentId=row.id;
+      await refreshList(row.id);
+      info.textContent=`✓ Saved “${row.name}” to your account.`;
+    }catch(err){ info.textContent='✗ Save failed: '+(err?.message||err); }
+    btnSave.disabled=false;
+  });
+
+  btnUpdate.addEventListener('click', async ()=>{
+    if (!currentId) return;
+    btnUpdate.disabled=true; info.textContent='Saving…';
+    try{
+      await cloud.updateProject(currentId, stateToProjectCSV(state, sectionLine),
+                                cloud.summarise(state, sectionLine));
+      await refreshList(currentId);
+      info.textContent='✓ Saved over the open project.';
+    }catch(err){ info.textContent='✗ Save failed: '+(err?.message||err); }
+    btnUpdate.disabled=false;
+  });
+
+  cloud.onAuthChange(async user=>{
+    out.style.display  = user ? 'none' : '';
+    inn.style.display  = user ? '' : 'none';
+    if (!user){ currentId=null; info.textContent=''; return; }
+    const deepLink=new URLSearchParams(location.search).get('project');
+    await refreshList();
+    if (deepLink){
+      history.replaceState({}, '', location.pathname);   // don't re-open on refresh
+      openProject(deepLink);
+    }
+  });
+})();
+
 // ---- external API: load boreholes pushed from the sitemap (task 4, future) ----
 window.GeoBuilder = {
   loadBoreholes(arr){ // arr of {id,x,y,gl,layers:[{surface,top,base}]}
