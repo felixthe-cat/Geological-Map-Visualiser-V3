@@ -71,16 +71,31 @@ function pchipTangents(xs, ys){
   return m;
 }
 
-/** Interpolate the series (xs, ys) at each query x in `xq`. */
-export function interpolateSeries(xs, ys, xq, method='linear'){
+/**
+ * Interpolate the series (xs, ys) at each query x in `xq`.
+ * @param extrap  what to do OUTSIDE [xs[0], xs[n-1]]:
+ *   'hold'   — hold the end value flat (default; every drawn point is still
+ *              defensible as "the nearest borehole's own value").
+ *   'linear' — continue the trend of the outermost pair of stations. Honest
+ *              only over a short run; the caller must say it's extrapolated.
+ */
+export function interpolateSeries(xs, ys, xq, method='linear', extrap='hold'){
   [xs, ys] = mergeTies(xs, ys);
   const n=xs.length;
   if (n===0) return xq.map(()=>0);
   if (n===1) return xq.map(()=>ys[0]);
-  const m = method==='mono' ? pchipTangents(xs, ys) : null;
+  // End slopes for 'linear' extrapolation. For 'mono' the PCHIP end tangent is
+  // the natural continuation of the fitted curve; otherwise use the raw secant
+  // through the outermost two stations.
+  const mEnd = (method==='mono') ? pchipTangents(xs, ys) : null;
+  const slopeLo = extrap==='linear'
+    ? (mEnd ? mEnd[0]   : (ys[1]-ys[0])/(xs[1]-xs[0])) : 0;
+  const slopeHi = extrap==='linear'
+    ? (mEnd ? mEnd[n-1] : (ys[n-1]-ys[n-2])/(xs[n-1]-xs[n-2])) : 0;
+  const m = method==='mono' ? (mEnd || pchipTangents(xs, ys)) : null;
   return xq.map(x=>{
-    if (x<=xs[0]) return ys[0];
-    if (x>=xs[n-1]) return ys[n-1];
+    if (x<=xs[0])   return ys[0]   + slopeLo*(x-xs[0]);
+    if (x>=xs[n-1]) return ys[n-1] + slopeHi*(x-xs[n-1]);
     let i=0; while (i<n-2 && xs[i+1]<x) i++;
     const h=xs[i+1]-xs[i], t=(x-xs[i])/h;
     if (method==='nearest') return t<0.5 ? ys[i] : ys[i+1];
@@ -104,15 +119,19 @@ export function interpolateSeries(xs, ys, xq, method='linear'){
  * @param topOverride  optional precomputed top surface (e.g. terrain-derived,
  *                     see terrain.js) to hang the strata bands from instead
  *                     of the boreholes' own interpolated ground level
+ * @param extrap       'hold' (default) or 'linear' — see interpolateSeries()
  * @returns curves[k][q] = elevation of horizon k at xq[q]
  */
-export function interpolateHorizons(xs, horizons, xq, method='linear', topOverride=null){
+export function interpolateHorizons(xs, horizons, xq, method='linear', topOverride=null, extrap='hold'){
   const nH = horizons[0].length;
-  const top = topOverride || interpolateSeries(xs, horizons.map(h=>h[0]), xq, method);
+  const top = topOverride || interpolateSeries(xs, horizons.map(h=>h[0]), xq, method, extrap);
   const curves = [top];
   const running = top.slice();
   for (let k=1;k<nH;k++){
-    const th = interpolateSeries(xs, horizons.map(h=>Math.max(0, h[k-1]-h[k])), xq, method);
+    // Thicknesses are extrapolated too, but clamped at 0 below — a trend
+    // continued far enough always eventually drives a thickness negative, and
+    // a band that pinches out is the right answer there, not an inverted one.
+    const th = interpolateSeries(xs, horizons.map(h=>Math.max(0, h[k-1]-h[k])), xq, method, extrap);
     for (let q=0;q<xq.length;q++) running[q] -= Math.max(0, th[q]);
     curves.push(running.slice());
   }

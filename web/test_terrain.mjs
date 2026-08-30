@@ -1,6 +1,6 @@
 // Self-check for the DTM tile math and residual correction. Run: node web/test_terrain.mjs
 import assert from 'node:assert';
-import { lngLatToWebMerc, tileCoord, sampleElevation, tilesForLine, correctedProfile, TILE_LOD, TILE_PX } from './terrain.js';
+import { lngLatToWebMerc, tileCoord, sampleElevation, tilesForLine, correctedProfile, offsetCorrectedProfile, TILE_LOD, TILE_PX } from './terrain.js';
 
 // Reference point (Route Twisk hillside example) and reference values hand-computed
 // during the investigation (docs/PLAN_TERRAIN_PROFILE.md) against the live service.
@@ -79,4 +79,36 @@ assert(long.length >= 2, `long line should touch multiple tiles, got ${long.leng
   });
 }
 
-console.log('ok — terrain tile math + residual correction checks pass');
+
+// ---- offsetCorrectedProfile: the apples-to-apples ground surface ------------
+// The correction must be "surveyed collar minus DTM AT THAT BOREHOLE", applied
+// to the DTM sampled ON the line — NOT "force the line through the collar".
+{
+  const stationDist=[0,100,200];
+  const stationGL  =[50,52,49];
+  // The DTM reads a constant 2 m high at all three boreholes' own positions
+  const stationDtm =[52,54,51];
+  const queryDist=Array.from({length:41},(_,i)=>i*5);
+  const queryDtm =queryDist.map(d=>45+5*Math.sin(d/25));       // real shape on the line
+  const out=offsetCorrectedProfile(stationDist, stationGL, stationDtm, queryDist, queryDtm);
+  // A uniform -2 m bias must come out as exactly the line DTM shifted by -2 m,
+  // with the terrain's own shape untouched.
+  out.forEach((v,i)=>assert(Math.abs(v-(queryDtm[i]-2))<1e-9,
+    `uniform bias should shift the line DTM by -2 m at d=${queryDist[i]}: got ${v}`));
+
+  // A borehole with no DTM cover simply contributes no correction.
+  const gappy=offsetCorrectedProfile(stationDist, stationGL, [52,null,51], queryDist, queryDtm);
+  assert(gappy.every(Number.isFinite), 'a null station DTM sample must not poison the profile');
+  // …and with NO station cover at all it falls back to the raw DTM.
+  const none=offsetCorrectedProfile(stationDist, stationGL, [null,null,null], queryDist, queryDtm);
+  none.forEach((v,i)=>assert(v===queryDtm[i], 'no usable delta must fall back to the raw DTM'));
+}
+// Deliberate difference from correctedProfile: at an OFF-line borehole the
+// surface does NOT get forced back to that borehole's collar level.
+{
+  const out=offsetCorrectedProfile([0,100],[50,80],[52,52],[0,50,100],[52,52,52]);
+  assert(Math.abs(out[1]-(52+(-2+28)/2))<1e-9,
+    'the delta itself is what gets interpolated along the line, got '+out[1]);
+}
+
+console.log('ok — terrain tile math + residual & offset correction checks pass');

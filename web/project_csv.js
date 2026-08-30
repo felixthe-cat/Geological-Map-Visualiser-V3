@@ -58,11 +58,20 @@ function splitRows(text){
 /**
  * @param state  {boreholes:[{id,x,y,gl,kind,layers:[{surface,top,base,grade}]}], mode, sitePlan}
  * @param sectionLine {a:[lat,lng], b:[lat,lng]} | null
+ * @param extras {section?:object, excluded?:string[], annots?:object[]} — the
+ *   whole cross-section setup: every option control's value, the boreholes the
+ *   user manually deselected, and any drawn annotations. Kept in the same
+ *   `#GEOVIS` header line so one file — and therefore one cloud row — still
+ *   restores the entire project in one go.
  */
-export function stateToProjectCSV(state, sectionLine){
-  const meta = { v:1, mode:state.mode,
+export function stateToProjectCSV(state, sectionLine, extras){
+  const e = extras || {};
+  const meta = { v:2, mode:state.mode,
     bounds:(state.sitePlan && state.sitePlan.bounds) || null,
-    sectionLine: sectionLine || null };
+    sectionLine: sectionLine || null,
+    section: e.section || null,
+    excluded: e.excluded && e.excluded.length ? e.excluded : null,
+    annots: e.annots && e.annots.length ? e.annots : null };
   let out = '#GEOVIS '+JSON.stringify(meta)+'\n' + COLS.join(',') + '\n';
   for (const bh of state.boreholes)
     for (const l of bh.layers)
@@ -93,8 +102,9 @@ export function csvToBoreholes(text){
   return arr;
 }
 
-/** @returns {boreholes, mode, bounds, sectionLine} — `mode`/`bounds`/`sectionLine`
- *  are null/undefined for a legacy 7-column CSV with no #GEOVIS header. */
+/** @returns {boreholes, mode, bounds, sectionLine, section, excluded, annots} — `mode`/`bounds`/`sectionLine`
+ *  are null/undefined for a legacy 7-column CSV with no #GEOVIS header, and
+ *  `section`/`excluded`/`annots` are null for a v1 file. */
 export function projectCSVToState(text){
   const rows = splitRows(text);
   if (!rows.length) throw new Error('Empty file.');
@@ -106,7 +116,8 @@ export function projectCSVToState(text){
   const header = splitCSVLine(rows[i]).map(s=>s.trim().toLowerCase()); i++;
   const ix = n => header.indexOf(n);
   if (ix('kind')<0 && ix('grade')<0)                       // legacy 7-column CSV
-    return { boreholes: csvToBoreholes(rows.slice(i-1).join('\n')), mode:null, bounds:null, sectionLine:null };
+    return { boreholes: csvToBoreholes(rows.slice(i-1).join('\n')), mode:null, bounds:null,
+             sectionLine:null, section:null, excluded:null, annots:null };
   const map={};
   for (; i<rows.length; i++){
     const p=splitCSVLine(rows[i]);
@@ -121,5 +132,8 @@ export function projectCSVToState(text){
   arr.forEach(bh=>bh.layers.sort((a,b)=>a.top-b.top));
   if (!arr.length) throw new Error('No boreholes parsed.');
   return { boreholes:arr, mode:(meta&&meta.mode)||null, bounds:(meta&&meta.bounds)||null,
-           sectionLine:(meta&&meta.sectionLine)||null };
+           sectionLine:(meta&&meta.sectionLine)||null,
+           section:(meta&&meta.section)||null,
+           excluded:(meta&&meta.excluded)||null,
+           annots:(meta&&meta.annots)||null };
 }

@@ -362,6 +362,14 @@
                 </div>
               </div>
               <div>
+                <label title="What to draw between the outermost borehole and the end of the section line. Off leaves that stretch blank — nothing was logged there. The other two continue the layers out to A and B, which is a projection, not data.">Beyond the end boreholes</label>
+                <select id="sec-extrap">
+                  <option value="off">Leave blank (no extrapolation)</option>
+                  <option value="hold">Extend layers flat to A/B</option>
+                  <option value="linear">Extend layers on trend to A/B</option>
+                </select>
+              </div>
+              <div>
                 <label>Interpolation between boreholes</label>
                 <select id="sec-interp">
                   <option value="linear">Linear (straight lines — classic)</option>
@@ -373,7 +381,8 @@
                 <label style="min-width:150px" title="How the ground surface between boreholes is drawn. Boreholes are point measurements — between them the interpolated option assumes a straight/smooth ground line, which can miss a real crest or gully on a hillside.">Ground surface</label>
                 <select id="sec-ground">
                   <option value="interp">Interpolated between boreholes (current)</option>
-                  <option value="dtm-fit">LandsD 5 m DTM, fitted to collars (recommended)</option>
+                  <option value="dtm-offset">LandsD 5 m DTM, offset-corrected (recommended)</option>
+                  <option value="dtm-fit">LandsD 5 m DTM, forced through collars</option>
                   <option value="dtm-raw">LandsD 5 m DTM, raw (comparison)</option>
                 </select>
               </div>
@@ -384,6 +393,22 @@
               <label style="margin:0"><input type="checkbox" id="sec-show-names" style="width:auto" checked> Show borehole names</label>
               <label style="margin:0" title="Distance of each borehole from the section line — its log is projected onto the line, so a large offset means the ground it's drawn over is further from what was actually logged"><input type="checkbox" id="sec-show-offset" style="width:auto" checked> Show offset from line</label>
               <label style="margin:0"><input type="checkbox" id="sec-bh-only" style="width:auto"> Boreholes only (exclude trial pits)</label>
+              <label style="margin:0" title="Move the cursor across the section to read the level of every layer boundary at that chainage"><input type="checkbox" id="sec-hover" style="width:auto" checked> Level readout on hover</label>
+            </div>
+            <div class="row" style="margin-top:8px;gap:10px;align-items:center">
+              <span class="hint" style="margin:0"><b>Borehole selection</b> — click a borehole on the site plan above to include or exclude it from this section. Excluded ones turn grey.</span>
+              <button class="ghost" id="sec-inc-reset" type="button">Re-include all</button>
+              <span id="sec-excluded-note" class="hint" style="margin:0"></span>
+            </div>
+
+            <!-- annotations: proposed-structure outlines drawn on the section -->
+            <div style="margin-top:10px;border-top:1px solid #e6dcc6;padding-top:8px">
+              <div class="row" style="gap:10px;align-items:center">
+                <b style="font-size:12px">Annotations (proposed structure)</b>
+                <button class="ghost" id="sec-annot-add" type="button">+ Add rectangle</button>
+                <span class="hint" style="margin:0">Drag a shape on the section to move it, or type its four corners below (chainage in metres from A, level in mPD).</span>
+              </div>
+              <div id="sec-annot-list" style="margin-top:6px"></div>
             </div>
             <div class="row" style="margin-top:10px">
               <button class="ghost" id="sec-png">Export PNG</button>

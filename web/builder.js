@@ -5,7 +5,7 @@
 // ================================================================
 
 import { sectionStations, interpolateHorizons } from './section_geom.js';
-import { tileCoord, sampleElevation, tilesForLine, correctedProfile, TILE_LOD } from './terrain.js';
+import { tileCoord, sampleElevation, tilesForLine, correctedProfile, offsetCorrectedProfile, TILE_LOD } from './terrain.js';
 import { stateToProjectCSV, projectCSVToState, csvToBoreholes } from './project_csv.js';
 
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
@@ -90,6 +90,17 @@ function loadProjectCSV(text){
   state.sitePlan = p.bounds
     ? { bounds:p.bounds, boreholes: p.boreholes.map(b=>({id:b.id,x:b.x,y:b.y,imported:true})) }
     : null;
+  // The rest of the cross-section setup: option controls, manually deselected
+  // boreholes and annotations. Absent from a v1 / legacy file, in which case the
+  // controls keep whatever they are currently set to and both lists reset.
+  secExcluded = new Set(Array.isArray(p.excluded) ? p.excluded : []);
+  secAnnots   = Array.isArray(p.annots)
+    ? p.annots.filter(a=>a && Array.isArray(a.pts) && a.pts.length>=3)
+              .map(a=>({ label:a.label||'', colour:a.colour||'#b02a2a',
+                         pts:a.pts.map(pt=>[+pt[0], +pt[1]]) }))
+    : [];
+  applySectionSettings(p.section);
+  renderAnnotList();
 }
 function downloadText(name, text){
   const a=document.createElement('a');
@@ -397,6 +408,17 @@ let secMap=null, secBhLayer=null, secLabelLayer=null, secLinePoly=null, secHandl
     secHandleB=null, secBoundaryRect=null;
 let sectionLine=null;   // {a:[lat,lng], b:[lat,lng]}
 let secPlanNames=[];    // solved label layout for the site-plan PNG export
+// Boreholes the user has manually taken OUT of this section by clicking them on
+// the site plan. They stay on the plan (grey, like any hole outside the
+// corridor) but contribute nothing to the drawn section.
+let secExcluded=new Set();
+// Annotations drawn on the cross-section — currently rotatable rectangles
+// marking a proposed structure. Stored in SECTION coordinates so they survive a
+// redraw, a zoom and a save: {label, colour, pts:[[chainage_m, level_mPD] ×4]}.
+let secAnnots=[];
+// Plot extent of the last drawn section, so "add a rectangle" can drop a new
+// one somewhere visible instead of at (0,0).
+let secPlotRange=null;   // {dMin,dMax,eMin,eMax}
 
 let _mapLibs=null;
 function ensureMapLibs(){ return _mapLibs || (_mapLibs=import('./sitemap.js').then(m=>m.ensureMapLibs())); }
@@ -425,13 +447,16 @@ async function fetchDtmTile(lod,row,col){
   dtmTileCache.set(key, arr);
   return arr;
 }
-// Fetch every tile a line touches, then invoke `onReady` (a redraw) once done —
-// so a first-time drag renders with today's interpolated surface immediately,
-// then upgrades to terrain a moment later rather than blocking the drag.
-function prefetchDtmForLine(lngA,latA,lngB,latB, onReady){
-  const tiles=tilesForLine(lngA,latA,lngB,latB,TILE_LOD).filter(t=>!dtmTileCache.has(`${t.lod}/${t.row}/${t.col}`));
-  if (!tiles.length) return;
-  Promise.all(tiles.map(t=>fetchDtmTile(t.lod,t.row,t.col))).then(onReady);
+// Fetch every tile in `tiles` that isn't cached yet, then invoke `onReady` (a
+// redraw) once done — so a first-time drag renders with today's interpolated
+// surface immediately, then upgrades to terrain a moment later rather than
+// blocking the drag. One call per redraw (not one per tile) so the redraw
+// fires once, not once per outstanding tile.
+function prefetchDtmTiles(tiles, onReady){
+  const want=[...new Map(tiles.map(t=>[`${t.lod}/${t.row}/${t.col}`,t])).values()]
+    .filter(t=>!dtmTileCache.has(`${t.lod}/${t.row}/${t.col}`));
+  if (!want.length) return;
+  Promise.all(want.map(t=>fetchDtmTile(t.lod,t.row,t.col))).then(onReady);
 }
 
 // Swappable base map for the site plan / contour plan (task 6). `key` namespaces
@@ -661,17 +686,26 @@ function updateSection(){
   const lineLen=Math.hypot(B.e-A.e, B.n-A.n);
   const allHoles=sectionHoles();
   const bhOnly = document.getElementById('sec-bh-only')?.checked;
-  const secHoles = bhOnly ? allHoles.filter(b=>(b.kind||'BH')!=='TP') : allHoles;
+  // Manual deselection is applied BEFORE the corridor test, so a deselected hole
+  // is simply not a candidate — it can't come back by widening the tolerance.
+  const secHoles = (bhOnly ? allHoles.filter(b=>(b.kind||'BH')!=='TP') : allHoles)
+    .filter(b=>!secExcluded.has(b.id));
   const corridor = +document.getElementById('sec-tol').value;   // task 5: distance tolerance (m)
   const extension = +document.getElementById('sec-ext')?.value || 0;   // include boreholes behind A/B
   const { stations, inSet } = sectionStations(A, B, secHoles, corridor, extension);
   secBhLayer.clearLayers();
   for (const bh of allHoles){
-    const inSec=inSet.has(bh.id);
+    const inSec=inSet.has(bh.id), off=secExcluded.has(bh.id);
+    // Same grey as any hole outside the corridor — a deselected borehole reads
+    // exactly like an excluded one, which is what it now is.
     L.circleMarker(toLL(bh.x,bh.y),{radius:inSec?6:4,color:'#1a1a0f',weight:1,
       fillColor:inSec?'#2f5a1e':'#a8a196',fillOpacity:.9})
-      .bindTooltip(bh.id).addTo(secBhLayer);
+      .bindTooltip(off ? `${bh.id} — deselected (click to put back in)`
+                       : `${bh.id} (click to leave out of the section)`)
+      .on('click', ev=>{ L.DomEvent.stop(ev); toggleSectionBorehole(bh.id); })
+      .addTo(secBhLayer);
   }
+  updateExcludedNote(allHoles);
   drawPlanNames(allHoles);
   const groundMode = document.getElementById('sec-ground')?.value || 'interp';
   if (groundMode!=='interp' && lineLen>=1){
@@ -683,12 +717,37 @@ function updateSection(){
     const extA = { e:A.e-(B.e-A.e)*tExt, n:A.n-(B.n-A.n)*tExt };
     const extB = { e:B.e+(B.e-A.e)*tExt, n:B.n+(B.n-A.n)*tExt };
     const [aLat,aLng]=toLL(extA.e,extA.n), [bLat,bLng]=toLL(extB.e,extB.n);
+    const tiles = tilesForLine(aLng, aLat, bLng, bLat, TILE_LOD);
+    // The offset-corrected surface also samples the DTM at each borehole's OWN
+    // position, which can sit in a tile the line never crosses.
+    if (groundMode==='dtm-offset')
+      for (const st of stations){
+        const b=BH[st.id]; if (!b) continue;
+        const [la,ln]=toLL(b.x,b.y);
+        tiles.push(tileCoord(ln, la, TILE_LOD));
+      }
     // Redraw is fire-and-forget: renders now with whatever tiles are already
     // cached (falling back to the interpolated surface if none are), then
-    // re-fires once the DTM tiles for this line finish loading.
-    prefetchDtmForLine(aLng, aLat, bLng, bLat, updateSection);
+    // re-fires once the DTM tiles finish loading.
+    prefetchDtmTiles(tiles, updateSection);
   }
   renderSection(stations, +document.getElementById('sec-vex').value, lineLen, A, B);
+}
+
+// Click a borehole on the site plan to take it out of / put it back into the
+// section. Kept as a set of ids (not a flag on the borehole) so it survives a
+// re-import of the same site, and so it saves as one short list.
+function toggleSectionBorehole(id){
+  if (secExcluded.has(id)) secExcluded.delete(id); else secExcluded.add(id);
+  updateSection();
+}
+function updateExcludedNote(allHoles){
+  const note=document.getElementById('sec-excluded-note');
+  if (!note) return;
+  const live=(allHoles||sectionHoles()).filter(b=>secExcluded.has(b.id)).map(b=>b.id);
+  note.textContent = live.length ? `Deselected: ${live.join(', ')}` : '';
+  const btn=document.getElementById('sec-inc-reset');
+  if (btn) btn.disabled = !live.length;
 }
 
 // Borehole names on the site plan (task 2). De-cluttered with leader lines so
@@ -787,13 +846,23 @@ function renderSection(stations, vex, lineLen, A, B){
   // whenever a terrain ground surface is in play — the DTM has real shape
   // between boreholes even where the strata bands are drawn as straight lines,
   // and a 2-point "linear" xq would flatten it back to a straight line too.
+  // ---- how far the drawn bands run -----------------------------------------
+  // 'off' (default) stops the bands at the outermost borehole: nothing was
+  // logged past it, so nothing is drawn there. 'hold'/'linear' continue them to
+  // the section's own ends (A/B, or wherever "Include beyond A/B" reaches) —
+  // useful for showing a proposed structure that sits past the last hole, but
+  // that stretch is an assumption, not data, and is labelled as such below.
+  const extrapMode = document.getElementById('sec-extrap')?.value || 'off';
+  const extrap = extrapMode==='linear' ? 'linear' : 'hold';
+  const qLo = extrapMode==='off' ? dist[0] : Math.min(dMin, dist[0]);
+  const qHi = extrapMode==='off' ? dist[dist.length-1] : Math.max(dMax, dist[dist.length-1]);
   const nQ = (method==='linear' && groundMode==='interp') ? 0 : Math.max(ids.length, Math.round(plotW/3));
-  let xq = nQ ? Array.from({length:nQ+1},(_,i)=>dist[0]+(dist[dist.length-1]-dist[0])*i/nQ) : dist.slice();
-  // Terrain mode must reproduce each collar's GL EXACTLY (see terrain.js
+  let xq = nQ ? Array.from({length:nQ+1},(_,i)=>qLo+(qHi-qLo)*i/nQ) : [qLo, ...dist, qHi];
+  // Terrain modes must reproduce each collar's GL EXACTLY (see terrain.js
   // correctedProfile) — that only holds where a query point exactly equals a
   // station's distance, so merge the stations' own distances into the grid
   // rather than rely on luck. (Cheap: at most a few extra points.)
-  if (groundMode!=='interp') xq = [...new Set([...xq, ...dist])].sort((a,b)=>a-b);
+  xq = [...new Set([...xq, ...dist])].sort((a,b)=>a-b);
 
   // ---- ground surface: interpolated between boreholes, or terrain-derived ----
   // See docs/PLAN_TERRAIN_PROFILE.md. "dtm-fit" adds the DTM's own local shape
@@ -822,13 +891,41 @@ function renderSection(stations, vex, lineLen, A, B){
       if (groundMode==='dtm-raw'){
         topOverride = queryDtm;
         groundNote = 'Ground surface: LandsD 5 m DTM, raw — includes vegetation canopy height and elevated structures where present (±5 m stated accuracy). Not fitted to the boreholes, so it will disagree with each borehole’s own collar level (and its log rectangle, which is always drawn at the true surveyed level).'+LAYER_NOTE;
+      } else if (groundMode==='dtm-offset'){
+        // Apples-to-apples: measure how far each borehole's SURVEYED collar sits
+        // above/below the DTM AT THAT BOREHOLE'S OWN POSITION, then apply that
+        // difference to the DTM sampled ON the line. See terrain.js
+        // offsetCorrectedProfile for why this is the right comparison for a
+        // borehole that doesn't sit on the line.
+        const bhDtm = ids.map(id=>{ const b=BH[id]; const [la,ln]=toLL(b.x,b.y);
+                                    return sampleElevation(dtmTileGetter, ln, la); });
+        const nGot = bhDtm.filter(v=>v!=null).length;
+        if (!nGot){
+          groundNote = 'Terrain tiles for the borehole positions are still loading — showing the interpolated surface for now.';
+        } else {
+          topOverride = offsetCorrectedProfile(dist, ids.map(id=>BH[id].gl), bhDtm, xq, queryDtm);
+          const worst = ids.map((id,i)=> bhDtm[i]==null ? null
+              : Math.abs(topOverride[xq.indexOf(dist[i])] - BH[id].gl))
+            .filter(v=>v!=null);
+          const maxGap = worst.length ? Math.max(...worst) : 0;
+          groundNote = 'Ground surface: LandsD 5 m DTM sampled along the section line, corrected by the difference between each borehole’s surveyed collar level and the DTM at that borehole’s own position — like for like, so the correction carries no error from the borehole’s offset. '
+            + (nGot<ids.length ? `(${ids.length-nGot} borehole(s) had no DTM cover and contribute no correction.) ` : '')
+            + `Because an off-line borehole was logged somewhere else, the drawn ground line will NOT pass exactly through its collar — here up to ${maxGap.toFixed(1)} m apart. Its log rectangle is still drawn at the true surveyed level, so that gap is visible on purpose.`
+            + LAYER_NOTE;
+        }
       } else {
         topOverride = correctedProfile(dist, ids.map(id=>BH[id].gl), xq, queryDtm);
-        groundNote = 'Ground surface: LandsD 5 m DTM shape, fitted to pass exactly through each borehole’s surveyed ground level — the shape between them follows real terrain instead of a straight/smooth guess.'+LAYER_NOTE;
+        groundNote = 'Ground surface: LandsD 5 m DTM shape, forced to pass exactly through each borehole’s surveyed ground level — the shape between them follows real terrain instead of a straight/smooth guess.'+LAYER_NOTE;
       }
     } else {
       groundNote = 'Terrain tiles still loading for this line — showing the interpolated surface for now.';
     }
+  }
+  if (extrapMode!=='off'){
+    groundNote += (groundNote?' ':'')
+      + (extrapMode==='linear'
+          ? 'Beyond the outermost borehole the layers are continued on the trend of the last two boreholes out to the section ends — an extrapolation, not logged data.'
+          : 'Beyond the outermost borehole the layers are held flat at that borehole’s own values out to the section ends — an extrapolation, not logged data.');
   }
   const groundNoteEl = document.getElementById('sec-ground-note');
   if (groundNoteEl) groundNoteEl.textContent = groundNote;
@@ -837,6 +934,7 @@ function renderSection(stations, vex, lineLen, A, B){
   for (const id of ids){ const bh=BH[id]; eMax=Math.max(eMax,bh.gl); for (const l of bh.layers) eMin=Math.min(eMin,bh.gl-l.base); }
   if (topOverride) for (const v of topOverride){ eMax=Math.max(eMax,v); eMin=Math.min(eMin,v); }
   const eRange=(eMax-eMin)||1;
+  secPlotRange={dMin,dMax,eMin,eMax};
 
   // classes actually present in the CURRENTLY-included boreholes — the legend
   // reflects only these, so it updates live as the section line is dragged and
@@ -882,7 +980,7 @@ function renderSection(stations, vex, lineLen, A, B){
   }
   svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'));
 
-  const curves = interpolateHorizons(dist, horizons, xq, method, topOverride);
+  const curves = interpolateHorizons(dist, horizons, xq, method, topOverride, extrap);
   for (let k=0;k<STRAT.length;k++){
     const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
     const top=curves[k], base=curves[k+1];
@@ -925,6 +1023,57 @@ function renderSection(stations, vex, lineLen, A, B){
     svg.appendChild(el('text',{x:x,y:mT-6,'font-size':11,'font-weight':700,'text-anchor':'middle',fill:'#fff'},lab));
   });
 
+
+  // ---- where the data stops -----------------------------------------------
+  if (extrapMode!=='off' && (dist[0]>dMin+0.5 || dist[dist.length-1]<dMax-0.5)){
+    for (const d of [dist[0], dist[dist.length-1]]){
+      const x=X(d);
+      svg.appendChild(el('line',{x1:x,y1:mT,x2:x,y2:yAxis,stroke:'#8a7f68',
+        'stroke-width':1,'stroke-dasharray':'2,4'}));
+    }
+    svg.appendChild(el('text',{x:mL+plotW,y:mT-14,'font-size':9.5,'text-anchor':'end',fill:'#8a7f68'},
+      'dotted grey = last borehole; beyond it the layers are extrapolated'));
+  }
+
+  // ---- annotations: proposed-structure outlines ---------------------------
+  // Stored in real section coordinates (chainage m, level mPD), so a rotated
+  // rectangle is a true rectangle ON THE GROUND. Under vertical exaggeration it
+  // therefore draws as a parallelogram — deliberate: the shape means metres,
+  // not pixels.
+  secAnnots.forEach((an, ai)=>{
+    if (!an || !Array.isArray(an.pts) || an.pts.length<3) return;
+    const ptStr = pts => pts.map(([d,e])=>`${X(d)},${Y(e)}`).join(' ');
+    const col = an.colour || '#1e3c12';
+    const g=el('g',{'data-annot':ai});
+    const poly=el('polygon',{points:ptStr(an.pts), fill:col, 'fill-opacity':.16,
+      stroke:col, 'stroke-width':1.8, 'stroke-dasharray':'7,4', style:'cursor:move'});
+    g.appendChild(poly);
+    const cx=an.pts.reduce((t,pt)=>t+pt[0],0)/an.pts.length;
+    const cy=an.pts.reduce((t,pt)=>t+pt[1],0)/an.pts.length;
+    let txt=null;
+    if ((an.label||'').trim()){
+      txt=el('text',{x:X(cx), y:Y(cy)+3, 'font-size':11, 'font-weight':700,
+        'text-anchor':'middle', fill:col, 'pointer-events':'none'}, an.label.trim());
+      g.appendChild(txt);
+    }
+    // drag to move: edits the stored metres, then re-syncs the number boxes on
+    // mouse-up (during the drag only the two SVG nodes move — no full redraw).
+    poly.addEventListener('mousedown', ev=>{
+      ev.preventDefault();
+      const x0=ev.clientX, y0=ev.clientY, orig=an.pts.map(pt=>pt.slice());
+      const move=e2=>{
+        const dd=(e2.clientX-x0)/xPxPerM, de=-(e2.clientY-y0)/yPxPerM;
+        an.pts=orig.map(([d,e])=>[d+dd, e+de]);
+        poly.setAttribute('points', ptStr(an.pts));
+        if (txt){ txt.setAttribute('x', X(cx+dd)); txt.setAttribute('y', Y(cy+de)+3); }
+      };
+      const up=()=>{ window.removeEventListener('mousemove',move);
+                     window.removeEventListener('mouseup',up); renderAnnotList(); };
+      window.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
+    });
+    svg.appendChild(g);
+  });
+
   // legend (by decomposition grade / material), in the right-hand gutter —
   // only the classes present in the current section (updates live on drag)
   const lx=W-mR+8;
@@ -948,6 +1097,202 @@ function renderSection(stations, vex, lineLen, A, B){
   });
   svg.addEventListener('mouseleave', ()=> clsEls.forEach(n=>n.classList.remove('dimmed')));
   box.appendChild(svg);
+
+  // ---- hover: vertical dotted line + every layer's level at that chainage ---
+  // A cross-section is read at chainages, not at boreholes: this gives the
+  // interpolated level of every boundary directly under the cursor, which is
+  // what a foundation level is actually checked against.
+  if (document.getElementById('sec-hover')?.checked){
+    const hv=el('line',{x1:mL,y1:mT,x2:mL,y2:yAxis,stroke:'#1a1a0f','stroke-width':1,
+      'stroke-dasharray':'4,4', opacity:0, 'pointer-events':'none'});
+    svg.appendChild(hv);
+    const tip=document.createElement('div'); tip.className='sec-tip'; box.appendChild(tip);
+    // read a curve (sampled at xq) off at an arbitrary distance
+    const at=(arr,d)=>{
+      if (d<=xq[0]) return arr[0];
+      if (d>=xq[xq.length-1]) return arr[arr.length-1];
+      let i=0; while (i<xq.length-2 && xq[i+1]<d) i++;
+      const h=xq[i+1]-xq[i];
+      return h ? arr[i]+(arr[i+1]-arr[i])*(d-xq[i])/h : arr[i];
+    };
+    svg.addEventListener('mousemove', ev=>{
+      const r=svg.getBoundingClientRect(), scale=W/(r.width||W);
+      const sx=(ev.clientX-r.left)*scale;
+      const d=dMin+(sx-mL)/xPxPerM;
+      if (sx<mL || sx>mL+plotW || d<xq[0]-1e-9 || d>xq[xq.length-1]+1e-9){
+        hv.setAttribute('opacity',0); tip.style.display='none'; return;
+      }
+      const x=X(d);
+      hv.setAttribute('x1',x); hv.setAttribute('x2',x); hv.setAttribute('opacity',.8);
+      let html=`<b>Chainage ${d.toFixed(1)} m from A</b>`
+        + `<div>Ground surface<span class="lv">${at(curves[0],d).toFixed(2)} mPD</span></div>`;
+      let rows=0;
+      for (let j=0;j<STRAT.length;j++){
+        const t=at(curves[j],d), b=at(curves[j+1],d);
+        if (t-b < 0.01) continue;                       // stratum absent at this chainage
+        rows++;
+        html += `<div><span class="sw" style="background:${STRAT_COLOUR[STRAT[j]]||colourFor(STRAT[j])}"></span>`
+              + `${esc(STRAT_LABEL[STRAT[j]]||STRAT[j])}`
+              + `<span class="lv">top ${t.toFixed(2)} · ${(t-b).toFixed(2)} m</span></div>`;
+      }
+      if (rows) html += `<div>Base of logged ground<span class="lv">${at(curves[curves.length-1],d).toFixed(2)} mPD</span></div>`;
+      tip.innerHTML=html;
+      tip.style.display='block';
+      const bb=box.getBoundingClientRect(), tw=tip.offsetWidth||210;
+      tip.style.left=Math.min(Math.max(4, ev.clientX-bb.left+14), Math.max(4, box.clientWidth-tw-6))+'px';
+      tip.style.top =Math.max(4, ev.clientY-bb.top-10)+'px';
+    });
+    svg.addEventListener('mouseleave', ()=>{ hv.setAttribute('opacity',0); tip.style.display='none'; });
+  }
+}
+
+
+// ==== cross-section annotations (proposed structure) ========================
+// A rectangle is stored as its four corners in section coordinates — chainage
+// (m from A) and level (mPD) — rather than centre/size/angle, so the "type the
+// four corners" boxes below are the source of truth and the centre/size/rotate
+// helper simply writes into them. Corner order is P1-P2 along the width,
+// P1-P4 along the height (so P1 P2 P3 P4 walks the rectangle).
+function boxToPts(cd, ce, w, h, angDeg){
+  const r=angDeg*Math.PI/180, c=Math.cos(r), sn=Math.sin(r);
+  return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]]
+    .map(([u,v])=>[cd+u*c-v*sn, ce+u*sn+v*c]);
+}
+function ptsToBox(pts){
+  const n=pts.length;
+  return {
+    cd: pts.reduce((t,p)=>t+p[0],0)/n,
+    ce: pts.reduce((t,p)=>t+p[1],0)/n,
+    w : Math.hypot(pts[1][0]-pts[0][0], pts[1][1]-pts[0][1]),
+    h : Math.hypot(pts[3][0]-pts[0][0], pts[3][1]-pts[0][1]),
+    ang: Math.atan2(pts[1][1]-pts[0][1], pts[1][0]-pts[0][0])*180/Math.PI
+  };
+}
+function addAnnotRect(){
+  const r=secPlotRange;
+  if (!r){ document.getElementById('sec-annot-list').innerHTML =
+    '<p class="hint">Draw a section first — there is nowhere to put the shape yet.</p>'; return; }
+  const w=Math.max(5,(r.dMax-r.dMin)*0.2), h=Math.max(2,(r.eMax-r.eMin)*0.18);
+  secAnnots.push({ label:'Proposed structure', colour:'#b02a2a',
+    pts: boxToPts((r.dMin+r.dMax)/2, r.eMin+(r.eMax-r.eMin)*0.6, w, h, 0) });
+  renderAnnotList();
+  if (secMap) updateSection();
+}
+const attrEsc = v => esc(v).replace(/"/g,'&quot;');
+function renderAnnotList(){
+  const box=document.getElementById('sec-annot-list');
+  if (!box) return;
+  if (!secAnnots.length){
+    box.innerHTML='<p class="hint" style="margin:2px 0 0">No annotations yet.</p>';
+    return;
+  }
+  box.innerHTML = secAnnots.map((a,i)=>{
+    const b=ptsToBox(a.pts);
+    const corners = a.pts.map((pt,k)=>
+      `<span class="hint">P${k+1}</span>`+
+      `<input type="number" step="0.1" data-i="${i}" data-pt="${k}" data-c="0" value="${round(pt[0])}" style="width:74px" title="Chainage from A (m)">`+
+      `<input type="number" step="0.1" data-i="${i}" data-pt="${k}" data-c="1" value="${round(pt[1])}" style="width:74px" title="Level (mPD)">`
+    ).join(' ');
+    return `<div class="annot-row">
+      <div class="row" style="gap:6px;align-items:center">
+        <input type="text" data-i="${i}" data-f="label" value="${attrEsc(a.label||'')}" placeholder="Label" style="width:170px">
+        <input type="color" data-i="${i}" data-f="colour" value="${attrEsc(a.colour||'#b02a2a')}" style="width:40px;padding:1px">
+        <button class="ghost" type="button" data-i="${i}" data-act="del">Delete</button>
+      </div>
+      <div class="row" style="gap:5px;align-items:center;margin-top:5px;flex-wrap:wrap">${corners}</div>
+      <div class="row" style="gap:5px;align-items:center;margin-top:5px;flex-wrap:wrap">
+        <span class="hint">or centre</span>
+        <input type="number" step="0.1" data-i="${i}" data-b="cd" value="${round(b.cd)}" style="width:74px" title="Centre chainage (m from A)">
+        <input type="number" step="0.1" data-i="${i}" data-b="ce" value="${round(b.ce)}" style="width:74px" title="Centre level (mPD)">
+        <span class="hint">size</span>
+        <input type="number" step="0.1" data-i="${i}" data-b="w" value="${round(b.w)}" style="width:66px" title="Width (m)">
+        <input type="number" step="0.1" data-i="${i}" data-b="h" value="${round(b.h)}" style="width:66px" title="Height (m)">
+        <span class="hint">rotate</span>
+        <input type="number" step="0.5" data-i="${i}" data-b="ang" value="${round(b.ang)}" style="width:66px" title="Rotation (degrees, anticlockwise)">
+        <button class="ghost" type="button" data-i="${i}" data-act="box">Apply</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function wireAnnotEditor(){
+  const list=document.getElementById('sec-annot-list');
+  const addBtn=document.getElementById('sec-annot-add');
+  if (!list || !addBtn) return;
+  addBtn.addEventListener('click', addAnnotRect);
+  // Corner / label / colour boxes edit in place and redraw the section, but must
+  // NOT re-render the editor itself — the box under the cursor would be replaced
+  // mid-keystroke.
+  list.addEventListener('input', e=>{
+    const t=e.target, i=+t.dataset.i;
+    const a=secAnnots[i]; if (!a) return;
+    if (t.dataset.f==='label'){ a.label=t.value; }
+    else if (t.dataset.f==='colour'){ a.colour=t.value; }
+    else if (t.dataset.pt!=null){
+      const v=+t.value; if (!Number.isFinite(v)) return;
+      a.pts[+t.dataset.pt][+t.dataset.c]=v;
+    } else return;                                   // centre/size/angle: wait for Apply
+    if (secMap) updateSection();
+  });
+  list.addEventListener('click', e=>{
+    const t=e.target.closest('button'); if (!t) return;
+    const i=+t.dataset.i, a=secAnnots[i]; if (!a) return;
+    if (t.dataset.act==='del') secAnnots.splice(i,1);
+    else if (t.dataset.act==='box'){
+      const row=t.closest('.annot-row');
+      const g=k=>+row.querySelector(`[data-b="${k}"]`).value;
+      const [cd,ce,w,h,ang]=['cd','ce','w','h','ang'].map(g);
+      if (![cd,ce,w,h,ang].every(Number.isFinite) || w<=0 || h<=0) return;
+      a.pts=boxToPts(cd,ce,w,h,ang);
+    } else return;
+    renderAnnotList();
+    if (secMap) updateSection();
+  });
+  renderAnnotList();
+}
+
+// ==== download file naming: TITLE_TYPE_DATE ================================
+// The cross-section title on the Options tab names every image the project
+// produces, so a folder of exports sorts by job rather than by
+// "cross_section (3).png".
+function exportStem(kind){
+  const raw=(document.getElementById('sec-title')?.value||'').trim() || 'Cross-section A-B';
+  const safe = v => v.replace(/[\\/:*?"<>|\r\n]+/g,' ').trim().replace(/\s+/g,'-').replace(/-{2,}/g,'-');
+  return `${safe(raw)}_${kind}_${new Date().toISOString().slice(0,10)}`;
+}
+
+// ==== whole-project settings (saved into the project file / cloud row) ======
+// Everything on the Cross-Section tab that isn't already in the borehole data:
+// the option controls, the manually deselected boreholes and the annotations.
+// The section line and the site boundary already ride along in the #GEOVIS
+// header, so a saved project now restores the whole tab, not just the data.
+const SEC_VALUE_IDS = ['sec-title','sec-vex','sec-tol','sec-ext','sec-interp',
+                       'sec-ground','sec-extrap','sp-base'];
+const SEC_CHECK_IDS = ['sec-show-logs','sec-show-names','sec-show-offset',
+                       'sec-bh-only','sec-hover','sp-names'];
+function sectionSettings(){
+  const o={};
+  for (const id of SEC_VALUE_IDS){ const e=document.getElementById(id); if (e) o[id]=e.value; }
+  for (const id of SEC_CHECK_IDS){ const e=document.getElementById(id); if (e) o[id]=e.checked; }
+  return o;
+}
+function applySectionSettings(o){
+  if (!o) return;
+  for (const id of SEC_VALUE_IDS){
+    const e=document.getElementById(id);
+    if (e && o[id]!=null) e.value=o[id];
+  }
+  for (const id of SEC_CHECK_IDS){
+    const e=document.getElementById(id);
+    if (e && o[id]!=null) e.checked=!!o[id];
+  }
+  // the three sliders each print their own value next to them
+  const lab=(id,suffix)=>{ const e=document.getElementById(id), v=document.getElementById(id+'-val');
+    if (e && v) v.textContent=e.value+suffix; };
+  lab('sec-vex','×'); lab('sec-tol',' m'); lab('sec-ext',' m');
+}
+/** The extras half of a saved project — see stateToProjectCSV(). */
+function projectExtras(){
+  return { section: sectionSettings(), excluded:[...secExcluded], annots: secAnnots };
 }
 
 // ---- site-plan image export (task 6) --------------------------------------
@@ -963,13 +1308,17 @@ async function exportSitePlan(){
           paintPixelLine, paintPixelText } = await mapExport();
   const sp=state.sitePlan, holes=sectionHoles();
   const names=secPlanNames;                     // solved against the current view
+  // Must match what the preview shows: same corridor, same "include beyond
+  // A/B" margin, and the same manually deselected holes left out.
   const inSet = sectionLine
-    ? sectionStations(toEN(...sectionLine.a), toEN(...sectionLine.b), holes,
-        +document.getElementById('sec-tol').value).inSet
+    ? sectionStations(toEN(...sectionLine.a), toEN(...sectionLine.b),
+        holes.filter(b=>!secExcluded.has(b.id)),
+        +document.getElementById('sec-tol').value,
+        +document.getElementById('sec-ext').value || 0).inSet
     : new Set();
   setSpStatus('Rendering image…','busy');
   const msg = await exportMapPNG(secMap, {
-    name:`site_plan_${new Date().toISOString().slice(0,10)}.png`,
+    name:exportStem('Site-Plan')+'.png',
     basemap:document.getElementById('sp-base').value,
     title:(document.getElementById('sec-title').value||'').trim() || 'Site plan',
     draw(ctx, project){
@@ -1328,6 +1677,7 @@ async function openSiteMap(){
         state.activeIdx = 0;
         state.sitePlan = sitePlan || null;
         sectionLine = null;   // fresh site → recompute default section line on next view
+        secExcluded.clear(); secAnnots=[]; renderAnnotList();   // and its annotations/deselections
         refreshInput(); commit();
         // jump back to the log tab so the user sees what landed
         document.querySelector('.tab[data-tab="log"]').click();
@@ -1365,11 +1715,16 @@ document.getElementById('sec-vex').addEventListener('input', e=>{ document.getEl
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-ext').addEventListener('input', e=>{ document.getElementById('sec-ext-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
-['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp','sec-ground'].forEach(id=>
+['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp','sec-ground',
+ 'sec-extrap','sec-hover'].forEach(id=>
   document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
+document.getElementById('sec-inc-reset').addEventListener('click', ()=>{
+  secExcluded.clear(); if (secMap) updateSection(); else updateExcludedNote();
+});
+wireAnnotEditor();
 document.getElementById('panel-collapse').addEventListener('click', ()=>setPanelCollapsed(true));
 document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));
-document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'),'cross_section.png'));
+document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'), exportStem('Cross-Section')+'.png'));
 
 // site plan base map + names + image export (tasks 6 & 2)
 document.getElementById('sp-base').addEventListener('change', e=>{
@@ -1434,7 +1789,7 @@ document.getElementById('csv-export').addEventListener('click', ()=>{ document.g
 // ---- project save / resume (tasks 5 & 6) ----------------------------
 document.getElementById('proj-export').addEventListener('click', ()=>{
   const stamp=new Date().toISOString().slice(0,10);
-  downloadText(`geovis_project_${stamp}.csv`, stateToProjectCSV(state, sectionLine));
+  downloadText(`geovis_project_${stamp}.csv`, stateToProjectCSV(state, sectionLine, projectExtras()));
 });
 let _projText='';
 const _projInfo=document.getElementById('proj-info');
@@ -1519,7 +1874,7 @@ _projLoad.addEventListener('click', ()=>{
     if (!name || !name.trim()) return;
     btnSave.disabled=true; info.textContent='Saving…';
     try{
-      const row=await cloud.createProject(name, stateToProjectCSV(state, sectionLine),
+      const row=await cloud.createProject(name, stateToProjectCSV(state, sectionLine, projectExtras()),
                                           cloud.summarise(state, sectionLine));
       currentId=row.id;
       await refreshList(row.id);
@@ -1532,7 +1887,7 @@ _projLoad.addEventListener('click', ()=>{
     if (!currentId) return;
     btnUpdate.disabled=true; info.textContent='Saving…';
     try{
-      await cloud.updateProject(currentId, stateToProjectCSV(state, sectionLine),
+      await cloud.updateProject(currentId, stateToProjectCSV(state, sectionLine, projectExtras()),
                                 cloud.summarise(state, sectionLine));
       await refreshList(currentId);
       info.textContent='✓ Saved over the open project.';

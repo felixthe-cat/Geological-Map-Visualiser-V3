@@ -77,4 +77,34 @@ const shuffled = projectCSVToState(
   'B,0,0,10,BH,Lower,5,9,\nB,0,0,10,BH,Upper,0,5,\n');
 assert.deepEqual(shuffled.boreholes[0].layers.map(l=>l.surface), ['Upper','Lower']);
 
-console.log('project_csv.js OK — full save/resume round trip is lossless (incl. commas, quotes, TP kind, grades, boundary, section line)');
+
+// ---- the whole cross-section setup rides along too -------------------------
+// One saved file (and therefore one cloud row) must restore the option
+// controls, the manually deselected boreholes and the drawn annotations.
+{
+  const extras = {
+    section: { 'sec-title':'Site B — Section "1", north', 'sec-vex':'3.5',
+               'sec-ground':'dtm-offset', 'sec-extrap':'linear',
+               'sec-show-offset':false, 'sec-hover':true },
+    excluded: ['BH 1','TP-2'],
+    annots: [{ label:'Proposed pile cap, "west"', colour:'#b02a2a',
+               pts:[[10.5,20.25],[40.5,20.25],[40.5,12.75],[10.5,12.75]] }]
+  };
+  const round = projectCSVToState(stateToProjectCSV(state, sectionLine, extras));
+  assert.deepEqual(round.section,  extras.section);
+  assert.deepEqual(round.excluded, extras.excluded);
+  assert.deepEqual(round.annots,   extras.annots);
+  // …and the borehole data is still intact alongside them
+  assert.equal(round.boreholes.length, state.boreholes.length);
+  assert.deepEqual(round.sectionLine, sectionLine);
+}
+// A file saved without any of that (or an older v1 file) reloads with nulls,
+// never undefined-shaped junk that the loader would then try to apply.
+{
+  const plain = projectCSVToState(stateToProjectCSV(state, sectionLine));
+  assert.equal(plain.section, null);
+  assert.equal(plain.excluded, null);
+  assert.equal(plain.annots, null);
+}
+
+console.log('project_csv.js OK — full save/resume round trip is lossless (incl. commas, quotes, TP kind, grades, boundary, section line, section options, deselections, annotations)');

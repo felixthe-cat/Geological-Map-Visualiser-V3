@@ -110,3 +110,46 @@ export function correctedProfile(stationDist, stationGL, queryDist, queryDtm, me
   const dtmBaseline = interpolateSeries(stationDist, dtmAtStations, queryDist, method);
   return queryDist.map((_,i) => baseline[i] + (queryDtm[i]-dtmBaseline[i]));
 }
+
+/**
+ * Offset-aware ground surface — the apples-to-apples correction.
+ *
+ * `correctedProfile` above forces the section's ground line through each
+ * borehole's surveyed collar level. That is only right for a borehole that
+ * actually sits ON the line: an offset borehole was logged somewhere else, so
+ * pinning the on-line ground to its collar level compares two different
+ * points of ground.
+ *
+ * This version instead measures, at each borehole's OWN true position, how far
+ * the surveyed collar level sits above/below what the LandsD DTM reads there:
+ *     delta_i = collarGL_i − DTM(borehole_i's true easting/northing)
+ * That delta is a property of the DTM itself at that spot (datum bias, canopy
+ * height, survey-vs-model difference) — not of the ground's shape. Interpolating
+ * delta along the line and adding it to the DTM sampled ON the line therefore
+ * corrects the DTM by like for like, and leaves the real terrain shape (crest,
+ * gully, cut slope) between boreholes intact.
+ *
+ * Consequence, and it is intended: at an OFF-line borehole the drawn ground
+ * line will NOT equal that borehole's collar level — the line's ground there is
+ * a different point of ground. The log rectangle is still drawn at the true
+ * surveyed level, so the gap between the two is visible and honest.
+ *
+ * @param stationDist  distance along the line of each borehole's projection
+ * @param stationGL    surveyed collar level (mPD) of each borehole
+ * @param stationDtm   DTM elevation sampled at each borehole's TRUE position
+ *                     (null entries are dropped — that hole just doesn't
+ *                     contribute a delta)
+ * @param queryDist    distances along the line to evaluate at
+ * @param queryDtm     DTM sampled ON the line at queryDist
+ * @param method       interpolation method for the delta series
+ */
+export function offsetCorrectedProfile(stationDist, stationGL, stationDtm, queryDist, queryDtm, method='mono'){
+  const d=[], v=[];
+  for (let i=0;i<stationDist.length;i++){
+    if (stationDtm[i]==null || !Number.isFinite(stationDtm[i])) continue;
+    d.push(stationDist[i]); v.push(stationGL[i]-stationDtm[i]);
+  }
+  if (!d.length) return queryDtm.slice();               // no usable delta: raw DTM
+  const delta = interpolateSeries(d, v, queryDist, method);
+  return queryDist.map((_,i)=> queryDtm[i] + delta[i]);
+}

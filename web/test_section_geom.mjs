@@ -98,4 +98,44 @@ for (const method of ['linear','mono','nearest']){
   }
 }
 
-console.log('ok — section projection + interpolation checks pass (incl. tied stations)');
+
+// ---- extrapolation beyond the outermost station ----------------------------
+// 'hold' must repeat the end value; 'linear' must continue the end trend; and
+// neither may change anything INSIDE the station range.
+{
+  const xs=[0,100,200], ys=[10,14,20];
+  const inside=[0,50,100,150,200];
+  for (const method of ['linear','mono','nearest']){
+    const base=interpolateSeries(xs,ys,inside,method);
+    for (const ex of ['hold','linear']){
+      const v=interpolateSeries(xs,ys,inside,method,ex);
+      v.forEach((x,i)=>assert(Math.abs(x-base[i])<1e-9,
+        `${method}/${ex} changed an INSIDE value at ${inside[i]}`));
+    }
+  }
+  const hold=interpolateSeries(xs,ys,[-50,250],'linear','hold');
+  assert(hold[0]===10 && hold[1]===20, 'hold must repeat the end values, got '+hold);
+  const lin=interpolateSeries(xs,ys,[-50,250],'linear','linear');
+  // end secants: (14-10)/100 = 0.04 ; (20-14)/100 = 0.06
+  assert(Math.abs(lin[0]-(10-0.04*50))<1e-9, 'linear extrapolation before the first station: '+lin[0]);
+  assert(Math.abs(lin[1]-(20+0.06*50))<1e-9, 'linear extrapolation after the last station: '+lin[1]);
+}
+// Extrapolated horizon stacks still may not cross, however far they run out —
+// a trend continued far enough always drives some thickness negative.
+{
+  const xs=[0,100,200];
+  const H=[[20,15,9,2],[18,4,3,-5],[25,20,19,0]];
+  const xq=Array.from({length:60},(_,i)=>-400+i*20);          // way outside both ends
+  for (const method of ['linear','mono','nearest'])
+    for (const ex of ['hold','linear']){
+      const curves=interpolateHorizons(xs,H,xq,method,null,ex);
+      for (let k=0;k<curves.length;k++){
+        assert(curves[k].every(Number.isFinite), `${method}/${ex}: NaN in extrapolated horizon ${k}`);
+        if (k<curves.length-1) for (let q=0;q<xq.length;q++)
+          assert(curves[k][q] >= curves[k+1][q]-1e-9,
+            `${method}/${ex}: extrapolated horizons crossed at x=${xq[q]}`);
+      }
+    }
+}
+
+console.log('ok — section projection + interpolation checks pass (incl. tied stations, extrapolation)');

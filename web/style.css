@@ -526,3 +526,16 @@ img   { display: block; max-width: 100%; }
   .hero-content   { padding-bottom: 18vh; }
   #viewer-iframe  { height: 4620px; }
 }
+
+/* ---- cross-section: hover level readout + annotation editor -------------- */
+#sec-viz{ position:relative }
+.sec-tip{ position:absolute; pointer-events:none; z-index:5; display:none; max-width:290px;
+  background:#fffdf8; border:1px solid #c8bda8; border-radius:6px; padding:6px 8px;
+  font:11px/1.5 Outfit, sans-serif; color:#1a1a0f; box-shadow:0 2px 8px rgba(0,0,0,.16) }
+.sec-tip b{ display:block; margin-bottom:3px; color:#1e3c12 }
+.sec-tip .sw{ display:inline-block; width:9px; height:9px; margin-right:5px;
+  border:.5px solid #3d3529; vertical-align:-1px }
+.sec-tip .lv{ float:right; margin-left:10px; font-variant-numeric:tabular-nums; color:#6b6250 }
+.annot-row{ border:1px solid #e6dcc6; border-radius:6px; padding:6px 8px; margin-bottom:6px;
+  background:#fffdf8 }
+.annot-row .hint{ margin:0 }
