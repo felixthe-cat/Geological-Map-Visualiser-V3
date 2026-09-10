@@ -78,3 +78,34 @@ Option 2. The parser already tolerates missing keys (v1 and legacy 7-column file
 `null` for all three), so the compatibility risk runs one way only and is covered by a test.
 
 **Reversible?** Cheap — additive keys; older readers ignore them.
+
+---
+
+### ADR-4: A dedicated sign-in page, rather than a sign-in card inside the projects page
+
+**Context**
+`account.html` already contained a working signed-out state: a card with a "Sign in with
+Google" button. The ask was for a Google auth page modelled on the IFU app's login screen,
+which is a full-viewport layout (hero panel + content sheet), not a card in a list page.
+
+**Options considered**
+1. *Restyle the existing card in `account.html`.* No new file, no new route, and the
+   redirect plumbing already worked. But the IFU layout is full-bleed and vertically
+   centred — dropping it inside a page that also has a site header, an `<h1>`, an
+   explanatory paragraph and a project list would either break that page's structure or
+   water the design down to something that is not really the template asked for. It also
+   leaves the sign-in screen reachable only via a page whose whole purpose assumes you are
+   already signed in.
+2. *A dedicated `web/login.html`.* Matches the template properly, is linkable from the
+   landing nav and from anywhere else later, and takes a `?next=` destination so any page
+   can send a visitor to sign in and get them back. Drawback: a second file that has to
+   stay visually in step with the rest of the site, and a second place auth can break.
+
+**Chosen + why**
+Option 2 — but with the duplication removed rather than accepted: `account.html`'s own
+sign-in card was **deleted**, and it now redirects signed-out visitors to `login.html`.
+So the count of sign-in screens stayed at one; it just moved to a page shaped for the job.
+That is what makes option 2's main drawback not apply.
+
+**Reversible?** Cheap — the page is self-contained and the only inbound links are the
+landing nav and one redirect in `account.html`.
