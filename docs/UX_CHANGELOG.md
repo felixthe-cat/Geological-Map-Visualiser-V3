@@ -33,3 +33,10 @@ What changed for you, newest at the bottom of each day. Append only.
   solid with a dark outline instead of partly see-through.
 - 2026-09-10 — The cross-section now opens with the offset-corrected ground surface already
   selected. Projects you saved earlier still reopen with whatever setting you saved them with.
+- 2026-09-10 — The top of the home page is simpler: the About and Docs links and the round
+  logo button have gone. It now reads 2D Builder · 3D Viewer · GitHub.
+- 2026-09-10 — The home page no longer says the tool is powered by GemPy and Hugging Face
+  Spaces, as that service is switched off for now.
+- 2026-09-10 — There is now a proper sign-in page with a "Sign in with Google" button. It
+  appears in the top menu once accounts are switched on; until then it explains that
+  sign-in isn't available yet and that the 2D Builder works without an account.

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoVisualise — Sign in</title>
+  <meta name="description" content="Sign in to GeoVisualise with your Google account to save borehole projects and cross-sections and resume them on any device.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ac845' stroke-width='2'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Layout follows the login-page spec used on the IFU app: hero panel on top,
+       a content sheet lifted over it, and a Google-branded button at the foot of
+       the sheet. Every colour and typeface below is this site's own — the spec is
+       explicit that a login page must not introduce a new palette. */
+    :root{
+      --hero-bg:#060c04; --hero-text:#f5f0e8; --hero-green:#9ac845;
+      --cream:#f0e9dc; --card:#fffdf8; --border:#c8bda8;
+      --ink:#1a1a0f; --forest-d:#1e3c12; --muted:#6b6250;
+      --font-sans:'Space Grotesk',-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-body:'Outfit',-apple-system,BlinkMacSystemFont,sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;background:var(--cream);color:var(--ink);
+      font-family:var(--font-body);font-size:14px;line-height:1.5;
+      display:flex;align-items:center;justify-content:center}
+    a{text-decoration:none}
+
+    /* Desktop: one 420px column centred in the viewport (per the spec).
+       Mobile: the column fills the screen and the hero takes 55vh. */
+    .shell{width:100%;max-width:420px;min-height:100vh;display:flex;flex-direction:column;
+      background:var(--card);position:relative;overflow:hidden}
+    @media (min-width:600px){
+      .shell{min-height:auto;border-radius:16px;overflow:hidden;
+        box-shadow:0 18px 48px rgba(6,12,4,.22);margin:32px 0}
+    }
+
+    /* ---- hero -------------------------------------------------------------
+       The landing page's own terrain artwork rather than a photograph: it is
+       already the visual identity of this site, it costs nothing to load, and a
+       stock image would fight the palette. */
+    .hero{position:relative;height:55vh;min-height:220px;background:var(--hero-bg);
+      overflow:hidden;flex-shrink:0}
+    @media (min-width:600px){ .hero{height:280px} }
+    .hero svg{position:absolute;inset:0;width:100%;height:100%;
+      object-fit:cover;display:block}
+    .hero-mark{position:absolute;left:0;right:0;bottom:34px;z-index:2;
+      display:flex;flex-direction:column;align-items:center;gap:9px;
+      color:var(--hero-text);text-align:center;padding:0 24px}
+    .hero-mark .wordmark{font-family:var(--font-sans);font-weight:600;
+      font-size:15px;letter-spacing:.16em;text-transform:uppercase;
+      color:var(--hero-green)}
+    .hero-mark .tag{font-size:12.5px;opacity:.72;max-width:280px}
+    /* soft fade so the hero meets the sheet instead of ending on a hard line */
+    .hero::after{content:'';position:absolute;inset:auto 0 0;height:90px;z-index:1;
+      background:linear-gradient(to top,rgba(6,12,4,.85),transparent);pointer-events:none}
+
+    .back{position:absolute;left:16px;top:16px;z-index:5;
+      width:38px;height:38px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(245,240,232,.10);border:1px solid rgba(245,240,232,.22);
+      color:var(--hero-text);backdrop-filter:blur(6px);transition:.15s}
+    .back:hover{background:rgba(154,200,69,.18);border-color:rgba(154,200,69,.45)}
+    .back:focus-visible{outline:3px solid var(--hero-green);outline-offset:2px}
+
+    /* ---- content sheet ---------------------------------------------------- */
+    .sheet{position:relative;z-index:3;margin-top:-16px;background:var(--card);
+      border-radius:16px 16px 0 0;padding:32px 28px 40px;
+      flex:1;display:flex;flex-direction:column;justify-content:space-between;gap:32px}
+    .sheet h1{font-family:var(--font-sans);font-size:26px;font-weight:700;
+      line-height:1.2;color:var(--forest-d)}
+    @media (min-width:600px){ .sheet h1{font-size:30px} }
+    .sheet .lead{font-size:15px;color:var(--muted);margin-top:12px}
+    .sheet .foot{font-size:12.5px;color:var(--muted);margin-top:16px}
+    .sheet .foot a{color:var(--forest-d);font-weight:500;text-decoration:underline}
+
+    /* ---- Google button ----------------------------------------------------
+       Google's branding guidelines forbid recolouring this to match the site:
+       white ground, their logo, their label. Left as specified on purpose. */
+    .gbtn{width:100%;height:52px;border-radius:10px;
+      background:#fff;border:1px solid #DADCE0;box-shadow:0 1px 3px rgba(0,0,0,.10);
+      display:flex;align-items:center;justify-content:center;gap:14px;
+      font-family:var(--font-body);font-size:15px;font-weight:500;color:#3c4043;
+      cursor:pointer;transition:background .15s,box-shadow .15s}
+    .gbtn:hover{background:#F8F8F8;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+    .gbtn:focus-visible{outline:3px solid var(--forest-d);outline-offset:2px}
+    .gbtn:disabled{opacity:.6;cursor:not-allowed}
+    .gbtn svg{width:20px;height:20px;flex-shrink:0}
+
+    .notice{padding:12px 14px;border-radius:8px;border:1px solid #e0cf9b;
+      background:#fdf6e3;color:#6b5406;font-size:12.5px;line-height:1.55}
+    .notice code{background:#f4ecd6;padding:1px 5px;border-radius:4px}
+    .err{color:#b02a2a;font-size:12.5px;margin-top:10px}
+    [hidden]{display:none !important}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="hero">
+      <a class="back" href="index.html" aria-label="Back to home">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M19 12H5M12 19l-7-7 7-7"></path>
+        </svg>
+      </a>
+      <!-- same contour artwork as the landing hero, cropped to this panel -->
+      <svg viewBox="0 90 1440 540" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <path d="M0,300 C120,280 200,220 320,240 C440,260 520,180 640,160 C760,140 840,200 960,180 C1080,160 1200,120 1320,140 C1380,150 1420,145 1440,150"
+              fill="none" stroke="rgba(154,200,69,0.22)" stroke-width="1.5"/>
+        <path d="M0,400 C140,380 240,330 360,350 C480,370 540,300 660,280 C780,260 860,320 980,300 C1100,280 1200,250 1320,270 C1380,280 1420,275 1440,280"
+              fill="none" stroke="rgba(154,200,69,0.16)" stroke-width="1.5"/>
+        <path d="M80,480 C160,460 240,400 340,380 C440,360 480,420 560,380 C640,340 680,260 740,220 C800,180 840,240 900,260"
+              fill="none" stroke="rgba(154,200,69,0.14)" stroke-width="1.5"/>
+        <path d="M0,560 C100,540 200,500 300,480 C400,460 460,500 540,460 C620,420 660,360 720,320 C780,280 820,340 880,360 C940,380 1000,320 1060,340 C1120,360 1180,420 1260,440 C1320,455 1380,430 1440,440"
+              fill="none" stroke="rgba(154,200,69,0.11)" stroke-width="1"/>
+        <path d="M0,640 C120,620 220,600 340,580 C460,560 520,600 620,560 C720,520 760,480 840,500 C920,520 980,460 1060,480 C1140,500 1200,560 1300,570 C1360,576 1400,555 1440,560"
+              fill="none" stroke="rgba(154,200,69,0.09)" stroke-width="1"/>
+        <ellipse cx="560" cy="120" rx="80" ry="40" fill="rgba(154,200,69,0.10)"/>
+        <ellipse cx="720" cy="80"  rx="60" ry="30" fill="rgba(184,220,89,0.12)"/>
+      </svg>
+      <div class="hero-mark">
+        <span class="wordmark">GeoVisualise</span>
+        <span class="tag">Borehole logs, cross-sections and geological models — in your browser.</span>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <div>
+        <h1 id="title">Pick up where you left off.</h1>
+        <p class="lead" id="lead">Sign in to save your boreholes, site boundary and
+          cross-sections to your account, and reopen them on any device.</p>
+        <div id="unconfigured" class="notice" style="margin-top:20px" hidden>
+          <b>Accounts are not switched on yet.</b><br>
+          Add the Supabase Project URL and anon key to <code>web/supabase_config.js</code>,
+          and run <code>docs/supabase_schema.sql</code> in the Supabase SQL editor.
+          Setup steps are in <code>docs/PLAN_ACCOUNTS_SUPABASE.md</code> §3.
+        </div>
+      </div>
+
+      <div>
+        <button class="gbtn" id="btn-google" type="button" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          Sign in with Google
+        </button>
+        <p class="err" id="err" hidden></p>
+        <p class="foot">GeoVisualise only reads your name, email and profile picture.
+          You don’t need an account to use the tool — <a href="builder.html">open the 2D Builder</a>
+          and use <b>Download project CSV</b> to keep your work in a file instead.</p>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { isConfigured, onAuthChange, signInWithGoogle } from './cloud.js';
+
+    const $ = id => document.getElementById(id);
+    // Where to land after signing in. Only same-origin relative paths are
+    // accepted — an absolute URL here would turn the sign-in into an open
+    // redirect that could bounce a signed-in user to someone else's site.
+    const raw  = new URLSearchParams(location.search).get('next') || 'account.html';
+    const next = /^[\w./-]+$/.test(raw) && !raw.startsWith('//') ? raw : 'account.html';
+    const dest = new URL(next, location.href).href;
+
+    if (!isConfigured()){
+      $('unconfigured').hidden = false;
+      $('title').textContent = 'Accounts are coming soon.';
+      $('lead').textContent  = 'Sign-in isn’t switched on for this site yet. Everything in the 2D Builder still works without an account.';
+    } else {
+      $('btn-google').hidden = false;
+      $('btn-google').addEventListener('click', async e => {
+        e.currentTarget.disabled = true;
+        $('err').hidden = true;
+        try { await signInWithGoogle(dest); }
+        catch (err){
+          $('err').textContent = 'Sign-in failed: ' + (err?.message || err);
+          $('err').hidden = false;
+          e.currentTarget.disabled = false;
+        }
+      });
+      // Already signed in (or the OAuth redirect just completed here): go on.
+      onAuthChange(user => { if (user) location.replace(dest); });
+    }
+  </script>
+</body>
+</html>

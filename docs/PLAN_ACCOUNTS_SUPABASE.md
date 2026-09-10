@@ -78,18 +78,78 @@ logins.
 > expose every user's projects if it shipped in the frontend.
 
 ### Step 2 — Create the Google OAuth client
-1. <https://console.cloud.google.com/> → create/select a project.
-2. **APIs & Services → OAuth consent screen** → External → fill in app name, your
-   support email, developer email. Scopes: the default `email`, `profile`, `openid`
-   are all that's needed. While the app is in *Testing*, add your own Google address
-   under **Test users**.
-3. **APIs & Services → Credentials → Create credentials → OAuth client ID** →
-   *Web application*.
-4. **Authorised redirect URI** — exactly this, from your Supabase project:
+
+**What you are collecting:** exactly two strings — a **Client ID** and a **Client
+secret**. Nothing from Google Cloud goes into this repository; both are pasted into
+Supabase in Step 3, and Supabase does the talking to Google. There is no Google SDK
+and no Google API key in this codebase.
+
+Google renamed this area in 2025. If the left-hand menu shows **Google Auth Platform**,
+use the names in brackets; older projects still show *APIs & Services → OAuth consent
+screen*, which is the same thing.
+
+**2a. Project**
+1. <https://console.cloud.google.com/> → project picker (top bar) → **New project**.
+2. Name it e.g. `geovisualise`. No organisation needed. Create, then make sure the
+   picker shows it before continuing — the commonest mistake here is configuring the
+   wrong project.
+
+**2b. Branding — what the consent screen says**
+*Google Auth Platform → Branding* (old: *OAuth consent screen*).
+- **App name** — what users see on the Google prompt: "GeoVisualise".
+- **User support email** — your own address is fine.
+- **App logo** — optional. Uploading one triggers a brand-verification review, so
+  leave it empty unless you want that.
+- **Application home page / privacy policy / terms** — only required once you upload
+  a logo or request sensitive scopes. Leave blank for now.
+- **Authorised domains** — add `supabase.co` and `vercel.app`. (Only needed if you
+  fill in the home-page/privacy URLs above; harmless either way.)
+- **Developer contact email** — your own.
+
+**2c. Audience — who may sign in**
+*Google Auth Platform → Audience* (old: the *User type* choice).
+- Choose **External**. *Internal* only exists for Google Workspace organisations and
+  would restrict sign-in to your own domain.
+- The app starts in **Testing**: only addresses you list under **Test users** can sign
+  in (100 max), and their sessions expire after 7 days.
+- When you are ready for anyone to use it, press **Publish app**. **With the scopes
+  below, no Google verification review is required** — the warning about verification
+  only applies to sensitive or restricted scopes.
+
+**2d. Data access — what you ask for**
+*Google Auth Platform → Data access* (old: *Scopes*). Add only these three:
+
+| Scope | Why | Google's tier |
+|---|---|---|
+| `openid` | proves who signed in | non-sensitive |
+| `.../auth/userinfo.email` | your email, used as the account key | non-sensitive |
+| `.../auth/userinfo.profile` | display name + avatar in the header | non-sensitive |
+
+All three are non-sensitive, which is what keeps you out of the verification queue.
+Do not add Drive, Gmail or Calendar scopes — the app never touches them.
+
+**2e. Client — the two strings you actually need**
+*Google Auth Platform → Clients → Create client* (old: *Credentials → Create
+credentials → OAuth client ID*).
+1. **Application type: Web application.** Not "Desktop", not "Single-Page App".
+2. **Name:** anything, e.g. `geovisualise-web`. Users never see it.
+3. **Authorised JavaScript origins** — leave empty. The browser never calls Google
+   directly in this design; Supabase does.
+4. **Authorised redirect URIs** — add exactly one, using your own Supabase project
+   reference (Supabase → Settings → API → Project URL gives you the `<ref>`):
    ```
    https://<your-project-ref>.supabase.co/auth/v1/callback
    ```
-5. Copy the **Client ID** and **Client secret**.
+   It must match character for character — no trailing slash, `https` not `http`.
+   A mismatch is the cause of nearly every `redirect_uri_mismatch` error.
+
+   > Do **not** put the Vercel URL here. The site's own address goes in Supabase's
+   > *URL Configuration* (Step 3), not in Google's.
+5. **Create** → copy the **Client ID** and **Client secret**.
+
+> The Client **secret** is a real credential. Paste it into Supabase and nowhere else —
+> never into a file in this repository, and never into `web/supabase_config.js`, which
+> ships to every visitor's browser.
 
 ### Step 3 — Connect the two, then fill in the config
 1. Supabase → **Authentication → Providers → Google** → enable, paste the Client ID
@@ -103,8 +163,18 @@ logins.
      ```
      (the localhost entry is what lets sign-in work in local preview)
 3. Edit `web/supabase_config.js` and paste in the Project URL and anon key.
+   Only these two — the Google Client ID and secret never come near this file.
 
-That's it — the sign-in button and project picker appear automatically. Tell me when
+That's it — the sign-in page (`web/login.html`), the header control and the project
+picker all switch themselves on automatically.
+
+### If sign-in fails, in order of likelihood
+| Symptom | Cause |
+|---|---|
+| `redirect_uri_mismatch` from Google | the URI in Google's client ≠ `https://<ref>.supabase.co/auth/v1/callback` |
+| Signs in, then lands back signed-out | the site's URL is missing from Supabase → Authentication → URL Configuration → Redirect URLs |
+| "Access blocked: app not verified" | the app is still in *Testing* and the address isn't a listed test user — add it, or press **Publish app** |
+| Nothing happens, no redirect | `web/supabase_config.js` is still blank, or holds the wrong project URL | Tell me when
 Steps 1–3 are done and I'll run a live end-to-end test (sign in, save a project, reopen
 it in a fresh session).
 

@@ -81,14 +81,11 @@
       use <b>Download project CSV</b> to save your work to a file.
     </div>
 
-    <!-- signed out -->
+    <!-- signed out: this page holds no sign-in UI of its own, it hands over to
+         login.html so there is only one sign-in screen to maintain -->
     <div id="signed-out" class="card" style="display:none">
-      <h2 style="margin:0 0 6px;font-size:17px;color:var(--forest-d)">Sign in</h2>
-      <p class="hint" style="margin-bottom:12px">Use your Google account. We only read your name, email
-        and profile picture — nothing else, and nothing is shared.</p>
-      <button class="gold" id="btn-signin">Sign in with Google</button>
-      <p class="hint" style="margin-top:12px">You don’t need an account to use the 2D Builder —
-        signing in just adds saving and resuming. <a href="builder.html">Open the 2D Builder →</a></p>
+      <p class="hint" style="margin:0">Taking you to sign in…
+        <a href="login.html?next=account.html">Continue →</a></p>
     </div>
 
     <!-- signed in -->
@@ -110,7 +107,7 @@
   </main>
 
   <script type="module">
-    import { isConfigured, onAuthChange, signInWithGoogle,
+    import { isConfigured, onAuthChange,
              listProjects, deleteProject, renameProject, whenLabel } from './cloud.js';
     import { mountAuthControl } from './auth_ui.js';
 
@@ -122,17 +119,14 @@
       $('unconfigured').style.display = 'block';
     } else {
       mountAuthControl($('auth-slot'), { showProjects:false });
-      $('btn-signin').addEventListener('click', async e => {
-        e.target.disabled = true;
-        try { await signInWithGoogle(location.href); }
-        catch (err){ alert('Sign-in failed: '+(err?.message||err)); e.target.disabled = false; }
-      });
       $('btn-refresh').addEventListener('click', refresh);
 
       onAuthChange(user => {
         $('signed-out').style.display = user ? 'none' : 'block';
         $('signed-in').style.display  = user ? 'block' : 'none';
         if (user) refresh();
+        // `replace` so Back from the login page doesn't bounce straight back here
+        else location.replace('login.html?next=account.html');
       });
     }
 

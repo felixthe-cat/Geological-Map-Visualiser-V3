@@ -4,6 +4,43 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-09-10 21:48 — Landing-page trim + dedicated Google sign-in page
+
+**Goal:** "remove the About and the Docs, the icon button at the very top, the writing
+about that is powered by GemPy and hugging face… and I would like to add a Google Auth
+page onto it," modelled on the IFU app's login screen.
+
+**Changed:**
+- `web/index.html` — dropped the About/Docs nav links and the circular cube icon button;
+  removed both "Powered by GemPy / Hugging Face Spaces" claims (footer + 3D card); nav now
+  shows *Sign in* when signed out and *My projects* when signed in, both still gated on
+  `isConfigured()`.
+- `web/login.html` — **new.** Hero panel + lifted content sheet + Google-branded button,
+  following the IFU login spec but using this site's own palette and typefaces. Handles
+  the unconfigured case, a `?next=` destination, and forwards straight through if a
+  session already exists.
+- `web/account.html` — no longer carries its own sign-in card; signed-out visitors are
+  sent to `login.html`. Removes the second sign-in UI.
+- `docs/PLAN_ACCOUNTS_SUPABASE.md` — Step 2 rewritten for Google's 2025 "Google Auth
+  Platform" console with the old menu names in brackets, plus a failure-symptom table.
+
+**Worked:** Verified locally in both states — blank config shows an honest "not switched
+on" page with no Google button; with placeholder credentials injected, `isConfigured()`
+flips and the Google button renders per Google's branding rules. Placeholders were removed
+before commit and `web/supabase_config.js` confirmed byte-identical to committed. No
+console errors on the landing page, login page or account page.
+
+**Dead ends:** Considered `web/hero_globe.png` (an unused 900 KB AI-generated globe already
+in the repo) for the login hero. Rejected on sight — electric blue/orange against a cream
+and forest-green site, plus garbled fake text baked into the image. Reused the landing
+page's own contour artwork instead: on-brand, and no bytes to download.
+
+**Open:** Sign-in still cannot be tested end to end until the Supabase and Google Cloud
+steps are done — no real OAuth round trip has ever run. The landing page keeps `#about`
+as a section id even though the About nav link is gone; nothing links to it now.
+
+---
+
 ### 2026-09-10 20:31 — Site map base maps, marker visibility, ground-surface default
 
 **Goal:** "the AGS stratigraphy available point is too transparent… the Open Street Map isn't
