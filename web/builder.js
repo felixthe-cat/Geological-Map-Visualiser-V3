@@ -707,7 +707,7 @@ function updateSection(){
   }
   updateExcludedNote(allHoles);
   drawPlanNames(allHoles);
-  const groundMode = document.getElementById('sec-ground')?.value || 'interp';
+  const groundMode = document.getElementById('sec-ground')?.value || 'dtm-offset';
   if (groundMode!=='interp' && lineLen>=1){
     // Prefetch tiles for the EXTENDED span, not just the drawn A-B segment —
     // a borehole pulled in by "Include beyond A/B" needs terrain out there
@@ -840,7 +840,7 @@ function renderSection(stations, vex, lineLen, A, B){
   // (task 9). Horizons are interpolated as top-surface + thicknesses, so bands
   // can pinch out but never cross — see interpolateHorizons().
   const method = document.getElementById('sec-interp')?.value || 'linear';
-  const groundMode = document.getElementById('sec-ground')?.value || 'interp';
+  const groundMode = document.getElementById('sec-ground')?.value || 'dtm-offset';
   const horizons = ids.map(id=>buildHorizons(id));
   // Sample every ~3 px for linear/nearest fidelity, smooth cubic curves, AND
   // whenever a terrain ground surface is in play — the DTM has real shape

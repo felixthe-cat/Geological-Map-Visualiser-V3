@@ -212,7 +212,7 @@ function plotResults(hits){
     // means "has a log"; AGS points that are trial-pit/CPT-only go grey.
     const green = (b.hasLog !== undefined) ? b.hasLog : b.hasAGS;
     const style = green
-      ? {radius:4, color:'#1e3c12', weight:1, fillColor:'#3f9b46', fillOpacity:.9}
+      ? {radius:5, color:'#12290a', weight:1.2, fillColor:'#3f9b46', fillOpacity:1}
       : {radius:3, color:'#6b6250', weight:1, fillColor:'#a8a196', fillOpacity:.7};
     const note = (b.hasLog === false)
       ? 'AGS report exists but no geological log (trial pit / CPT)'
@@ -252,9 +252,13 @@ function drawCoverage(){
   const agsPts = INDEX.filter(b => b.hasAGSIdx);
   if (z >= COV_ZOOM_POINTS){
     const inView = agsPts.filter(b => view.contains([b.lat, b.lon]));
+    // Solid fill + a dark hairline outline: at 55% opacity with no outline these
+    // washed out against Google's satellite imagery, which is the base map the
+    // site is normally chosen on.
     for (const b of inView.slice(0, COV_MAX_POINTS))
-      L.circleMarker([b.lat,b.lon], {renderer:coverRenderer, radius:3, stroke:false,
-        fillColor:'#2f5a1e', fillOpacity:.55}).addTo(coverLayer);
+      L.circleMarker([b.lat,b.lon], {renderer:coverRenderer, radius:3.5,
+        color:'#12290a', weight:0.8, opacity:.9,
+        fillColor:'#3f9b46', fillOpacity:1}).addTo(coverLayer);
     if (legend) legend.textContent =
       `${inView.length.toLocaleString()} AGS station(s) in view`+
       (inView.length > COV_MAX_POINTS ? ` (showing ${COV_MAX_POINTS.toLocaleString()})` : '')+
@@ -276,8 +280,8 @@ function drawCoverage(){
     const b = [[lat0, lng0], [lat0+COV_CELL_LAT, lng0+COV_CELL_LNG]];
     if (!view.intersects(b)) continue;
     drawn++;
-    L.rectangle(b, {renderer:coverRenderer, color:covColour(c.n), weight:0.5,
-        fillColor:covColour(c.n), fillOpacity:.45})
+    L.rectangle(b, {renderer:coverRenderer, color:covColour(c.n), weight:0.8,
+        fillColor:covColour(c.n), fillOpacity:.7})
       .bindTooltip(`${c.n} borehole(s) with AGS data in this 500 m cell`, {sticky:true})
       .addTo(coverLayer);
   }
@@ -459,12 +463,23 @@ export async function initSiteMap(opts={}){
 
   map = L.map('map-canvas', { center:[22.3193,114.1694], zoom:11 });
 
-  const google = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    { maxZoom:20, attribution:'Google Hybrid' });
-  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    { maxZoom:19, attribution:'© OpenStreetMap' });
-  google.addTo(map);
-  L.control.layers({ 'Google Hybrid':google, 'OpenStreetMap':osm }).addTo(map);
+  // Base maps come from the shared BASEMAPS table (map_export.js) rather than
+  // being redefined here. The hand-rolled pair this replaced gave OpenStreetMap
+  // a bare `maxZoom:19` and no `maxNativeZoom`, so once the user had zoomed past
+  // 19 to find their site — which is the normal way this map is used — switching
+  // to OSM drew NOTHING: Leaflet will not render a tile layer below the map's
+  // current zoom, and it fails silently rather than erroring. `maxNativeZoom`
+  // is the fix: fetch the deepest real tiles (19) and let Leaflet scale them up,
+  // exactly as the cross-section and contour base maps already do.
+  const { BASEMAPS } = await import('./map_export.js');
+  const layers = {};
+  for (const [name, bm] of Object.entries(BASEMAPS)){
+    if (!bm.url) continue;                       // 'Plain (no basemap)' has no tiles
+    layers[name] = L.tileLayer(bm.url, { maxZoom:bm.maxZoom||20,
+      maxNativeZoom:bm.maxNativeZoom, attribution:bm.attribution });
+  }
+  layers['Google Hybrid'].addTo(map);
+  L.control.layers(layers).addTo(map);
 
   // coverage sits under everything else and uses a canvas renderer — thousands
   // of cells/points as individual SVG nodes would crawl
