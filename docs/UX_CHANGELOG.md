@@ -40,7 +40,9 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-09-10 — There is now a proper sign-in page with a "Sign in with Google" button. It
   appears in the top menu once accounts are switched on; until then it explains that
   sign-in isn't available yet and that the 2D Builder works without an account.
-- 2026-09-23 — Accounts are switched on. Signing in with Google now works from the top menu.
+- 2026-09-23 — The account system is connected and the Sign in button now appears in the top
+  menu. Google sign-in itself is not usable yet — the Google provider still has to be turned
+  on in the Supabase dashboard before anyone can get through it.
 - 2026-09-23 — The "Example dataset" box is now "Example & saved datasets". It lists the
   built-in examples and, once you sign in, everything you have saved yourself.
 - 2026-09-23 — You can save the whole project as your own dataset — boreholes, site boundary,
