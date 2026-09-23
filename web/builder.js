@@ -1759,31 +1759,190 @@ function importCSV(){
 document.getElementById('csv-import').addEventListener('click', importCSV);
 document.getElementById('csv-export').addEventListener('click', ()=>{ document.getElementById('csv').value=stateToCSV(); document.getElementById('parse-info').textContent='✓ exported to textbox'; });
 
-// ---- example datasets -----------------------------------------------------
-// Real transcribed site-investigation records (web/examples.js), stored as
-// project CSV so grades, coordinates and ground levels all survive the load.
-// The CSV also lands in the textarea so the format is visible and editable.
-(async ()=>{
-  const { EXAMPLES, exampleById } = await import('./examples.js');
-  const sel  = document.getElementById('example-select');
-  const note = document.getElementById('example-note');
+// ==== DATASETS: built-in examples + the user's own saved datasets ==========
+// One picker, two groups. A built-in example and a saved dataset are the SAME
+// thing on disk — a project CSV (project_csv.js) — so they load through exactly
+// one code path and the "does the cloud format match the file format?" question
+// can never come up. Values are namespaced `ex:<id>` / `cloud:<uuid>` so the
+// picker can tell them apart without a parallel lookup table.
+let DS_EXAMPLES = [];      // built-in, from examples.js
+let dsCloudRows = [];      // the signed-in user's saved rows (no csv — see listProjects)
+let dsOpenId    = null;    // id of the saved dataset currently open, for "Save changes"
+let dsCloud     = null;    // the cloud module, once accounts are configured
+let dsSignedIn  = false;
+
+const dsEl = id => document.getElementById(id);
+function dsNote(msg){ const n=dsEl('example-note'); if (n) n.textContent = msg || ''; }
+
+/** Rebuild the picker, keeping the current choice where possible. */
+function renderDatasetPicker(selectValue){
+  const sel = dsEl('example-select');
+  if (!sel) return;
+  const keep = selectValue || sel.value;
   sel.innerHTML = '';
-  EXAMPLES.forEach(ex => sel.appendChild(new Option(ex.name, ex.id)));
-  const showNote = ()=>{ const ex=exampleById(sel.value); note.textContent = ex ? ex.note : ''; };
-  showNote();
-  sel.addEventListener('change', showNote);
-  document.getElementById('example-load').addEventListener('click', ()=>{
-    const ex = exampleById(sel.value);
-    if (!ex){ note.textContent='No example selected.'; return; }
-    try {
+
+  if (dsCloudRows.length){
+    const g = document.createElement('optgroup');
+    g.label = 'My saved datasets';
+    for (const r of dsCloudRows){
+      const m = r.meta || {};
+      const bits = [];
+      if (m.boreholes != null) bits.push(`${m.boreholes} BH`);
+      if (m.trialPits) bits.push(`${m.trialPits} TP`);
+      if (m.hasSection) bits.push('section');
+      const detail = bits.length ? ` (${bits.join(', ')})` : '';
+      g.appendChild(new Option(`${r.name}${detail} — ${dsCloud.whenLabel(r.updated_at)}`,
+                               'cloud:'+r.id));
+    }
+    sel.appendChild(g);
+  }
+
+  const g2 = document.createElement('optgroup');
+  g2.label = 'Example datasets';
+  for (const ex of DS_EXAMPLES) g2.appendChild(new Option(ex.name, 'ex:'+ex.id));
+  sel.appendChild(g2);
+
+  if (keep && [...sel.options].some(o=>o.value===keep)) sel.value = keep;
+  syncDatasetButtons();
+}
+
+/** Rename/Delete/Save-changes only make sense on one of YOUR saved datasets. */
+function syncDatasetButtons(){
+  const sel = dsEl('example-select');
+  const isCloud = !!sel && sel.value.startsWith('cloud:');
+  const set = (id, on) => { const b=dsEl(id); if (b) b.disabled = !on; };
+  set('ds-rename', isCloud);
+  set('ds-delete', isCloud);
+  // "Save changes" overwrites the dataset that is actually OPEN, which is not
+  // necessarily the one highlighted in the picker.
+  set('ds-update', !!dsOpenId);
+  const actions = dsEl('ds-actions');
+  if (actions) actions.style.display = dsSignedIn ? '' : 'none';
+}
+
+/** Load whichever dataset is selected — example or saved, same path. */
+async function loadSelectedDataset(){
+  const sel = dsEl('example-select');
+  const val = sel ? sel.value : '';
+  if (!val){ dsNote('Nothing selected.'); return; }
+  try {
+    if (val.startsWith('cloud:')){
+      const id = val.slice(6);
+      dsNote('Opening…');
+      const row = await dsCloud.getProject(id);
+      if (!row){ dsNote('✗ Could not open that dataset.'); return; }
+      loadProjectCSV(row.csv);
+      setMode(state.mode);
+      dsEl('csv').value = row.csv;
+      refreshInput(); commit();
+      dsOpenId = row.id;
+      dsNote(`✓ Opened “${row.name}” — ${state.boreholes.length} borehole(s).`);
+    } else {
+      const ex = DS_EXAMPLES.find(e=>e.id === val.slice(3));
+      if (!ex){ dsNote('✗ That example is no longer available.'); return; }
       loadProjectCSV(ex.csv);
       setMode(state.mode);
-      document.getElementById('csv').value = ex.csv;
+      dsEl('csv').value = ex.csv;
       refreshInput(); commit();
-      note.textContent = `✓ Loaded ${state.boreholes.length} drillhole(s) — ${ex.name}`;
-      document.querySelector('.tab[data-tab="log"]').click();
-    } catch(err){ note.textContent = '✗ '+err.message; }
-  });
+      dsOpenId = null;                       // an example is not yours to overwrite
+      dsNote(`✓ Loaded ${state.boreholes.length} drillhole(s) — ${ex.name}`);
+    }
+    syncDatasetButtons();
+    document.querySelector('.tab[data-tab="log"]').click();
+  } catch(err){ dsNote('✗ '+(err?.message||err)); }
+}
+
+async function refreshDatasetList(selectId){
+  if (!dsCloud || !dsSignedIn){ dsCloudRows=[]; renderDatasetPicker(); return; }
+  dsCloudRows = await dsCloud.listProjects();
+  renderDatasetPicker(selectId ? 'cloud:'+selectId : undefined);
+}
+
+async function saveAsNewDataset(){
+  if (!state.boreholes.length || !state.boreholes.some(b=>b.layers.length)){
+    dsNote('Nothing to save yet — load or enter some boreholes first.'); return;
+  }
+  const name = prompt('Name this dataset', `Site ${new Date().toISOString().slice(0,10)}`);
+  if (!name || !name.trim()) return;
+  const btn = dsEl('ds-save'); btn.disabled = true; dsNote('Saving…');
+  try {
+    const row = await dsCloud.createProject(
+      name, stateToProjectCSV(state, sectionLine, projectExtras()),
+      dsCloud.summarise(state, sectionLine));
+    dsOpenId = row.id;
+    await refreshDatasetList(row.id);
+    dsNote(`✓ Saved “${row.name}”. It is now in the picker above.`);
+  } catch(err){ dsNote('✗ Save failed: '+(err?.message||err)); }
+  btn.disabled = false;
+}
+
+async function saveChangesToDataset(){
+  if (!dsOpenId) return;
+  const btn = dsEl('ds-update'); btn.disabled = true; dsNote('Saving…');
+  try {
+    await dsCloud.updateProject(dsOpenId, stateToProjectCSV(state, sectionLine, projectExtras()),
+                                dsCloud.summarise(state, sectionLine));
+    await refreshDatasetList(dsOpenId);
+    dsNote('✓ Saved over the open dataset.');
+  } catch(err){ dsNote('✗ Save failed: '+(err?.message||err)); }
+  syncDatasetButtons();
+}
+
+async function renameSelectedDataset(){
+  const sel = dsEl('example-select');
+  if (!sel.value.startsWith('cloud:')) return;
+  const id = sel.value.slice(6);
+  const row = dsCloudRows.find(r=>r.id===id);
+  const next = prompt('Rename dataset', row ? row.name : '');
+  if (!next || !next.trim() || (row && next === row.name)) return;
+  try {
+    await dsCloud.renameProject(id, next);
+    await refreshDatasetList(id);
+    dsNote(`✓ Renamed to “${next.trim()}”.`);
+  } catch(err){ dsNote('✗ Rename failed: '+(err?.message||err)); }
+}
+
+async function deleteSelectedDataset(){
+  const sel = dsEl('example-select');
+  if (!sel.value.startsWith('cloud:')) return;
+  const id = sel.value.slice(6);
+  const row = dsCloudRows.find(r=>r.id===id);
+  const nm = row ? row.name : 'this dataset';
+  if (!confirm(`Delete “${nm}”? This cannot be undone.`)) return;
+  try {
+    await dsCloud.deleteProject(id);
+    if (dsOpenId === id) dsOpenId = null;    // it is gone; nothing left to overwrite
+    await refreshDatasetList();
+    dsNote(`✓ Deleted “${nm}”.`);
+  } catch(err){ dsNote('✗ Delete failed: '+(err?.message||err)); }
+}
+
+// Built-in examples load immediately; saved datasets join the same picker as
+// soon as auth resolves (see initCloud below).
+(async ()=>{
+  const { EXAMPLES } = await import('./examples.js');
+  DS_EXAMPLES = EXAMPLES;
+  const sel = dsEl('example-select');
+  // This module and initCloud both finish asynchronously, in either order. Only
+  // default to the first example if the picker is still empty — otherwise the
+  // user's own datasets have already loaded and arriving second must not yank
+  // the selection off them.
+  const hadSelection = !!sel.value;
+  renderDatasetPicker(hadSelection ? undefined : 'ex:'+(EXAMPLES[0]?.id || ''));
+  const showNote = ()=>{
+    syncDatasetButtons();
+    if (sel.value.startsWith('ex:')){
+      const ex = DS_EXAMPLES.find(e=>e.id===sel.value.slice(3));
+      dsNote(ex ? ex.note : '');
+    } else dsNote('');
+  };
+  sel.addEventListener('change', showNote);
+  showNote();
+  dsEl('example-load').addEventListener('click', loadSelectedDataset);
+  dsEl('ds-save').addEventListener('click', ()=>saveAsNewDataset());
+  dsEl('ds-update').addEventListener('click', ()=>saveChangesToDataset());
+  dsEl('ds-rename').addEventListener('click', ()=>renameSelectedDataset());
+  dsEl('ds-delete').addEventListener('click', ()=>deleteSelectedDataset());
 })();
 
 // ---- project save / resume (tasks 5 & 6) ----------------------------
@@ -1822,18 +1981,21 @@ _projLoad.addEventListener('click', ()=>{
 // cloud copy can never drift from the local format (and test_project_csv.mjs
 // already guards that round trip). Entirely inert when Supabase isn't
 // configured — the whole block stays display:none and no network call is made.
+// ---- cloud accounts: sign-in, and feeding the dataset picker --------------
+// The project list itself lives in the dataset picker above; this block only
+// handles signing in and telling that picker who is signed in. Entirely inert
+// when Supabase is unconfigured — the block stays display:none and nothing is
+// fetched.
 (async function initCloud(){
   const cloud = await import('./cloud.js');
   if (!cloud.isConfigured()) return;          // unconfigured deploy: leave the UI hidden
+  dsCloud = cloud;
 
   const { mountAuthControl } = await import('./auth_ui.js');
   const $ = id => document.getElementById(id);
-  const block=$('cloud-block'), out=$('cloud-signedout'), inn=$('cloud-signedin');
-  const list=$('cloud-list'), info=$('cloud-info');
-  const btnOpen=$('cloud-open'), btnSave=$('cloud-save'), btnUpdate=$('cloud-update');
-  let currentId=null;                          // project currently open, for "Save over"
+  const out=$('cloud-signedout'), inn=$('cloud-signedin'), info=$('cloud-info');
 
-  block.style.display='';
+  $('cloud-block').style.display='';
   mountAuthControl($('auth-slot'), { onLight:false });
   $('cloud-signin').addEventListener('click', async e=>{
     e.target.disabled=true;
@@ -1841,69 +2003,22 @@ _projLoad.addEventListener('click', ()=>{
     catch(err){ info.textContent='✗ '+(err?.message||err); e.target.disabled=false; }
   });
 
-  async function refreshList(selectId){
-    const rows = await cloud.listProjects();
-    list.innerHTML = rows.length
-      ? rows.map(r=>`<option value="${r.id}">${r.name.replace(/</g,'&lt;')} — ${cloud.whenLabel(r.updated_at)}</option>`).join('')
-      : '<option value="">(no saved projects yet)</option>';
-    if (selectId) list.value=selectId;
-    const has = rows.length>0;
-    btnOpen.disabled=!has;
-    btnUpdate.disabled=!currentId;
-    return rows;
-  }
-
-  // ?project=<id> — deep link from account.html "Open →"
-  async function openProject(id){
-    const row = await cloud.getProject(id);
-    if (!row){ info.textContent='✗ Could not open that project.'; return; }
-    try{
-      loadProjectCSV(row.csv);
-      setMode(state.mode); refreshInput(); commit();
-      currentId=row.id; btnUpdate.disabled=false;
-      info.textContent=`✓ Opened “${row.name}” — ${state.boreholes.length} borehole(s).`;
-      document.querySelector('.tab[data-tab="log"]').click();
-    }catch(err){ info.textContent='✗ '+err.message; }
-  }
-
-  btnOpen.addEventListener('click', ()=>{ if (list.value) openProject(list.value); });
-
-  btnSave.addEventListener('click', async ()=>{
-    if (!state.boreholes.length){ info.textContent='Nothing to save yet — load or enter boreholes first.'; return; }
-    const name=prompt('Name this project', `Project ${new Date().toISOString().slice(0,10)}`);
-    if (!name || !name.trim()) return;
-    btnSave.disabled=true; info.textContent='Saving…';
-    try{
-      const row=await cloud.createProject(name, stateToProjectCSV(state, sectionLine, projectExtras()),
-                                          cloud.summarise(state, sectionLine));
-      currentId=row.id;
-      await refreshList(row.id);
-      info.textContent=`✓ Saved “${row.name}” to your account.`;
-    }catch(err){ info.textContent='✗ Save failed: '+(err?.message||err); }
-    btnSave.disabled=false;
-  });
-
-  btnUpdate.addEventListener('click', async ()=>{
-    if (!currentId) return;
-    btnUpdate.disabled=true; info.textContent='Saving…';
-    try{
-      await cloud.updateProject(currentId, stateToProjectCSV(state, sectionLine, projectExtras()),
-                                cloud.summarise(state, sectionLine));
-      await refreshList(currentId);
-      info.textContent='✓ Saved over the open project.';
-    }catch(err){ info.textContent='✗ Save failed: '+(err?.message||err); }
-    btnUpdate.disabled=false;
-  });
-
   cloud.onAuthChange(async user=>{
-    out.style.display  = user ? 'none' : '';
-    inn.style.display  = user ? '' : 'none';
-    if (!user){ currentId=null; info.textContent=''; return; }
-    const deepLink=new URLSearchParams(location.search).get('project');
-    await refreshList();
+    dsSignedIn = !!user;
+    out.style.display = user ? 'none' : '';
+    inn.style.display = user ? '' : 'none';
+    if (!user){ dsOpenId=null; info.textContent=''; await refreshDatasetList(); return; }
+
+    // ?project=<id> — deep link from account.html "Open →"
+    const deepLink = new URLSearchParams(location.search).get('project');
+    await refreshDatasetList(deepLink || undefined);
     if (deepLink){
       history.replaceState({}, '', location.pathname);   // don't re-open on refresh
-      openProject(deepLink);
+      const sel=$('example-select');
+      if ([...sel.options].some(o=>o.value==='cloud:'+deepLink)){
+        sel.value='cloud:'+deepLink;
+        loadSelectedDataset();
+      }
     }
   });
 })();

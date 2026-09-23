@@ -4,6 +4,46 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-09-23 14:05 — Supabase wired up; datasets merged into one picker
+
+**Goal:** check the user's Supabase setup via the MCP plugin, switch accounts on, and let
+each user save/load/rename/delete their own datasets from the borehole entry panel.
+
+**Changed:**
+- `.gitignore` — `.env` and `.env.*` now ignored. It was **not** ignored and held a real
+  Google OAuth client secret; the session Stop hook runs `git add -A`, so the next commit
+  would have pushed it to a public repo. Confirmed via `git log --all -- .env` that it had
+  never been committed, so no rotation was needed.
+- Supabase `ylxyovcujybqodjesbvo` — applied `create_projects_with_owner_only_rls`. The
+  `projects` table did not exist; `docs/supabase_schema.sql` had never been run. Added
+  `set search_path = ''` to `touch_updated_at`, which the original file lacked.
+- `web/supabase_config.js` — real Project URL + anon key filled in. Accounts are now live.
+- `web/builder.html` / `builder.js` — the examples dropdown and the cloud project list are
+  now **one** picker with two optgroups (`ex:<id>` / `cloud:<uuid>` values), plus Save as
+  new / Save changes / Rename / Delete. The old `cloud-list`/`cloud-open`/`cloud-save`/
+  `cloud-update` controls are gone; `cloud-block` keeps only the sign-in prompt.
+
+**Worked:** Full round trip verified against the real database, not a stub — created a
+temporary confirmed user, signed in, built a project (title, 6x exaggeration, linear
+extrapolation, an annotation, a deselected borehole), saved it, reloaded the page, reopened
+it and confirmed every one of those came back. Rename, overwrite and delete all verified.
+RLS checked directly over REST: anonymous select returns `[]`, anonymous insert returns 401.
+Test user and its rows deleted afterwards; `auth.users` back to 1, `projects` back to 0.
+
+**Dead ends:** Signup with an `@example.com` address is rejected by Supabase as invalid, and
+a fresh signup has no session until the address is confirmed — had to set
+`email_confirmed_at` by SQL before password sign-in would issue a token. `confirmed_at` is
+a generated column on this Postgres 17 project and cannot be written.
+
+**Open:** **Google is still not enabled in Supabase** — `/auth/v1/authorize?provider=google`
+returns `"Unsupported provider: provider is not enabled"`. Everything else is ready and the
+sign-in button is live, but no Google sign-in can succeed until the Client ID and secret are
+pasted into Authentication -> Providers -> Google. Supabase's Redirect URL allow-list is also
+unverified (not readable through the MCP). A leftover `boreholes` table from an earlier
+experiment is still in `public`, unused by this app.
+
+---
+
 ### 2026-09-10 21:48 — Landing-page trim + dedicated Google sign-in page
 
 **Goal:** "remove the About and the Docs, the icon button at the very top, the writing

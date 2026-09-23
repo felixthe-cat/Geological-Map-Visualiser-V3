@@ -109,3 +109,36 @@ That is what makes option 2's main drawback not apply.
 
 **Reversible?** Cheap — the page is self-contained and the only inbound links are the
 landing nav and one redirect in `account.html`.
+
+---
+
+### ADR-5: One dataset picker for built-in examples and the user's own saved projects
+
+**Context**
+Before this change the borehole panel had two lists doing nearly the same job: an
+"Example dataset" dropdown with a Load button, and a separate "My account" block with its
+own dropdown, Open, Save and Save-over buttons. The ask was to let users save their own
+work "as one of the examples … to choose and load next time".
+
+**Options considered**
+1. *Keep them separate, add save/rename/delete to the account block.* Smallest diff, and
+   the two lists stay independently stylable. But the user then has to know which of two
+   dropdowns holds the thing they want, and the two Load paths drift — they already had
+   slightly different status messages and neither reset the other's state.
+2. *One picker, two groups.* Values namespaced `ex:<id>` / `cloud:<uuid>`, rendered as
+   `<optgroup>`s. One Load button, one code path, one status line. Cost: the picker has to
+   cope with the two sources resolving asynchronously in either order.
+
+**Chosen + why**
+Option 2. What makes it cheap is that a built-in example and a saved dataset are *already
+the same artefact* — both are a project CSV produced by `project_csv.js`, the format
+`test_project_csv.mjs` guards. There was never a reason for two loaders; there were two
+only because the cloud feature was added later, beside the examples instead of into them.
+Merging removed four controls rather than adding any.
+
+The async ordering was handled explicitly rather than by luck: whichever of the two
+finishes second must not steal the selection from the first (see the `hadSelection` guard
+in `builder.js`).
+
+**Reversible?** Yes, but it would mean re-adding the removed controls. The namespaced
+values are the only thing another caller would depend on.

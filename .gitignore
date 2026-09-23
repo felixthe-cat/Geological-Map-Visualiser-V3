@@ -30,7 +30,12 @@ screenshots/
 .idea/
 
 .vercel
-.env*.local
+# Every .env variant, not just *.local — the session Stop hook runs `git add -A`,
+# so an un-ignored .env holding the Google OAuth client secret would be committed
+# and pushed to a public repo automatically. .env.example is the one exception.
+.env
+.env.*
+!.env.example
 web/hero_globe.png
 
 # Local-only: large source data, scratch work, agent config

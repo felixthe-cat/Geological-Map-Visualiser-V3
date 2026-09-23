@@ -15,8 +15,8 @@
 // is what actually protects the data. Never put the service_role key here:
 // it bypasses RLS entirely and would expose every user's projects.
 // ─────────────────────────────────────────────────────────────────────────────
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://ylxyovcujybqodjesbvo.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlseHlvdmN1anlicW9kamVzYnZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NzEyNDUsImV4cCI6MjA5NjE0NzI0NX0.9sVC_mEqRTHvq2lRiWCpMBo8AHgpwlCecJxssJ01Zl8';
 
 /** True once both settings are present — every cloud code path checks this. */
 export function isConfigured(){

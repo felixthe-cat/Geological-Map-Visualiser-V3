@@ -214,13 +214,23 @@
       <button class="ghost mini" id="layer-add" style="margin-top:6px">＋ Add layer</button>
 
       <details>
-        <summary>Import / export CSV &amp; examples</summary>
+        <summary>Datasets, import / export</summary>
 
-        <h3 style="margin-top:10px">Example dataset</h3>
-        <div class="hint">Real drillhole records transcribed from a published site-investigation report — a working site to explore before loading your own.</div>
+        <h3 style="margin-top:10px">Example &amp; saved datasets</h3>
+        <div class="hint">Built-in example sites transcribed from published site-investigation
+          reports, plus every dataset you save to your own account. A saved dataset keeps
+          <b>everything</b> — boreholes and trial pits, grades, the site boundary, the
+          cross-section line and all its options, deselected boreholes and annotations.</div>
         <div class="row" style="margin:6px 0">
           <select id="example-select" style="flex:1;min-width:0"></select>
-          <button class="mini" id="example-load">Load example</button>
+          <button class="mini" id="example-load">Load</button>
+        </div>
+        <!-- save / rename / delete only appear once someone is signed in -->
+        <div class="row" id="ds-actions" style="margin:6px 0;display:none">
+          <button class="gold mini" id="ds-save">Save as new dataset</button>
+          <button class="mini" id="ds-update" disabled>Save changes</button>
+          <button class="ghost mini" id="ds-rename" disabled>Rename</button>
+          <button class="danger mini" id="ds-delete" disabled>Delete</button>
         </div>
         <div id="example-note" class="hint"></div>
 
@@ -237,22 +247,15 @@
         <div id="cloud-block" style="display:none">
           <h3 style="margin-top:14px">My account</h3>
           <div id="cloud-signedout">
-            <div class="hint">Sign in with Google to save this project to your account and resume it on any device.</div>
+            <div class="hint">Sign in with Google to save your own datasets and open them
+              again on any device.</div>
             <div class="row" style="margin:6px 0">
               <button class="mini" id="cloud-signin">Sign in with Google</button>
             </div>
           </div>
           <div id="cloud-signedin" style="display:none">
-            <div class="hint">Saved projects keep <b>everything</b> — boreholes, trial pits, grades, the site boundary and the cross-section line.</div>
-            <div class="row" style="margin:6px 0">
-              <select id="cloud-list" style="flex:1;min-width:0"></select>
-              <button class="mini" id="cloud-open" disabled>Open</button>
-            </div>
-            <div class="row" style="margin:6px 0">
-              <button class="gold mini" id="cloud-save">☁ Save to my account</button>
-              <button class="mini" id="cloud-update" disabled>Save over current</button>
-              <a href="account.html" class="hint" style="margin-left:auto">Manage all projects →</a>
-            </div>
+            <div class="hint">Your saved datasets are listed in the picker above.
+              <a href="account.html">Manage them all →</a></div>
           </div>
           <div id="cloud-info" class="hint"></div>
         </div>
