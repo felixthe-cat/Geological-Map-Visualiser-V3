@@ -48,3 +48,4 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-09-23 — You can save the whole project as your own dataset — boreholes, site boundary,
   cross-section line and all its settings, annotations and deselected boreholes — then load,
   rename or delete it later from the same box.
+- 2026-09-24 — Signing in with Google now works (this supersedes the 2026-09-23 line saying it wasn't usable yet). Your saved datasets appear in the "Example & saved datasets" box once you're signed in.

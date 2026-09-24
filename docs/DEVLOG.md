@@ -4,6 +4,13 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-09-24 — Handover; Google sign-in confirmed working in production
+**Goal:** "make the handover note for me" — this project only.
+**Changed:** `HANDOVER.md` rewritten; `docs/UX_CHANGELOG.md` gained a line superseding the 2026-09-23 "not usable yet" entry.
+**Worked:** Live checks, not assumptions: all five Node self-checks pass; `/`, `/builder`, `/login`, `/account` return 200; Supabase's Google authorize endpoint 302s to Google. The database holds 1 Google identity and 1 saved project — a real sign-in and save done by the user outside the session.
+**Dead ends:** none.
+**Open:** Where the user landed after signing in is unknown, so the Supabase Redirect URL allow-list is still unverified. Remaining items are listed in `HANDOVER.md`.
+
 ### 2026-09-23 14:05 — Supabase wired up; datasets merged into one picker
 
 **Goal:** check the user's Supabase setup via the MCP plugin, switch accounts on, and let
