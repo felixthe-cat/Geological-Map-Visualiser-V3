@@ -4,11 +4,11 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
-### 2026-09-24 — Structure annotations reworked; ground surface made independent of tolerance
+### 2026-09-24 16:30 — Structure annotations reworked; ground surface made independent of tolerance
 **Goal:** clearer rectangle inputs, drag-to-draw/resize, a plan-drawn structure mode, and a ground line that doesn't move when the distance tolerance changes.
 **Changed:** `section_geom.js` gained `boxToPts`/`ptsToBox` (moved from builder), `resizeFromCorner`, `cutPolygon`; `terrain.js` gained `idwDelta`; `builder.js` annotation editor rewritten (named corners in a 2×2 grid, captioned fields, Draw on section / Draw on site plan modes, corner handles on both views); plan footprints saved in the same `annots` list with `kind:'plan'`. Section-editor CSS moved from `style.css` into `builder.html` — builder never loaded `style.css`, so the hover tooltip and annotation styles from 2026-08-30 had never applied.
 **Worked:** in the preview, ground level at chainage 10/40/70 m is identical at tolerance 5, 30 and 200 m; drawing, resizing and founding-level ↔ depth linking all checked with scripted mouse events. All Node self-checks pass.
-**Dead ends:** none.
+**Dead ends:** (1) First resize test asserted the opposite corner keeps its index — false once a drag flips the box past it; fixed by always resizing from the drag-start shape and asserting position, not index. (2) New editor CSS added to `style.css` had no effect — `builder.html` only uses its inline `<style>`; moved there.
 **Open:** `offsetCorrectedProfile` in `terrain.js` is no longer called by the app (still tested). Plan footprints aren't exported to CAD/PLAXIS formats yet — see the export plan in chat.
 
 ### 2026-09-24 — Handover; Google sign-in confirmed working in production

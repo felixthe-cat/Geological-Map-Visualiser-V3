@@ -169,3 +169,4 @@ property of the site, not of the drawing.
 DTM tiles are now fetched for every borehole position, not just those in the section.
 `offsetCorrectedProfile` is kept (tested) but unused.
 
+**Reversible?** Cheap — one function call in `renderSection`; the old along-line version is still in `terrain.js`.
