@@ -137,3 +137,58 @@ export function interpolateHorizons(xs, horizons, xq, method='linear', topOverri
   }
   return curves;
 }
+
+// ---- rectangles (proposed-structure annotations) ---------------------------
+// A rectangle is four corners in any 2-D metre frame (chainage/level on the
+// section, easting/northing on the plan). Order from boxToPts: bottom-left,
+// bottom-right, top-right, top-left before rotation, so 0→1 runs along the
+// width and 0→3 along the height.
+export function boxToPts(cx, cy, w, h, angDeg){
+  const r=angDeg*Math.PI/180, c=Math.cos(r), sn=Math.sin(r);
+  return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]]
+    .map(([u,v])=>[cx+u*c-v*sn, cy+u*sn+v*c]);
+}
+export function ptsToBox(pts){
+  const n=pts.length;
+  return {
+    cx: pts.reduce((t,p)=>t+p[0],0)/n,
+    cy: pts.reduce((t,p)=>t+p[1],0)/n,
+    w : Math.hypot(pts[1][0]-pts[0][0], pts[1][1]-pts[0][1]),
+    h : Math.hypot(pts[3][0]-pts[0][0], pts[3][1]-pts[0][1]),
+    ang: Math.atan2(pts[1][1]-pts[0][1], pts[1][0]-pts[0][0])*180/Math.PI
+  };
+}
+// Drag corner k to point P: the opposite corner stays put and the rotation is
+// kept, so resizing a rotated shape doesn't un-rotate it. Dragging past the
+// opposite corner just flips it — the corner order is rebuilt either way.
+export function resizeFromCorner(pts, k, P, minSize=0.1){
+  const { ang } = ptsToBox(pts), r=ang*Math.PI/180;
+  const ux=[Math.cos(r), Math.sin(r)], uy=[-Math.sin(r), Math.cos(r)];
+  const O=pts[(k+2)%4], dx=P[0]-O[0], dy=P[1]-O[1];
+  const du=dx*ux[0]+dy*ux[1], dv=dx*uy[0]+dy*uy[1];
+  const w=Math.max(minSize, Math.abs(du)), h=Math.max(minSize, Math.abs(dv));
+  const su=Math.sign(du)||1, sv=Math.sign(dv)||1;
+  const cx=O[0]+(su*w*ux[0]+sv*h*uy[0])/2, cy=O[1]+(su*w*ux[1]+sv*h*uy[1])/2;
+  return boxToPts(cx, cy, w, h, ang);
+}
+// Where the (infinite) line through A→B cuts a convex polygon given in the
+// same E/N metres: [fromChainage, toChainage] measured from A, or null if the
+// line misses it. Used to show a plan-drawn structure on the section.
+export function cutPolygon(A, B, poly){
+  const dx=B.e-A.e, dy=B.n-A.n, len=Math.hypot(dx,dy);
+  if (len<1e-9) return null;
+  const ch=p=>((p[0]-A.e)*dx+(p[1]-A.n)*dy)/len;          // chainage of a point
+  const side=p=>((p[0]-A.e)*dy-(p[1]-A.n)*dx)/len;        // signed offset from line
+  const hits=[];
+  for (let i=0;i<poly.length;i++){
+    const p=poly[i], q=poly[(i+1)%poly.length], sp=side(p), sq=side(q);
+    if (sp===0) hits.push(ch(p));
+    if ((sp<0&&sq>0)||(sp>0&&sq<0)){
+      const t=sp/(sp-sq);
+      hits.push(ch([p[0]+(q[0]-p[0])*t, p[1]+(q[1]-p[1])*t]));
+    }
+  }
+  if (hits.length<2) return null;
+  const lo=Math.min(...hits), hi=Math.max(...hits);
+  return hi-lo>1e-6 ? [lo,hi] : null;
+}

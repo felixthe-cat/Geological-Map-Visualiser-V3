@@ -49,3 +49,15 @@ What changed for you, newest at the bottom of each day. Append only.
   cross-section line and all its settings, annotations and deselected boreholes — then load,
   rename or delete it later from the same box.
 - 2026-09-24 — Signing in with Google now works (this supersedes the 2026-09-23 line saying it wasn't usable yet). Your saved datasets appear in the "Example & saved datasets" box once you're signed in.
+- 2026-09-24 — The proposed-structure editor is easier to read: each corner is named
+  (top-left, top-right, bottom-left, bottom-right) and laid out where it sits on the drawing,
+  and every number box has its own caption above it.
+- 2026-09-24 — Draw a structure by dragging a box straight onto the cross-section, and resize
+  it by dragging its white corner squares.
+- 2026-09-24 — New: draw a structure's footprint on the site plan instead. Give it a top level
+  and a depth (or a founding level) and it appears on the cross-section wherever the section
+  line passes through it.
+- 2026-09-24 — The corrected ground surface no longer changes when you widen the distance
+  tolerance. It now uses every borehole on the site to correct the terrain, not just the ones
+  drawn in the section.
+- 2026-09-24 — Fixed: the hover panel on the cross-section was showing unstyled.

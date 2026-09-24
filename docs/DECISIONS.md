@@ -142,3 +142,30 @@ in `builder.js`).
 
 **Reversible?** Yes, but it would mean re-adding the removed controls. The namespaced
 values are the only thing another caller would depend on.
+
+---
+
+### ADR-6: Ground-surface correction uses every borehole on the site, spread by inverse-distance weighting
+
+**Context**
+ADR-1's `dtm-offset` surface interpolated the collar-vs-DTM difference along the line between
+the boreholes *in the section*. Widening the distance tolerance pulled in more boreholes and
+so changed the ground line — the terrain shouldn't depend on which logs are drawn.
+
+**Options considered**
+1. *One site-wide constant* (median difference). Perfectly stable, but ignores local canopy /
+   platform effects; an on-line borehole no longer meets the ground line.
+2. *Inverse-distance weighting in plan over all boreholes* (`idwDelta`). Stable, keeps local
+   variation, exact at a borehole on the line. Chosen.
+3. *Kriging / fitted trend surface.* Smoother with an error estimate, but a lot of machinery
+   for sites of tens of holes.
+4. *Fixed calibration radius around the line.* Still depends on where the line is drawn.
+
+**Decision**
+Option 2. Deselected boreholes and holes outside the corridor still contribute: the ground is a
+property of the site, not of the drawing.
+
+**Consequences**
+DTM tiles are now fetched for every borehole position, not just those in the section.
+`offsetCorrectedProfile` is kept (tested) but unused.
+

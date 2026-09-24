@@ -139,3 +139,25 @@ for (const method of ['linear','mono','nearest']){
 }
 
 console.log('ok — section projection + interpolation checks pass (incl. tied stations, extrapolation)');
+
+// ---- rectangle helpers --------------------------------------------------------
+{
+  const { boxToPts, ptsToBox, resizeFromCorner, cutPolygon } = await import('./section_geom.js');
+  const close=(a,b,m)=>assert(Math.abs(a-b)<1e-9, `${m}: ${a} vs ${b}`);
+  const r=boxToPts(10,5,4,2,0);
+  assert.deepEqual(r, [[8,4],[12,4],[12,6],[8,6]]);
+  // drag top-right (k=2) out to (20,10): bottom-left (8,4) stays
+  const g=resizeFromCorner(r,2,[20,10]);
+  assert.deepEqual(g[0],[8,4]); assert.deepEqual(g[2],[20,10]);
+  // a rotated box keeps its angle and its opposite corner
+  const rot=boxToPts(0,0,4,2,30), moved=resizeFromCorner(rot,1,[5,5]);
+  close(ptsToBox(moved).ang, 30, 'angle kept');
+  // opposite corner survives (its index may change if the drag flips the box)
+  assert(moved.some(p=>Math.hypot(p[0]-rot[3][0], p[1]-rot[3][1])<1e-9), 'opposite corner kept');
+  assert(moved.some(p=>Math.hypot(p[0]-5, p[1]-5)<1e-9), 'dragged corner lands on the cursor');
+  // line along the x axis cuts a 10 m square centred at chainage 50
+  const sq=boxToPts(50,0,10,10,0);
+  assert.deepEqual(cutPolygon({e:0,n:0},{e:100,n:0},sq), [45,55]);
+  assert.equal(cutPolygon({e:0,n:20},{e:100,n:20},sq), null, 'misses');
+  console.log('rectangle helpers ok');
+}

@@ -153,3 +153,32 @@ export function offsetCorrectedProfile(stationDist, stationGL, stationDtm, query
   const delta = interpolateSeries(d, v, queryDist, method);
   return queryDist.map((_,i)=> queryDtm[i] + delta[i]);
 }
+
+/**
+ * Site-wide DTM correction at one plan position — the stable version of the
+ * offset correction above.
+ *
+ * offsetCorrectedProfile interpolates the collar-vs-DTM delta ALONG THE LINE
+ * between the boreholes currently in the section, so widening the distance
+ * tolerance (more boreholes in) changed the drawn ground surface. Here the
+ * delta is spread in PLAN from EVERY borehole on the site by inverse-distance
+ * weighting, then read off at each point of the line — so the ground line
+ * depends only on where the line is, never on which boreholes are drawn.
+ *
+ * IDW is exact at a data point, so a borehole sitting ON the line still gets
+ * the ground line through its collar level.
+ * ponytail: plain IDW (power 2, all points). Kriging would give a smoother
+ * surface with an error estimate — upgrade if sites get hundreds of holes.
+ * @param pts  [{e, n, delta}] — delta = collar GL − DTM at that borehole
+ * @returns    interpolated delta (m), or 0 when pts is empty
+ */
+export function idwDelta(pts, e, n, power=2){
+  let sw=0, sv=0;
+  for (const p of pts){
+    const d2 = (p.e-e)**2 + (p.n-n)**2;
+    if (d2 < 1e-6) return p.delta;
+    const w = 1/Math.pow(d2, power/2);
+    sw += w; sv += w*p.delta;
+  }
+  return sw ? sv/sw : 0;
+}

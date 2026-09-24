@@ -4,8 +4,8 @@
 // Ships the same dataset to the GemPy Hugging Face Space (two-way pipeline).
 // ================================================================
 
-import { sectionStations, interpolateHorizons } from './section_geom.js';
-import { tileCoord, sampleElevation, tilesForLine, correctedProfile, offsetCorrectedProfile, TILE_LOD } from './terrain.js';
+import { sectionStations, interpolateHorizons, boxToPts, ptsToBox, resizeFromCorner, cutPolygon } from './section_geom.js';
+import { tileCoord, sampleElevation, tilesForLine, correctedProfile, idwDelta, TILE_LOD } from './terrain.js';
 import { stateToProjectCSV, projectCSVToState, csvToBoreholes } from './project_csv.js';
 
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
@@ -94,11 +94,7 @@ function loadProjectCSV(text){
   // boreholes and annotations. Absent from a v1 / legacy file, in which case the
   // controls keep whatever they are currently set to and both lists reset.
   secExcluded = new Set(Array.isArray(p.excluded) ? p.excluded : []);
-  secAnnots   = Array.isArray(p.annots)
-    ? p.annots.filter(a=>a && Array.isArray(a.pts) && a.pts.length>=3)
-              .map(a=>({ label:a.label||'', colour:a.colour||'#b02a2a',
-                         pts:a.pts.map(pt=>[+pt[0], +pt[1]]) }))
-    : [];
+  secAnnots   = Array.isArray(p.annots) ? p.annots.map(normAnnot).filter(Boolean) : [];
   applySectionSettings(p.section);
   renderAnnotList();
 }
@@ -412,10 +408,15 @@ let secPlanNames=[];    // solved label layout for the site-plan PNG export
 // the site plan. They stay on the plan (grey, like any hole outside the
 // corridor) but contribute nothing to the drawn section.
 let secExcluded=new Set();
-// Annotations drawn on the cross-section — currently rotatable rectangles
-// marking a proposed structure. Stored in SECTION coordinates so they survive a
-// redraw, a zoom and a save: {label, colour, pts:[[chainage_m, level_mPD] ×4]}.
+// Proposed-structure rectangles, two kinds in one list (one list = one save key):
+//  • drawn on the section — SECTION coordinates, so they survive a redraw, a
+//    zoom and a save: {label, colour, pts:[[chainage_m, level_mPD] ×4]}
+//  • drawn on the site plan — a footprint in HK1980 metres plus its levels:
+//    {kind:'plan', label, colour, en:[[e,n] ×4], top, depth}; the section shows
+//    it wherever the section line cuts the footprint.
 let secAnnots=[];
+let secDrawMode=null;     // null | 'section' | 'plan' — armed by the Draw buttons
+let secStructLayer=null;  // Leaflet layer holding the plan footprints
 // Plot extent of the last drawn section, so "add a rectangle" can drop a new
 // one somewhere visible instead of at (0,0).
 let secPlotRange=null;   // {dMin,dMax,eMin,eMax}
@@ -530,6 +531,20 @@ function placePointLabels(map, group, items, opts={}){
 function toLL(e,n){ const r=proj4('HK1980','EPSG:4326',[e,n]); return [r[1], r[0]]; }   // -> [lat,lng]
 function toEN(lat,lng){ const r=proj4('EPSG:4326','HK1980',[lng,lat]); return {e:r[0], n:r[1]}; }
 function sectionHoles(){ return state.boreholes.filter(b=>b.layers.length && Number.isFinite(b.x) && Number.isFinite(b.y)); }
+// Collar GL minus DTM at every borehole's own position, for the site-wide
+// ground correction. Deliberately ignores the corridor AND manual deselection:
+// the ground surface is a property of the site, not of which logs are drawn.
+function siteDeltas(){
+  const pts=[]; let missing=0;
+  for (const b of sectionHoles()){
+    if (!Number.isFinite(b.gl)) continue;
+    const [la,ln]=toLL(b.x,b.y);
+    const z=sampleElevation(dtmTileGetter, ln, la);
+    if (z==null) { missing++; continue; }
+    pts.push({ e:b.x, n:b.y, delta:b.gl-z });
+  }
+  return { pts, missing };
+}
 
 // Default line = the two farthest-apart boreholes (a sensible full-site section).
 // ponytail: O(n²) farthest-pair scan — fine for the tens of boreholes handled here.
@@ -544,7 +559,7 @@ function defaultLine(holes){
 
 function destroySecMap(){
   if (secMap){ secMap.remove(); secMap=null; }
-  secBhLayer=secLabelLayer=secLinePoly=secHandleA=secHandleB=secBoundaryRect=null;
+  secBhLayer=secLabelLayer=secLinePoly=secHandleA=secHandleB=secBoundaryRect=secStructLayer=null;
   secPlanNames=[];
 }
 
@@ -581,6 +596,7 @@ async function renderSitePlan(){
     await setBase(secMap, 'sp', document.getElementById('sp-base').value);
     // borehole-name placement is solved in screen pixels: re-solve on view change
     secMap.on('zoomend moveend', ()=>drawPlanNames());
+    secMap.on('mousedown', startPlanDraw);
   }
   secMap.setMaxBounds(expanded);
   secMap.fitBounds(expanded);
@@ -595,6 +611,7 @@ async function renderSitePlan(){
 
   if (!sectionLine) sectionLine=defaultLine(holes);
   drawSectionLine();
+  drawPlanStructs();
   updateSection();
 }
 
@@ -718,11 +735,11 @@ function updateSection(){
     const extB = { e:B.e+(B.e-A.e)*tExt, n:B.n+(B.n-A.n)*tExt };
     const [aLat,aLng]=toLL(extA.e,extA.n), [bLat,bLng]=toLL(extB.e,extB.n);
     const tiles = tilesForLine(aLng, aLat, bLng, bLat, TILE_LOD);
-    // The offset-corrected surface also samples the DTM at each borehole's OWN
-    // position, which can sit in a tile the line never crosses.
+    // The offset-corrected surface samples the DTM at EVERY borehole's own
+    // position (not just those in the section — see siteDeltas), which can sit
+    // in tiles the line never crosses.
     if (groundMode==='dtm-offset')
-      for (const st of stations){
-        const b=BH[st.id]; if (!b) continue;
+      for (const b of allHoles){
         const [la,ln]=toLL(b.x,b.y);
         tiles.push(tileCoord(ln, la, TILE_LOD));
       }
@@ -892,25 +909,21 @@ function renderSection(stations, vex, lineLen, A, B){
         topOverride = queryDtm;
         groundNote = 'Ground surface: LandsD 5 m DTM, raw — includes vegetation canopy height and elevated structures where present (±5 m stated accuracy). Not fitted to the boreholes, so it will disagree with each borehole’s own collar level (and its log rectangle, which is always drawn at the true surveyed level).'+LAYER_NOTE;
       } else if (groundMode==='dtm-offset'){
-        // Apples-to-apples: measure how far each borehole's SURVEYED collar sits
-        // above/below the DTM AT THAT BOREHOLE'S OWN POSITION, then apply that
-        // difference to the DTM sampled ON the line. See terrain.js
-        // offsetCorrectedProfile for why this is the right comparison for a
-        // borehole that doesn't sit on the line.
-        const bhDtm = ids.map(id=>{ const b=BH[id]; const [la,ln]=toLL(b.x,b.y);
-                                    return sampleElevation(dtmTileGetter, ln, la); });
-        const nGot = bhDtm.filter(v=>v!=null).length;
-        if (!nGot){
+        // Collar-vs-DTM difference measured at EVERY borehole on the site (not
+        // only those drawn), spread in plan and read off along the line — so the
+        // ground line no longer shifts when the distance tolerance pulls more
+        // boreholes into the section. See terrain.js idwDelta.
+        const { pts, missing } = siteDeltas();
+        if (!pts.length){
           groundNote = 'Terrain tiles for the borehole positions are still loading — showing the interpolated surface for now.';
         } else {
-          topOverride = offsetCorrectedProfile(dist, ids.map(id=>BH[id].gl), bhDtm, xq, queryDtm);
-          const worst = ids.map((id,i)=> bhDtm[i]==null ? null
-              : Math.abs(topOverride[xq.indexOf(dist[i])] - BH[id].gl))
-            .filter(v=>v!=null);
+          topOverride = xq.map((d,q)=>{ const t=d/lineLen;
+            return queryDtm[q] + idwDelta(pts, A.e+(B.e-A.e)*t, A.n+(B.n-A.n)*t); });
+          const worst = ids.map((id,i)=>Math.abs(topOverride[xq.indexOf(dist[i])] - BH[id].gl));
           const maxGap = worst.length ? Math.max(...worst) : 0;
-          groundNote = 'Ground surface: LandsD 5 m DTM sampled along the section line, corrected by the difference between each borehole’s surveyed collar level and the DTM at that borehole’s own position — like for like, so the correction carries no error from the borehole’s offset. '
-            + (nGot<ids.length ? `(${ids.length-nGot} borehole(s) had no DTM cover and contribute no correction.) ` : '')
-            + `Because an off-line borehole was logged somewhere else, the drawn ground line will NOT pass exactly through its collar — here up to ${maxGap.toFixed(1)} m apart. Its log rectangle is still drawn at the true surveyed level, so that gap is visible on purpose.`
+          groundNote = `Ground surface: LandsD 5 m DTM sampled along the section line, corrected by the difference between surveyed collar level and DTM measured at all ${pts.length} boreholes on the site (weighted by distance in plan) — so it stays the same whichever boreholes are included in the section. `
+            + (missing ? `(${missing} borehole(s) had no DTM cover and contribute no correction.) ` : '')
+            + `An off-line borehole was logged somewhere else, so the ground line will NOT pass exactly through its collar — here up to ${maxGap.toFixed(1)} m apart. Its log rectangle is still drawn at the true surveyed level.`
             + LAYER_NOTE;
         }
       } else {
@@ -930,7 +943,16 @@ function renderSection(stations, vex, lineLen, A, B){
   const groundNoteEl = document.getElementById('sec-ground-note');
   if (groundNoteEl) groundNoteEl.textContent = groundNote;
 
+  // Plan-drawn structures the section line actually passes through, clipped to
+  // the plotted chainage range.
+  const planCuts = (A && B && lineLen>=1) ? secAnnots.map(a=>{
+    if (a.kind!=='plan') return null;
+    const c=cutPolygon(A, B, a.en); if (!c) return null;
+    const lo=Math.max(c[0],dMin), hi=Math.min(c[1],dMax);
+    return hi>lo ? {a, lo, hi} : null;
+  }).filter(Boolean) : [];
   let eMin=Infinity, eMax=-Infinity;
+  for (const {a} of planCuts){ eMax=Math.max(eMax,a.top); eMin=Math.min(eMin,a.top-a.depth); }
   for (const id of ids){ const bh=BH[id]; eMax=Math.max(eMax,bh.gl); for (const l of bh.layers) eMin=Math.min(eMin,bh.gl-l.base); }
   if (topOverride) for (const v of topOverride){ eMax=Math.max(eMax,v); eMin=Math.min(eMin,v); }
   const eRange=(eMax-eMin)||1;
@@ -1040,39 +1062,95 @@ function renderSection(stations, vex, lineLen, A, B){
   // rectangle is a true rectangle ON THE GROUND. Under vertical exaggeration it
   // therefore draws as a parallelogram — deliberate: the shape means metres,
   // not pixels.
+  const ptStr = pts => pts.map(([d,e])=>`${X(d)},${Y(e)}`).join(' ');
+  // mouse position -> section metres (the SVG may be scaled down by CSS)
+  const toSec = ev => { const r=svg.getBoundingClientRect(), k=W/(r.width||W);
+    return [dMin+((ev.clientX-r.left)*k-mL)/xPxPerM, eMax-((ev.clientY-r.top)*k-mT)/yPxPerM]; };
+  const dragWith = (onMove, onUp) => {
+    const up=()=>{ window.removeEventListener('mousemove',onMove);
+                   window.removeEventListener('mouseup',up); onUp(); };
+    window.addEventListener('mousemove',onMove); window.addEventListener('mouseup',up);
+  };
+
+  // plan-drawn structures, where the line cuts them (edited on the plan, not here)
+  for (const {a, lo, hi} of planCuts){
+    const col=a.colour||'#1f5fa8';
+    const pts=[[lo,a.top],[hi,a.top],[hi,a.top-a.depth],[lo,a.top-a.depth]];
+    const poly=el('polygon',{points:ptStr(pts), fill:col, 'fill-opacity':.22, stroke:col, 'stroke-width':2});
+    const tip=document.createElementNS('http://www.w3.org/2000/svg','title');
+    tip.textContent=`${a.label||'Structure'} — drawn on the site plan; edit it there`;
+    poly.appendChild(tip);
+    svg.appendChild(poly);
+    if ((a.label||'').trim())
+      svg.appendChild(el('text',{x:X((lo+hi)/2), y:Y(a.top-a.depth/2)+3, 'font-size':11, 'font-weight':700,
+        'text-anchor':'middle', fill:col, 'pointer-events':'none'}, a.label.trim()));
+  }
+
+  // section-drawn rectangles. Stored in real section coordinates (chainage m,
+  // level mPD), so a rotated rectangle is a true rectangle ON THE GROUND and
+  // draws as a parallelogram under vertical exaggeration — deliberate.
   secAnnots.forEach((an, ai)=>{
-    if (!an || !Array.isArray(an.pts) || an.pts.length<3) return;
-    const ptStr = pts => pts.map(([d,e])=>`${X(d)},${Y(e)}`).join(' ');
+    if (an.kind==='plan' || !Array.isArray(an.pts) || an.pts.length<3) return;
     const col = an.colour || '#1e3c12';
     const g=el('g',{'data-annot':ai});
-    const poly=el('polygon',{points:ptStr(an.pts), fill:col, 'fill-opacity':.16,
+    const poly=el('polygon',{points:'', fill:col, 'fill-opacity':.16,
       stroke:col, 'stroke-width':1.8, 'stroke-dasharray':'7,4', style:'cursor:move'});
     g.appendChild(poly);
-    const cx=an.pts.reduce((t,pt)=>t+pt[0],0)/an.pts.length;
-    const cy=an.pts.reduce((t,pt)=>t+pt[1],0)/an.pts.length;
-    let txt=null;
-    if ((an.label||'').trim()){
-      txt=el('text',{x:X(cx), y:Y(cy)+3, 'font-size':11, 'font-weight':700,
-        'text-anchor':'middle', fill:col, 'pointer-events':'none'}, an.label.trim());
-      g.appendChild(txt);
-    }
-    // drag to move: edits the stored metres, then re-syncs the number boxes on
-    // mouse-up (during the drag only the two SVG nodes move — no full redraw).
+    const txt = (an.label||'').trim() ? el('text',{'font-size':11, 'font-weight':700,
+      'text-anchor':'middle', fill:col, 'pointer-events':'none'}, an.label.trim()) : null;
+    if (txt) g.appendChild(txt);
+    // white corner squares = resize handles (left out of the PNG export)
+    const handles=an.pts.map(()=>{ const h=el('rect',{width:9,height:9,fill:'#fff',stroke:col,
+      'stroke-width':1.5,class:'annot-handle',style:'cursor:nwse-resize'}); g.appendChild(h); return h; });
+    // During a drag only this shape's own nodes move; the full redraw and the
+    // number boxes catch up on mouse-up.
+    const refresh=()=>{
+      poly.setAttribute('points', ptStr(an.pts));
+      const b=ptsToBox(an.pts);
+      if (txt){ txt.setAttribute('x', X(b.cx)); txt.setAttribute('y', Y(b.cy)+3); }
+      an.pts.forEach(([d,e],k)=>{ handles[k].setAttribute('x',X(d)-4.5); handles[k].setAttribute('y',Y(e)-4.5); });
+    };
+    refresh();
     poly.addEventListener('mousedown', ev=>{
-      ev.preventDefault();
-      const x0=ev.clientX, y0=ev.clientY, orig=an.pts.map(pt=>pt.slice());
-      const move=e2=>{
-        const dd=(e2.clientX-x0)/xPxPerM, de=-(e2.clientY-y0)/yPxPerM;
-        an.pts=orig.map(([d,e])=>[d+dd, e+de]);
-        poly.setAttribute('points', ptStr(an.pts));
-        if (txt){ txt.setAttribute('x', X(cx+dd)); txt.setAttribute('y', Y(cy+de)+3); }
-      };
-      const up=()=>{ window.removeEventListener('mousemove',move);
-                     window.removeEventListener('mouseup',up); renderAnnotList(); };
-      window.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
+      if (secDrawMode) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const p0=toSec(ev), orig=an.pts.map(pt=>pt.slice());
+      dragWith(e2=>{ const p=toSec(e2);
+        an.pts=orig.map(([d,e])=>[d+p[0]-p0[0], e+p[1]-p0[1]]); refresh(); }, renderAnnotList);
     });
+    // resize from the drag-start shape each time, so the corner being dragged
+    // stays under the cursor even if the box flips past its opposite corner
+    handles.forEach((h,k)=>h.addEventListener('mousedown', ev=>{
+      if (secDrawMode) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const orig=an.pts.map(pt=>pt.slice());
+      dragWith(e2=>{ an.pts=resizeFromCorner(orig, k, toSec(e2)); refresh(); },
+               ()=>{ renderAnnotList(); updateSection(); });
+    }));
     svg.appendChild(g);
   });
+
+  // "Draw on section" armed: drag out a new box (a plain click drops a default one)
+  if (secDrawMode==='section'){
+    svg.style.cursor='crosshair';
+    svg.addEventListener('mousedown', ev=>{
+      ev.preventDefault();
+      const p0=toSec(ev), c0=[ev.clientX, ev.clientY], col='#b02a2a';
+      const ghost=el('polygon',{fill:col,'fill-opacity':.12,stroke:col,'stroke-width':1.5,'stroke-dasharray':'4,3'});
+      svg.appendChild(ghost);
+      const box=(a,b)=>{ const [d0,d1]=[a[0],b[0]].sort((x,y)=>x-y), [e0,e1]=[a[1],b[1]].sort((x,y)=>x-y);
+        return [[d0,e0],[d1,e0],[d1,e1],[d0,e1]]; };
+      let p1=p0, moved=false;
+      dragWith(e2=>{ p1=toSec(e2); moved = moved || Math.hypot(e2.clientX-c0[0], e2.clientY-c0[1])>4;
+                     ghost.setAttribute('points', ptStr(box(p0,p1))); },
+        ()=>{
+          const pts = moved ? box(p0,p1)
+            : boxToPts(p0[0], p0[1], Math.max(5,plotSpan*0.2), Math.max(2,eRange*0.18), 0);
+          secAnnots.push({ label:'Proposed structure', colour:col, pts });
+          setDrawMode(null); renderAnnotList();
+        });
+    });
+  }
 
   // legend (by decomposition grade / material), in the right-hand gutter —
   // only the classes present in the current section (updates live on drag)
@@ -1147,104 +1225,226 @@ function renderSection(stations, vex, lineLen, A, B){
 }
 
 
-// ==== cross-section annotations (proposed structure) ========================
-// A rectangle is stored as its four corners in section coordinates — chainage
-// (m from A) and level (mPD) — rather than centre/size/angle, so the "type the
-// four corners" boxes below are the source of truth and the centre/size/rotate
-// helper simply writes into them. Corner order is P1-P2 along the width,
-// P1-P4 along the height (so P1 P2 P3 P4 walks the rectangle).
-function boxToPts(cd, ce, w, h, angDeg){
-  const r=angDeg*Math.PI/180, c=Math.cos(r), sn=Math.sin(r);
-  return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]]
-    .map(([u,v])=>[cd+u*c-v*sn, ce+u*sn+v*c]);
+// ==== proposed-structure annotations: editor + drawing modes =================
+// Section rectangles are four corners (chainage m from A, level mPD); plan
+// footprints are four corners in HK1980 metres plus top level and depth. The
+// corner maths (boxToPts/ptsToBox/resizeFromCorner/cutPolygon) lives in
+// section_geom.js so it is Node-tested.
+function normAnnot(a){
+  if (!a) return null;
+  if (a.kind==='plan')
+    return Array.isArray(a.en) && a.en.length===4
+      ? { kind:'plan', label:a.label||'', colour:a.colour||'#1f5fa8',
+          en:a.en.map(p=>[+p[0], +p[1]]), top:+a.top||0, depth:Math.max(0,+a.depth||0) }
+      : null;
+  return Array.isArray(a.pts) && a.pts.length>=3
+    ? { label:a.label||'', colour:a.colour||'#b02a2a', pts:a.pts.map(pt=>[+pt[0], +pt[1]]) }
+    : null;
 }
-function ptsToBox(pts){
-  const n=pts.length;
-  return {
-    cd: pts.reduce((t,p)=>t+p[0],0)/n,
-    ce: pts.reduce((t,p)=>t+p[1],0)/n,
-    w : Math.hypot(pts[1][0]-pts[0][0], pts[1][1]-pts[0][1]),
-    h : Math.hypot(pts[3][0]-pts[0][0], pts[3][1]-pts[0][1]),
-    ang: Math.atan2(pts[1][1]-pts[0][1], pts[1][0]-pts[0][0])*180/Math.PI
-  };
+
+// Ground level at a plan position, from the same corrected-DTM model the
+// section uses; nearest borehole's collar if the DTM tile isn't loaded yet.
+function groundAt(e, n){
+  const [la,ln]=toLL(e,n);
+  const z=sampleElevation(dtmTileGetter, ln, la);
+  if (z!=null) return z + idwDelta(siteDeltas().pts, e, n);
+  let best=null, bd=Infinity;
+  for (const b of sectionHoles()){ const d=Math.hypot(b.x-e, b.y-n);
+    if (d<bd && Number.isFinite(b.gl)){ bd=d; best=b; } }
+  return best ? best.gl : 0;
 }
-function addAnnotRect(){
-  const r=secPlotRange;
-  if (!r){ document.getElementById('sec-annot-list').innerHTML =
-    '<p class="hint">Draw a section first — there is nowhere to put the shape yet.</p>'; return; }
-  const w=Math.max(5,(r.dMax-r.dMin)*0.2), h=Math.max(2,(r.eMax-r.eMin)*0.18);
-  secAnnots.push({ label:'Proposed structure', colour:'#b02a2a',
-    pts: boxToPts((r.dMin+r.dMax)/2, r.eMin+(r.eMax-r.eMin)*0.6, w, h, 0) });
-  renderAnnotList();
-  if (secMap) updateSection();
+
+// Arm / disarm a drawing mode. Plan mode freezes map panning so the drag draws
+// instead of scrolling the map.
+function setDrawMode(mode){
+  secDrawMode = secDrawMode===mode ? null : mode;
+  const bs=document.getElementById('sec-annot-draw'), bp=document.getElementById('sec-annot-plan');
+  if (bs) bs.classList.toggle('armed', secDrawMode==='section');
+  if (bp) bp.classList.toggle('armed', secDrawMode==='plan');
+  const hint=document.getElementById('sec-annot-mode');
+  if (hint) hint.textContent = secDrawMode==='section' ? 'Drag a box on the cross-section below (Esc to cancel).'
+    : secDrawMode==='plan' ? 'Drag a box on the site plan above (Esc to cancel).' : '';
+  if (secMap){
+    secMap.dragging[secDrawMode==='plan' ? 'disable' : 'enable']();
+    secMap.getContainer().style.cursor = secDrawMode==='plan' ? 'crosshair' : '';
+  }
+  if (secMap) updateSection();              // section picks up / drops the crosshair
 }
+
+function startPlanDraw(ev){
+  if (secDrawMode!=='plan') return;
+  const s0=toEN(ev.latlng.lat, ev.latlng.lng);
+  const ghost=L.rectangle([ev.latlng, ev.latlng],{color:'#1f5fa8',weight:2,dashArray:'4,3',fillOpacity:.1}).addTo(secMap);
+  const c0=ev.containerPoint;
+  let s1=s0, moved=false;
+  const mv=e=>{ s1=toEN(e.latlng.lat, e.latlng.lng);
+    moved = moved || e.containerPoint.distanceTo(c0)>4;
+    ghost.setBounds([ev.latlng, e.latlng]); };
+  secMap.on('mousemove', mv);
+  secMap.once('mouseup', ()=>{
+    secMap.off('mousemove', mv); secMap.removeLayer(ghost);
+    const en = moved
+      ? boxToPts((s0.e+s1.e)/2, (s0.n+s1.n)/2, Math.max(0.5,Math.abs(s1.e-s0.e)), Math.max(0.5,Math.abs(s1.n-s0.n)), 0)
+      : boxToPts(s0.e, s0.n, 10, 10, 0);
+    const c=ptsToBox(en);
+    secAnnots.push({ kind:'plan', label:'Proposed structure', colour:'#1f5fa8', en,
+                     top:round(groundAt(c.cx, c.cy)), depth:3 });
+    setDrawMode(null); drawPlanStructs(); renderAnnotList();
+  });
+}
+
+// Footprints on the site plan: drag the shape to move it, drag a white corner
+// square to resize it (the opposite corner stays put).
+function drawPlanStructs(){
+  if (!secMap) return;
+  if (!secStructLayer) secStructLayer=L.layerGroup().addTo(secMap);
+  secStructLayer.clearLayers();
+  secAnnots.forEach(a=>{
+    if (a.kind!=='plan') return;
+    const lls=()=>a.en.map(([e,n])=>toLL(e,n));
+    const poly=L.polygon(lls(),{color:a.colour||'#1f5fa8',weight:2.5,fillOpacity:.22})
+      .bindTooltip(`${esc(a.label||'Structure')} — drag to move`).addTo(secStructLayer);
+    const handles=a.en.map(p=>L.marker(toLL(...p),{draggable:true,
+      icon:L.divIcon({className:'struct-handle',iconSize:[10,10],iconAnchor:[5,5]})}).addTo(secStructLayer));
+    const refresh=()=>{ poly.setLatLngs(lls()); a.en.forEach((p,k)=>handles[k].setLatLng(toLL(...p))); updateSection(); };
+    handles.forEach((h,k)=>{
+      let orig=null;
+      h.on('dragstart', ()=>{ orig=a.en.map(p=>p.slice()); });
+      h.on('drag', e=>{ const p=toEN(e.latlng.lat, e.latlng.lng);
+        a.en=resizeFromCorner(orig, k, [p.e, p.n]); refresh(); });
+      h.on('dragend', renderAnnotList);
+    });
+    poly.on('mousedown', ev=>{
+      if (secDrawMode) return;
+      L.DomEvent.stop(ev);
+      const p0=toEN(ev.latlng.lat, ev.latlng.lng), orig=a.en.map(p=>p.slice());
+      secMap.dragging.disable();
+      const mv=e=>{ const p=toEN(e.latlng.lat, e.latlng.lng);
+        a.en=orig.map(([x,y])=>[x+p.e-p0.e, y+p.n-p0.n]); refresh(); };
+      secMap.on('mousemove', mv);
+      secMap.once('mouseup', ()=>{ secMap.off('mousemove', mv); secMap.dragging.enable(); renderAnnotList(); });
+    });
+  });
+}
+
+// One labelled number box: caption sits directly above its own input, so a
+// value can never be read as belonging to its neighbour.
 const attrEsc = v => esc(v).replace(/"/g,'&quot;');
+const fld = (caption, attrs, value, tip, step='0.1') =>
+  `<label class="fld" title="${attrEsc(tip||caption)}"><span>${caption}</span>`+
+  `<input type="number" step="${step}" ${attrs} value="${round(value)}"></label>`;
+
+function sectionAnnotRow(a, i){
+  const b=ptsToBox(a.pts), rotated=Math.abs(b.ang)>0.05;
+  // corner k as stored: 0 bottom-left, 1 bottom-right, 2 top-right, 3 top-left
+  const corner=(k, name)=>`<div class="corner"><b>${name}</b>`+
+    fld('Chainage (m)', `data-i="${i}" data-pt="${k}" data-c="0"`, a.pts[k][0], 'Distance along the section from end A, in metres')+
+    fld('Level (mPD)',  `data-i="${i}" data-pt="${k}" data-c="1"`, a.pts[k][1], 'Elevation in metres above Principal Datum')+`</div>`;
+  return `<div class="annot-row">
+    <div class="row" style="gap:6px;align-items:center">
+      <input type="text" data-i="${i}" data-f="label" value="${attrEsc(a.label||'')}" placeholder="Label" style="width:170px">
+      <input type="color" data-i="${i}" data-f="colour" value="${attrEsc(a.colour||'#b02a2a')}" style="width:40px;padding:1px">
+      <span class="annot-tag">Drawn on the section</span>
+      <button class="ghost" type="button" data-i="${i}" data-act="del">Delete</button>
+    </div>
+    <div class="annot-sub">Corners — laid out as they sit on the drawing${rotated?' (before rotation)':''}</div>
+    <div class="corner-grid">${corner(3,'Top-left')}${corner(2,'Top-right')}${corner(0,'Bottom-left')}${corner(1,'Bottom-right')}</div>
+    <div class="annot-sub">…or set it by centre, size and rotation</div>
+    <div class="fld-row">
+      ${fld('Centre chainage (m)', `data-i="${i}" data-b="cx"`, b.cx, 'Chainage of the centre, metres from A')}
+      ${fld('Centre level (mPD)',  `data-i="${i}" data-b="cy"`, b.cy)}
+      ${fld('Width (m)',           `data-i="${i}" data-b="w"`,  b.w, 'Horizontal size before rotation')}
+      ${fld('Height (m)',          `data-i="${i}" data-b="h"`,  b.h, 'Vertical size before rotation')}
+      ${fld('Rotation (°)',        `data-i="${i}" data-b="ang"`, b.ang, 'Degrees, anticlockwise', '0.5')}
+      <button class="ghost" type="button" data-i="${i}" data-act="box">Apply</button>
+    </div>
+  </div>`;
+}
+
+function planAnnotRow(a, i){
+  const b=ptsToBox(a.en);
+  let cut='Not cut by the current section line.';
+  if (sectionLine){
+    const c=cutPolygon(toEN(...sectionLine.a), toEN(...sectionLine.b), a.en);
+    if (c) cut=`Cut by the section from chainage ${c[0].toFixed(1)} m to ${c[1].toFixed(1)} m.`;
+  }
+  return `<div class="annot-row">
+    <div class="row" style="gap:6px;align-items:center">
+      <input type="text" data-i="${i}" data-f="label" value="${attrEsc(a.label||'')}" placeholder="Label" style="width:170px">
+      <input type="color" data-i="${i}" data-f="colour" value="${attrEsc(a.colour||'#1f5fa8')}" style="width:40px;padding:1px">
+      <span class="annot-tag plan">Drawn on the site plan</span>
+      <button class="ghost" type="button" data-i="${i}" data-act="del">Delete</button>
+    </div>
+    <div class="annot-sub">Levels</div>
+    <div class="fld-row">
+      ${fld('Top level (mPD)', `data-i="${i}" data-f="top"`, a.top, 'Level the structure sits at — e.g. the ground level it is placed on')}
+      <button class="ghost" type="button" data-i="${i}" data-act="ground" title="Set the top to the ground level at the footprint's centre">Use ground level</button>
+      ${fld('Depth (m)', `data-i="${i}" data-f="depth"`, a.depth, 'How deep the structure goes below its top level')}
+      ${fld('Founding level (mPD)', `data-i="${i}" data-f="found"`, a.top-a.depth, 'Level of the underside — top level minus depth')}
+    </div>
+    <div class="annot-sub">Footprint (HK1980 grid) — or drag it and its corner squares on the plan</div>
+    <div class="fld-row">
+      ${fld('Centre easting', `data-i="${i}" data-b="cx"`, b.cx)}
+      ${fld('Centre northing', `data-i="${i}" data-b="cy"`, b.cy)}
+      ${fld('Length (m)', `data-i="${i}" data-b="w"`, b.w, 'Side along the rotation direction')}
+      ${fld('Width (m)',  `data-i="${i}" data-b="h"`, b.h, 'Side at right angles to it')}
+      ${fld('Rotation (°)', `data-i="${i}" data-b="ang"`, b.ang, 'Degrees anticlockwise from grid east', '0.5')}
+      <button class="ghost" type="button" data-i="${i}" data-act="box">Apply</button>
+    </div>
+    <div class="hint" style="margin-top:4px">${cut}</div>
+  </div>`;
+}
+
 function renderAnnotList(){
   const box=document.getElementById('sec-annot-list');
   if (!box) return;
-  if (!secAnnots.length){
-    box.innerHTML='<p class="hint" style="margin:2px 0 0">No annotations yet.</p>';
-    return;
-  }
-  box.innerHTML = secAnnots.map((a,i)=>{
-    const b=ptsToBox(a.pts);
-    const corners = a.pts.map((pt,k)=>
-      `<span class="hint">P${k+1}</span>`+
-      `<input type="number" step="0.1" data-i="${i}" data-pt="${k}" data-c="0" value="${round(pt[0])}" style="width:74px" title="Chainage from A (m)">`+
-      `<input type="number" step="0.1" data-i="${i}" data-pt="${k}" data-c="1" value="${round(pt[1])}" style="width:74px" title="Level (mPD)">`
-    ).join(' ');
-    return `<div class="annot-row">
-      <div class="row" style="gap:6px;align-items:center">
-        <input type="text" data-i="${i}" data-f="label" value="${attrEsc(a.label||'')}" placeholder="Label" style="width:170px">
-        <input type="color" data-i="${i}" data-f="colour" value="${attrEsc(a.colour||'#b02a2a')}" style="width:40px;padding:1px">
-        <button class="ghost" type="button" data-i="${i}" data-act="del">Delete</button>
-      </div>
-      <div class="row" style="gap:5px;align-items:center;margin-top:5px;flex-wrap:wrap">${corners}</div>
-      <div class="row" style="gap:5px;align-items:center;margin-top:5px;flex-wrap:wrap">
-        <span class="hint">or centre</span>
-        <input type="number" step="0.1" data-i="${i}" data-b="cd" value="${round(b.cd)}" style="width:74px" title="Centre chainage (m from A)">
-        <input type="number" step="0.1" data-i="${i}" data-b="ce" value="${round(b.ce)}" style="width:74px" title="Centre level (mPD)">
-        <span class="hint">size</span>
-        <input type="number" step="0.1" data-i="${i}" data-b="w" value="${round(b.w)}" style="width:66px" title="Width (m)">
-        <input type="number" step="0.1" data-i="${i}" data-b="h" value="${round(b.h)}" style="width:66px" title="Height (m)">
-        <span class="hint">rotate</span>
-        <input type="number" step="0.5" data-i="${i}" data-b="ang" value="${round(b.ang)}" style="width:66px" title="Rotation (degrees, anticlockwise)">
-        <button class="ghost" type="button" data-i="${i}" data-act="box">Apply</button>
-      </div>
-    </div>`;
-  }).join('');
+  box.innerHTML = secAnnots.length
+    ? secAnnots.map((a,i)=> a.kind==='plan' ? planAnnotRow(a,i) : sectionAnnotRow(a,i)).join('')
+    : '<p class="hint" style="margin:2px 0 0">No structures yet — choose a Draw button, then drag a box.</p>';
 }
+
 function wireAnnotEditor(){
   const list=document.getElementById('sec-annot-list');
-  const addBtn=document.getElementById('sec-annot-add');
-  if (!list || !addBtn) return;
-  addBtn.addEventListener('click', addAnnotRect);
-  // Corner / label / colour boxes edit in place and redraw the section, but must
-  // NOT re-render the editor itself — the box under the cursor would be replaced
-  // mid-keystroke.
+  if (!list) return;
+  document.getElementById('sec-annot-draw').addEventListener('click', ()=>setDrawMode('section'));
+  document.getElementById('sec-annot-plan').addEventListener('click', ()=>setDrawMode('plan'));
+  window.addEventListener('keydown', e=>{ if (e.key==='Escape' && secDrawMode) setDrawMode(secDrawMode); });
+  // Boxes edit in place and redraw the section, but must NOT re-render the
+  // editor itself — the box under the cursor would be replaced mid-keystroke.
   list.addEventListener('input', e=>{
-    const t=e.target, i=+t.dataset.i;
-    const a=secAnnots[i]; if (!a) return;
-    if (t.dataset.f==='label'){ a.label=t.value; }
-    else if (t.dataset.f==='colour'){ a.colour=t.value; }
+    const t=e.target, i=+t.dataset.i, a=secAnnots[i]; if (!a) return;
+    const f=t.dataset.f, v=+t.value;
+    const setSib=(name,val)=>{ const s=t.closest('.annot-row').querySelector(`[data-f="${name}"]`); if (s) s.value=round(val); };
+    if (f==='label') a.label=t.value;
+    else if (f==='colour') a.colour=t.value;
+    else if (f==='top'||f==='depth'||f==='found'){
+      if (!Number.isFinite(v)) return;
+      if (f==='top') a.top=v;                       // keeps depth, founding level follows
+      else if (f==='depth') a.depth=Math.max(0,v);
+      else a.depth=Math.max(0, a.top-v);            // founding level typed: depth follows
+      if (f!=='depth') setSib('depth', a.depth);
+      if (f!=='found') setSib('found', a.top-a.depth);
+    }
     else if (t.dataset.pt!=null){
-      const v=+t.value; if (!Number.isFinite(v)) return;
+      if (!Number.isFinite(v)) return;
       a.pts[+t.dataset.pt][+t.dataset.c]=v;
-    } else return;                                   // centre/size/angle: wait for Apply
+    } else return;                                  // centre/size/angle: wait for Apply
+    if (a.kind==='plan') drawPlanStructs();
     if (secMap) updateSection();
   });
   list.addEventListener('click', e=>{
     const t=e.target.closest('button'); if (!t) return;
     const i=+t.dataset.i, a=secAnnots[i]; if (!a) return;
     if (t.dataset.act==='del') secAnnots.splice(i,1);
+    else if (t.dataset.act==='ground'){ const c=ptsToBox(a.en); a.top=round(groundAt(c.cx, c.cy)); }
     else if (t.dataset.act==='box'){
       const row=t.closest('.annot-row');
       const g=k=>+row.querySelector(`[data-b="${k}"]`).value;
-      const [cd,ce,w,h,ang]=['cd','ce','w','h','ang'].map(g);
-      if (![cd,ce,w,h,ang].every(Number.isFinite) || w<=0 || h<=0) return;
-      a.pts=boxToPts(cd,ce,w,h,ang);
+      const [cx,cy,w,h,ang]=['cx','cy','w','h','ang'].map(g);
+      if (![cx,cy,w,h,ang].every(Number.isFinite) || w<=0 || h<=0) return;
+      a[a.kind==='plan' ? 'en' : 'pts']=boxToPts(cx,cy,w,h,ang);
     } else return;
-    renderAnnotList();
+    renderAnnotList(); drawPlanStructs();
     if (secMap) updateSection();
   });
   renderAnnotList();
@@ -1327,6 +1527,8 @@ async function exportSitePlan(){
         paintPolyline(ctx, project, [[latMin,lngMin],[latMin,lngMax],[latMax,lngMax],[latMax,lngMin]],
           {color:'#e0a800',weight:3,dash:[10,6],close:true});
       }
+      for (const a of secAnnots) if (a.kind==='plan')
+        paintPolyline(ctx, project, a.en.map(([e,n])=>toLL(e,n)), {color:a.colour||'#1f5fa8',weight:2.5,close:true});
       if (sectionLine){
         paintPolyline(ctx, project, [sectionLine.a, sectionLine.b], {color:'#d33',weight:3});
         paintText(ctx, project, sectionLine.a, 'A', {font:'700 15px Outfit, sans-serif',color:'#d33'});
@@ -1582,7 +1784,9 @@ async function exportContour(){
 // ---- PNG export ------------------------------------------------------
 function exportPNG(svgEl, name){
   if (!svgEl) return;
-  const xml=new XMLSerializer().serializeToString(svgEl);
+  const clone=svgEl.cloneNode(true);                 // editing handles aren't part of the drawing
+  clone.querySelectorAll('.annot-handle').forEach(n=>n.remove());
+  const xml=new XMLSerializer().serializeToString(clone);
   const svg64='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(xml)));
   const img=new Image();
   img.onload=()=>{
@@ -1677,7 +1881,7 @@ async function openSiteMap(){
         state.activeIdx = 0;
         state.sitePlan = sitePlan || null;
         sectionLine = null;   // fresh site → recompute default section line on next view
-        secExcluded.clear(); secAnnots=[]; renderAnnotList();   // and its annotations/deselections
+        secExcluded.clear(); secAnnots=[]; renderAnnotList(); drawPlanStructs();   // and its annotations/deselections
         refreshInput(); commit();
         // jump back to the log tab so the user sees what landed
         document.querySelector('.tab[data-tab="log"]').click();

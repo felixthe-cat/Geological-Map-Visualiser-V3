@@ -112,3 +112,16 @@ assert(long.length >= 2, `long line should touch multiple tiles, got ${long.leng
 }
 
 console.log('ok — terrain tile math + residual & offset correction checks pass');
+
+// ---- site-wide IDW delta ------------------------------------------------------
+{
+  const { idwDelta } = await import('./terrain.js');
+  const pts=[{e:0,n:0,delta:2},{e:100,n:0,delta:-2}];
+  assert.strictEqual(idwDelta(pts,0,0), 2, 'exact at a borehole');
+  assert(Math.abs(idwDelta(pts,50,0)) < 1e-9, 'midway = average');
+  assert.strictEqual(idwDelta([],5,5), 0, 'no boreholes -> no correction');
+  // Adding a far borehole barely moves a point next to a near one.
+  const near=idwDelta(pts,1,0), more=idwDelta([...pts,{e:5000,n:0,delta:9}],1,0);
+  assert(Math.abs(near-more) < 0.01, 'distant hole has negligible pull');
+  console.log('idwDelta ok');
+}
