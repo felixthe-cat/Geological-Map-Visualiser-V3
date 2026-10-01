@@ -170,3 +170,29 @@ DTM tiles are now fetched for every borehole position, not just those in the sec
 `offsetCorrectedProfile` is kept (tested) but unused.
 
 **Reversible?** Cheap — one function call in `renderSection`; the old along-line version is still in `terrain.js`.
+
+---
+
+### ADR-7: Export the section to SLOPE/W and PLAXIS as one DXF file
+
+**Context**
+Users want the drawn geological section inside GeoStudio SLOPE/W and PLAXIS 2D without
+redrawing it. The site is a static browser app: it can only hand over a file.
+
+**Options considered**
+1. *Native project files.* A GeoStudio `.gsz` is a zip of XML, but a hand-built one can't be
+   solved (no mesh — Geostudio Automation error-book #6). A PLAXIS `.p2dx` is binary, so it can't
+   be written from a browser.
+2. *Scripts that rebuild the model* (gsi / plxscripting). They carry materials too, but need
+   Python, licences and the remote-scripting setup on the user's PC.
+3. *DXF.* Both programs import it natively; no script needed. But no materials are carried.
+   Chosen.
+4. *1:1 PNG for tracing.* Works everywhere, but every boundary has to be redrawn by hand.
+
+**Chosen + why**
+DXF R12, one closed polyline per band, metres. It's the only format both programs read with no
+setup. PLAXIS import was proven (15/15 polygons, meshed).
+
+**Reversible?** Cheap — one self-contained module (`cad_export.js`). Scripts (option 2) can be
+added later alongside it.
+

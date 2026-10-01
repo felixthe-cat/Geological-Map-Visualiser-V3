@@ -4,6 +4,14 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-01 15:30 — DXF export for SLOPE/W and PLAXIS; AI formatting prompt
+**Goal:** a download next to Export PNG that "could be directly imported into SlopeW and also Plaxis", tested in both; plus a ready-to-copy prompt so Gemini can format GI-report records for "Import CSV → table".
+**Changed:** `web/cad_export.js` (new) — `sectionRegions` turns the drawn band curves into closed, non-overlapping outlines (shared vertices on shared boundaries, bands split at pinch-outs), `toDXF` writes DXF R12 with `$INSUNITS`=6 (metres), one layer per band. `web/test_cad_export.mjs` (new). `web/builder.js` — keeps the last section's curves (`secLastGeom`), `exportSectionDXF()`, Copy-prompt handler. `web/builder.html` — "Export DXF (SLOPE/W · PLAXIS)" button; collapsible AI prompt with Copy button under the CSV box. `tests/plaxis_dxf_import_check.py` (new) — imports a DXF into PLAXIS 2D V22 headless, checks polygon count + area, meshes.
+**Worked:** Format research: PLAXIS V22 manual (`import` command, Reference §11.8) and GeoStudio 2025.2's own resource strings ("Import CAD Drawing", *.dwg/*.dxf). On the user's own data (13 holes incl. I-DH2/I-DH3, their section line): PLAXIS 15/15 polygons, area 10811.1 m² = DXF (so metres read right), meshed 5853 elements. ezdxf audit: 0 errors / 0 fixes; shapely: no self-crossing, no overlaps. The prompt's own example rows import cleanly.
+**Dead ends:** (1) PLAXIS `import "polygons" "f.dxf" (1 1) (0 0)` — the manual's own example — fails "Invalid parameters" on V22; `1 1 (0 0)` is accepted but finds "no objects that can be imported as polygons". Closed POLYLINE *and* LWPOLYLINE both came in as lines only. Fix: `import "f.dxf" "ClosedPolylinesAsPolygons" True` (GUI: tick "Import closed polylines as polygons"). (2) The GeoStudio `gsi` API has no import call, and the user declined GUI control, so the GeoStudio import itself was not run. (3) Python text-mode reads turned CRLF into LF and broke a `split('
+')`.
+**Open:** GeoStudio File → Import of the DXF is **unverified in the app** — only checked with ezdxf/shapely. Regions arrive without materials in both programs (assign by layer name). Proposed structures are not exported.
+
 ### 2026-10-01 10:00 — Fix "Import CSV → table" rejecting the site's own CSV
 **Goal:** "I am not able to add new borehole entries … it shows ✗ Missing column: borehole_id" — find why and test the function.
 **Changed:** `web/builder.js` — `importCSV()` now reads the project format (`#GEOVIS` line + 9 columns) via `projectCSVToState`; a `#GEOVIS` paste loads the whole project, a plain table replaces only the boreholes. "Export table → CSV" now writes the same project format (`stateToProjectCSV`). Removed `csvToState`. `web/builder.html` — textbox label lists the 9 columns.

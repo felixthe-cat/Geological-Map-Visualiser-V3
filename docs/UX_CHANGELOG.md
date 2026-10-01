@@ -65,3 +65,10 @@ What changed for you, newest at the bottom of each day. Append only.
   CSV the site itself produces. You can now copy the CSV out, add rows for new boreholes at the
   bottom, and import it back. "Export table → CSV" now gives the same full format, including
   borehole type and decomposition grade.
+- 2026-10-01 — New "Export DXF (SLOPE/W · PLAXIS)" button next to Export PNG on the
+  Cross-Section tab. It saves the soil and rock layers as closed shapes at true scale, in metres.
+  In PLAXIS 2D use Import geometry and tick "Import closed polylines as polygons". In GeoStudio
+  use File → Import.
+- 2026-10-01 — Under the CSV box there is now a ready-made prompt you can copy into Gemini or
+  ChatGPT. Give it your ground investigation report and it returns borehole rows in the format
+  the Import button expects.

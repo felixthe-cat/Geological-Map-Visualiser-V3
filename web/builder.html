@@ -268,6 +268,45 @@
           <button class="ghost mini" id="csv-export">Export table → CSV</button>
         </div>
         <div id="parse-info" class="hint"></div>
+        <details style="margin-top:6px">
+          <summary class="hint" style="cursor:pointer">Adding boreholes from a GI report? Copy a ready-made prompt for Gemini or ChatGPT</summary>
+          <div class="hint" style="margin:4px 0">Paste it into the AI with your report pages (or the values typed out). It replies with rows in exactly this box's format: paste them at the bottom of the box (without repeating the header line), then click Import. Always check the numbers against the report.</div>
+          <textarea id="ai-prompt" readonly spellcheck="false" style="height:140px">You are formatting borehole records from a Hong Kong ground investigation (GI) report so they can be pasted into the GeoVisualise &quot;Import CSV → table&quot; box.
+
+INPUT: either the report pages I attach (read the borehole / trial pit logs and the location plan or coordinate table), or values I type to you.
+
+OUTPUT: ONE plain-text CSV block in a code block, nothing else before or after it. The first line must be exactly this header:
+borehole_id,x,y,ground_level,kind,surface,top_depth,base_depth,grade
+
+Then ONE ROW PER LAYER (a borehole with 4 layers has 4 rows), boreholes one after another, layers in order from the top down.
+
+Columns:
+1. borehole_id — the hole name exactly as in the report (e.g. DH1, BH 3, TP2). Do not rename. Repeat it on every row of that hole.
+2. x — Easting, HK1980 Grid, in metres (6 digits before the decimal point, about 800000–870000).
+3. y — Northing, HK1980 Grid, in metres (6 digits, about 800000–850000). Never swap x and y.
+4. ground_level — ground level at the hole in mPD (metres above Principal Datum). Same value on every row of that hole.
+5. kind — BH for a borehole or drillhole, TP for a trial pit or inspection pit.
+6. surface — the material name, short, e.g. Fill, Colluvium, Completely Decomposed Granite (Grade V). No commas.
+7. top_depth — depth to the TOP of the layer in metres below ground (first layer = 0).
+8. base_depth — depth to the BASE of the layer in metres below ground.
+9. grade — weathering grade for rock and saprolite (GEOGUIDE 3): the Roman numeral FIRST, then the short code in brackets, e.g. VI (RS), V (CDG), IV (HDG), III (MDG), II (SDG), I (Fresh). Leave EMPTY for fill, made ground, colluvium, alluvium, marine deposits and other transported soils.
+
+Rules:
+- Depths, not levels: if the log gives reduced levels (mPD), convert: depth = ground_level − level.
+- Each layer&#x27;s top_depth must equal the previous layer&#x27;s base_depth. base_depth must be larger than top_depth.
+- Numbers only in numeric columns: no units, no &quot;m&quot;, no thousands separators.
+- No commas inside any value (write &quot;Made Ground Concrete&quot;, not &quot;Made Ground, Concrete&quot;).
+- If a value is missing or unreadable, do NOT guess. Leave that hole out of the CSV and list it under the code block as &quot;Not included: &lt;hole&gt; — &lt;what is missing&gt;&quot;.
+- After the code block, add a short check table: borehole_id, number of layers, final depth, ground level, and which report page each came from, so I can verify it.
+
+Example of the required format:
+borehole_id,x,y,ground_level,kind,surface,top_depth,base_depth,grade
+I-DH2,837112.72,821896.65,78.17,BH,Fill,0,1,
+I-DH2,837112.72,821896.65,78.17,BH,Completely Decomposed Granite (Grade V),1,29.39,V (CDG)
+I-DH2,837112.72,821896.65,78.17,BH,Moderately Decomposed Granite (Grade III),29.39,47.77,III (MDG)
+TP1,836998.14,821769.70,72.49,TP,Fill,0,0.6,</textarea>
+          <button class="ghost mini" id="ai-prompt-copy" type="button" style="margin-top:4px">Copy prompt</button>
+        </details>
 
         <!-- Cloud accounts. Entirely hidden unless supabase_config.js is filled
              in, so the page is unchanged for an unconfigured deploy. -->
@@ -447,6 +486,8 @@
             </div>
             <div class="row" style="margin-top:10px">
               <button class="ghost" id="sec-png">Export PNG</button>
+              <button class="ghost" id="sec-dxf" title="Soil/rock layers as closed shapes at true scale (no vertical exaggeration), in metres: chainage across, mPD up. GeoStudio: File → Import → pick the .dxf. PLAXIS 2D: Structures mode → Import geometry.">Export DXF (SLOPE/W · PLAXIS)</button>
+              <span id="sec-dxf-note" class="hint" style="margin:0"></span>
             </div>
           </div>
         </details>

@@ -417,6 +417,9 @@ let secStructLayer=null;  // Leaflet layer holding the plan footprints
 // Plot extent of the last drawn section, so "add a rectangle" can drop a new
 // one somewhere visible instead of at (0,0).
 let secPlotRange=null;   // {dMin,dMax,eMin,eMax}
+// Sampled band boundaries of the last drawn section — the DXF export redraws
+// exactly what is on screen, at true scale.
+let secLastGeom=null;    // {xq, curves}
 
 let _mapLibs=null;
 function ensureMapLibs(){ return _mapLibs || (_mapLibs=import('./sitemap.js').then(m=>m.ensureMapLibs())); }
@@ -1000,6 +1003,7 @@ function renderSection(stations, vex, lineLen, A, B){
   svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'));
 
   const curves = interpolateHorizons(dist, horizons, xq, method, topOverride, extrap);
+  secLastGeom = { xq, curves };                     // for the DXF export
   for (let k=0;k<STRAT.length;k++){
     const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
     const top=curves[k], base=curves[k+1];
@@ -1778,6 +1782,25 @@ async function exportContour(){
   setCtrStatus(msg, msg.startsWith('✓')?'ok':'err');
 }
 
+// ---- DXF export (GeoStudio SLOPE/W and PLAXIS 2D) ---------------------
+// One closed polyline per soil/rock band at TRUE scale (x = chainage m,
+// y = mPD), layer = the band's legend name. See cad_export.js.
+async function exportSectionDXF(){
+  const note=document.getElementById('sec-dxf-note');
+  if (!secLastGeom){ note.textContent='Draw a section first.'; return; }
+  const { sectionRegions, toDXF, layerName } = await import('./cad_export.js');
+  const { xq, curves } = secLastGeom;
+  const names = STRAT.map(s=>layerName(STRAT_LABEL[s]||s));
+  const regions = sectionRegions(xq, curves, names);
+  if (!regions.length){ note.textContent='Nothing to export — the section has no soil/rock bands.'; return; }
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([toDXF(regions)],{type:'application/dxf'}));
+  a.download=exportStem('Cross-Section')+'.dxf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  note.textContent=`✓ ${regions.length} region(s) on ${new Set(regions.map(r=>r.name)).size} layer(s), true scale, metres.`;
+}
+
 // ---- PNG export ------------------------------------------------------
 function exportPNG(svgEl, name){
   if (!svgEl) return;
@@ -1925,6 +1948,7 @@ document.getElementById('sec-inc-reset').addEventListener('click', ()=>{
 wireAnnotEditor();
 document.getElementById('panel-collapse').addEventListener('click', ()=>setPanelCollapsed(true));
 document.getElementById('panel-expand').addEventListener('click', ()=>setPanelCollapsed(false));
+document.getElementById('sec-dxf').addEventListener('click', exportSectionDXF);
 document.getElementById('sec-png').addEventListener('click', ()=>exportPNG(document.querySelector('#sec-viz svg'), exportStem('Cross-Section')+'.png'));
 
 // site plan base map + names + image export (tasks 6 & 2)
@@ -1969,6 +1993,12 @@ function importCSV(){
   catch(err){ info.textContent='✗ '+err.message; }
 }
 document.getElementById('csv-import').addEventListener('click', importCSV);
+document.getElementById('ai-prompt-copy').addEventListener('click', async e=>{
+  const t=document.getElementById('ai-prompt');
+  // Clipboard API can be refused (non-secure context / permissions); fall back to selecting the text
+  try { await navigator.clipboard.writeText(t.value); e.target.textContent='✓ Copied'; }
+  catch { t.select(); e.target.textContent='Press Ctrl+C to copy'; }
+});
 document.getElementById('csv-export').addEventListener('click', ()=>{
   document.getElementById('csv').value=stateToProjectCSV(state, sectionLine, projectExtras());
   document.getElementById('parse-info').textContent='✓ exported to textbox'; });
