@@ -6,7 +6,7 @@
 
 import { sectionStations, interpolateHorizons, boxToPts, ptsToBox, resizeFromCorner, cutPolygon } from './section_geom.js';
 import { tileCoord, sampleElevation, tilesForLine, correctedProfile, idwDelta, TILE_LOD } from './terrain.js';
-import { stateToProjectCSV, projectCSVToState, csvToBoreholes } from './project_csv.js';
+import { stateToProjectCSV, projectCSVToState } from './project_csv.js';
 
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
 const HF_URL   = 'https://ferxxxxx-geological-map-visualiser-v3.hf.space';
@@ -78,9 +78,6 @@ function stateToCSV(){
     for (const l of bh.layers)
       out += `${bh.id},${bh.x},${bh.y},${l.surface},${l.top},${l.base},${bh.gl}\n`;
   return out;
-}
-function csvToState(text){
-  state.boreholes = csvToBoreholes(text); state.activeIdx = 0;
 }
 function loadProjectCSV(text){
   const p = projectCSVToState(text);
@@ -1955,13 +1952,26 @@ document.getElementById('ctr-base').addEventListener('change', e=>{
 document.getElementById('ctr-export').addEventListener('click', exportContour);
 document.getElementById('hf-send').addEventListener('click', sendToHF);
 
+// The textbox takes the same project format the dataset picker and "Download
+// project CSV" produce (#GEOVIS line + 9 columns), so text copied out of the
+// box — or out of a downloaded file — can be edited and pasted straight back.
+// A plain table with no #GEOVIS line (9- or old 7-column) replaces only the
+// boreholes and leaves the site boundary, section line and annotations alone.
 function importCSV(){
-  try { csvToState(document.getElementById('csv').value); document.getElementById('parse-info').textContent='✓ imported';
-    refreshInput(); commit(); }
-  catch(err){ document.getElementById('parse-info').textContent='✗ '+err.message; }
+  const info=document.getElementById('parse-info');
+  try {
+    const text=document.getElementById('csv').value.replace(/^﻿/,'').trim();
+    if (text.startsWith('#GEOVIS')){ loadProjectCSV(text); setMode(state.mode); }
+    else { state.boreholes = projectCSVToState(text).boreholes; state.activeIdx = 0; }
+    info.textContent=`✓ imported ${state.boreholes.length} borehole(s)`;
+    refreshInput(); commit();
+  }
+  catch(err){ info.textContent='✗ '+err.message; }
 }
 document.getElementById('csv-import').addEventListener('click', importCSV);
-document.getElementById('csv-export').addEventListener('click', ()=>{ document.getElementById('csv').value=stateToCSV(); document.getElementById('parse-info').textContent='✓ exported to textbox'; });
+document.getElementById('csv-export').addEventListener('click', ()=>{
+  document.getElementById('csv').value=stateToProjectCSV(state, sectionLine, projectExtras());
+  document.getElementById('parse-info').textContent='✓ exported to textbox'; });
 
 // ==== DATASETS: built-in examples + the user's own saved datasets ==========
 // One picker, two groups. A built-in example and a saved dataset are the SAME

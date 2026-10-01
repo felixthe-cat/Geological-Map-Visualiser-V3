@@ -61,3 +61,7 @@ What changed for you, newest at the bottom of each day. Append only.
   tolerance. It now uses every borehole on the site to correct the terrain, not just the ones
   drawn in the section.
 - 2026-09-24 — Fixed: the hover panel on the cross-section was showing unstyled.
+- 2026-10-01 — Fixed: "Import CSV → table" showed "Missing column: borehole_id" when given the
+  CSV the site itself produces. You can now copy the CSV out, add rows for new boreholes at the
+  bottom, and import it back. "Export table → CSV" now gives the same full format, including
+  borehole type and decomposition grade.

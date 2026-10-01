@@ -4,6 +4,13 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-01 10:00 — Fix "Import CSV → table" rejecting the site's own CSV
+**Goal:** "I am not able to add new borehole entries … it shows ✗ Missing column: borehole_id" — find why and test the function.
+**Changed:** `web/builder.js` — `importCSV()` now reads the project format (`#GEOVIS` line + 9 columns) via `projectCSVToState`; a `#GEOVIS` paste loads the whole project, a plain table replaces only the boreholes. "Export table → CSV" now writes the same project format (`stateToProjectCSV`). Removed `csvToState`. `web/builder.html` — textbox label lists the 9 columns.
+**Worked:** Root cause: opening a dataset or downloading the project gives the `#GEOVIS` format, but Import only read the old 7-column table, so it took the `#GEOVIS` line as the header row. Reproduced the exact error in Node with the user's data, then confirmed the new path parses it (I-DH2 / I-DH3 with kind and grade). In the browser: picker text imports; export → append a new borehole → import → it appears in the borehole list and survives re-export; header-less 9-column and old 7-column tables still import. No console errors; all Node self-checks pass.
+**Dead ends:** First edit failed to match — `builder.js` has Windows line endings; patched with them normalised and restored. `stateToCSV` had to stay: the Hugging Face sender still uses the 7-column format.
+**Open:** The user's I-DH2/I-DH3 rows themselves look valid; not loaded into their saved cloud dataset — they need to Import, then "Save changes".
+
 ### 2026-09-24 16:30 — Structure annotations reworked; ground surface made independent of tolerance
 **Goal:** clearer rectangle inputs, drag-to-draw/resize, a plan-drawn structure mode, and a ground line that doesn't move when the distance tolerance changes.
 **Changed:** `section_geom.js` gained `boxToPts`/`ptsToBox` (moved from builder), `resizeFromCorner`, `cutPolygon`; `terrain.js` gained `idwDelta`; `builder.js` annotation editor rewritten (named corners in a 2×2 grid, captioned fields, Draw on section / Draw on site plan modes, corner handles on both views); plan footprints saved in the same `annots` list with `kind:'plan'`. Section-editor CSS moved from `style.css` into `builder.html` — builder never loaded `style.css`, so the hover tooltip and annotation styles from 2026-08-30 had never applied.
