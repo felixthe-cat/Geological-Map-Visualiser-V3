@@ -4,6 +4,13 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-09 23:25 — 48 s promo video (HyperFrames)
+**Goal:** a 30–60 s promo focused on "the 2D geological mapping, the cross-section function, its extraction of data from the CSDI on the borehole data in AGS format, the terrain of Hong Kong".
+**Changed:** `videos/` (new, gitignored) — `shots/capture_app.py` (Playwright drives the live builder, saves screens); `terrain/fetch_dtm.mjs` + `shade.py` (LandsD DTM tiles → HK shaded relief); `terrain/music.py` (synthesised music bed); `geovisualise-promo/` (HyperFrames project, `index.html` = 7 scenes, `renders/video.mp4`). `.gitignore` — added `videos/`. `.claude/launch.json` — preview config.
+**Worked:** `hyperframes check` passed; snapshots reviewed; render 1920×1080, 48.0 s, audio present (−19.5 dB mean). Logo-spacing fix verified on a frame from the MP4.
+**Dead ends:** (1) `page.evaluate(map.setView(...))` threw "Execution context was destroyed" — it was returning the Leaflet map object; appending `; 0` fixed it. (2) DTM fills the sea with exactly 2.0 m, so the first relief render was all land; sea mask is now `z <= 2.0`. (3) Mid-task, every new process failed with 0xC0000142 until stray processes were cleared.
+**Open:** Live "Load into 2D Builder" fails (503 — HF Space stopped), so log/section/contour scenes use the bundled example dataset. The user said "Landsat"; the app uses the LandsD 5 m DTM and the video says so.
+
 ### 2026-10-01 15:30 — DXF export for SLOPE/W and PLAXIS; AI formatting prompt
 **Goal:** a download next to Export PNG that "could be directly imported into SlopeW and also Plaxis", tested in both; plus a ready-to-copy prompt so Gemini can format GI-report records for "Import CSV → table".
 **Changed:** `web/cad_export.js` (new) — `sectionRegions` turns the drawn band curves into closed, non-overlapping outlines (shared vertices on shared boundaries, bands split at pinch-outs), `toDXF` writes DXF R12 with `$INSUNITS`=6 (metres), one layer per band. `web/test_cad_export.mjs` (new). `web/builder.js` — keeps the last section's curves (`secLastGeom`), `exportSectionDXF()`, Copy-prompt handler. `web/builder.html` — "Export DXF (SLOPE/W · PLAXIS)" button; collapsible AI prompt with Copy button under the CSV box. `tests/plaxis_dxf_import_check.py` (new) — imports a DXF into PLAXIS 2D V22 headless, checks polygon count + area, meshes.
