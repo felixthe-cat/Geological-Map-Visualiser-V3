@@ -46,3 +46,6 @@ tmp_check.txt
 .claude/
 restructure_app.py
 References from Datagov/
+
+# promo video project (renders, node deps)
+videos/
