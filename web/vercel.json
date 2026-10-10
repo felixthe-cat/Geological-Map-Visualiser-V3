@@ -1,4 +1,10 @@
 {
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "crons": [
+    {
+      "path": "/api/keep-alive",
+      "schedule": "0 4 * * *"
+    }
+  ]
 }

@@ -4,6 +4,21 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-10 14:55 — Supabase inactivity keep-alive automation
+**Goal:** Supabase Free Tier pauses projects after 7 days of inactivity; create an automated system to query the database and keep it alive continuously.
+**Changed:**
+- `web/api/keep-alive.js` (new): Vercel Serverless Function that queries Supabase REST API (`/rest/v1/projects?select=id&limit=1`) with public `anon` key, returning JSON status and keeping the database alive.
+- `web/vercel.json`: added `"crons"` schedule triggering `/api/keep-alive` daily at `04:00 UTC` (`0 4 * * *`). Runs natively on Vercel cloud with zero external dependencies and zero manual maintenance.
+- `web/test_keep_alive.mjs` (new): self-check test validating that the keep-alive handler returns HTTP 200 and queries Supabase successfully.
+**Worked:**
+- Live deployment to Vercel verified in production: `https://geological-map-visualiser.vercel.app/api/keep-alive` returns HTTP 200 with `{ ok: true, message: 'Supabase keep-alive ping successful', ... }`.
+- Local test `node web/test_keep_alive.mjs` passes.
+- All 5 existing Node self-checks pass.
+**Dead ends:** none.
+**Open:** none.
+
+---
+
 ### 2026-10-09 23:25 — 48 s promo video (HyperFrames)
 **Goal:** a 30–60 s promo focused on "the 2D geological mapping, the cross-section function, its extraction of data from the CSDI on the borehole data in AGS format, the terrain of Hong Kong".
 **Changed:** `videos/` (new, gitignored) — `shots/capture_app.py` (Playwright drives the live builder, saves screens); `terrain/fetch_dtm.mjs` + `shade.py` (LandsD DTM tiles → HK shaded relief); `terrain/music.py` (synthesised music bed); `geovisualise-promo/` (HyperFrames project, `index.html` = 7 scenes, `renders/video.mp4`). `.gitignore` — added `videos/`. `.claude/launch.json` — preview config.
