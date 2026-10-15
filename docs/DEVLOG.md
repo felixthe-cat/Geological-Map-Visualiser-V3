@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-15 21:45 — Repaired the old "Lok Fu FWSR" cloud save
+**Goal:** "set the 19 TP holes in the old Lok Fu FWSR save back to trial pits (copy them from the newer 20260928 save)".
+**Changed:** no code. In the Supabase `projects` table, row "Lok Fu FWSR": the `kind` column went BH → TP on 50 CSV rows (19 holes), for every hole id that is TP in "20260928 Lok Fu FWSR"; `meta.trialPits` was 0 and is now 19. Supersedes the "not repaired" note in the entry below.
+**Worked:** a preview query first (19 holes / 50 rows, no quoted ids). After the update: 19 TP + 21 BH = 40 holes, matching `meta`; CSV length unchanged.
+**Dead ends:** none.
+**Open:** KTP7 exists only in the newer save, so it was not added. Reverse by setting those 19 ids back to BH if ever needed.
+
+---
+
 ### 2026-10-15 21:30 — Plan for a 3D Block builder (planning only)
 **Goal:** a 3D viewer built like the 2D builder: LandsD 3D map, soil block inside a drawn boundary, draggable slice, export to GeoStudio/PLAXIS (Revit evaluated).
 **Changed:** `docs/PLAN_3D_BLOCK.md` (new): the agreed scope, the user's answers, the geometry method, files to add, and the risks. No code was written.

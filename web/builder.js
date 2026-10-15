@@ -7,44 +7,17 @@
 import { sectionStations, interpolateHorizons, boxToPts, ptsToBox, resizeFromCorner, cutPolygon } from './section_geom.js';
 import { tileCoord, sampleElevation, tilesForLine, correctedProfile, idwDelta, TILE_LOD } from './terrain.js';
 import { stateToProjectCSV, projectCSVToState } from './project_csv.js';
+import { colourFor, classKey, classLabel, classColour } from './strata.js';
+import { dtmTileGetter, prefetchDtmTiles } from './dtm_tiles.js';
 
 const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
 const HF_URL   = 'https://ferxxxxx-geological-map-visualiser-v3.hf.space';
 document.getElementById('hf-open').href = HF_URL;
 
-// ---- stratum colours -------------------------------------------------
-const PALETTE = {
-  fill:'#c9b98f', 'made ground':'#c9b98f', topsoil:'#7a5c33', soil:'#caa460',
-  colluvium:'#b98c46', alluvium:'#d9c56b', marine:'#8fb0a8', clay:'#9c7b4d',
-  silt:'#a89968', sand:'#e0c56e', gravel:'#b7a06a',
-  cdg:'#d8a24a', hdg:'#b5762e', mdg:'#8f5a24', sdg:'#6f4620',
-  granite:'#8a8f98', bedrock:'#6b7079', rock:'#6b7079', tuff:'#7d838c'
-};
-function colourFor(surface){
-  const k = (surface||'').trim().toLowerCase();
-  if (PALETTE[k]) return PALETTE[k];
-  let h=0; for (const c of k) h = (h*31 + c.charCodeAt(0)) % 360;
-  return `hsl(${h},45%,58%)`;
-}
-
-// ---- decomposition grade (GeoGuide 3, Table 4) ----------------------
-// Imported layers carry a `grade` tag from the backend, e.g. "V (CDG)".
-// The cross-section groups & colours by grade *numeral* (all Grade V rock is
-// one band regardless of lithology); transported soils (no grade) fall back
-// to their material name & colour.
-const GRADE_LABEL = { VI:'Grade VI · Residual Soil', V:'Grade V · Completely Decomposed',
-  IV:'Grade IV · Highly Decomposed', III:'Grade III · Moderately Decomposed',
-  II:'Grade II · Slightly Decomposed', I:'Grade I · Fresh Rock' };
-const GRADE_COLOUR = { VI:'#a9743a', V:'#d8a24a', IV:'#c07d2e', III:'#9a6a2c',
-  II:'#8a8f98', I:'#5b6068' };
-function gradeRoman(grade){ const m=/^(VI|IV|III|II|V|I)\b/.exec((grade||'').trim()); return m?m[1]:''; }
-function classKey(l){ const r=gradeRoman(l.grade); return r ? ('G'+r) : (l.surface||''); }
-function classLabel(l){ const r=gradeRoman(l.grade); return r ? GRADE_LABEL[r] : (l.surface||'(unnamed)'); }
-function classColour(l){ const r=gradeRoman(l.grade); return r ? GRADE_COLOUR[r] : colourFor(l.surface); }
-
 // ---- STATE (source of truth) ----------------------------------------
 // state.boreholes = [{id,x,y,gl, layers:[{surface,top,base}]}]  (top/base = depth below GL)
 let state = { boreholes: [], activeIdx: 0, mode: 'depth', sitePlan: null };
+let block3d = null;                          // builder3d.html settings, carried through saves untouched
 // Derived (consumed by renderers)
 let BH = {}; let STRAT = [];                 // STRAT = ordered class keys (grade or surface)
 let STRAT_LABEL = {}, STRAT_COLOUR = {};     // class key -> legend label / colour
@@ -92,6 +65,7 @@ function loadProjectCSV(text){
   // controls keep whatever they are currently set to and both lists reset.
   secExcluded = new Set(Array.isArray(p.excluded) ? p.excluded : []);
   secAnnots   = Array.isArray(p.annots) ? p.annots.map(normAnnot).filter(Boolean) : [];
+  block3d     = p.block3d || null;       // 3D builder's own settings — carried, never edited here
   applySectionSettings(p.section);
   renderAnnotList();
 }
@@ -426,39 +400,7 @@ function ensureMapLibs(){ return _mapLibs || (_mapLibs=import('./sitemap.js').th
 let _mapExport=null;
 function mapExport(){ return _mapExport || (_mapExport=import('./map_export.js')); }
 
-// ---- LandsD 5 m DTM (terrain ground surface — see docs/PLAN_TERRAIN_PROFILE.md) ----
-// LERC decoder is only fetched (117 KB wasm + 14 KB JS) the first time a
-// "Ground surface" mode other than "interpolated" is actually used.
-let _lerc=null;
-function ensureLerc(){
-  return _lerc || (_lerc=import('https://unpkg.com/lerc@4.0.4/LercDecode.es.js').then(async m=>{ await m.load(); return m; }));
-}
-const DTM_TILE_URL='https://tiles.arcgis.com/tiles/6j1KwZfY2fZrfNMR/arcgis/rest/services/HK_DTM/ImageServer/tile';
-const dtmTileCache=new Map();      // "lod/row/col" -> Float32Array(256*256) | null (fetch failed)
-function dtmTileGetter(lod,row,col){ return dtmTileCache.get(`${lod}/${row}/${col}`) || null; }
-async function fetchDtmTile(lod,row,col){
-  const key=`${lod}/${row}/${col}`;
-  if (dtmTileCache.has(key)) return dtmTileCache.get(key);
-  let arr=null;
-  try {
-    const lerc=await ensureLerc();
-    const res=await fetch(`${DTM_TILE_URL}/${lod}/${row}/${col}`);
-    if (res.ok) arr=lerc.decode(await res.arrayBuffer()).pixels[0];
-  } catch {}
-  dtmTileCache.set(key, arr);
-  return arr;
-}
-// Fetch every tile in `tiles` that isn't cached yet, then invoke `onReady` (a
-// redraw) once done — so a first-time drag renders with today's interpolated
-// surface immediately, then upgrades to terrain a moment later rather than
-// blocking the drag. One call per redraw (not one per tile) so the redraw
-// fires once, not once per outstanding tile.
-function prefetchDtmTiles(tiles, onReady){
-  const want=[...new Map(tiles.map(t=>[`${t.lod}/${t.row}/${t.col}`,t])).values()]
-    .filter(t=>!dtmTileCache.has(`${t.lod}/${t.row}/${t.col}`));
-  if (!want.length) return;
-  Promise.all(want.map(t=>fetchDtmTile(t.lod,t.row,t.col))).then(onReady);
-}
+// ---- LandsD 5 m DTM tiles: fetch/decode/cache live in dtm_tiles.js (shared with builder3d) ----
 
 // Swappable base map for the site plan / contour plan (task 6). `key` namespaces
 // the remembered layer so the two maps can show different basemaps at once.
@@ -1495,8 +1437,17 @@ function applySectionSettings(o){
 }
 /** The extras half of a saved project — see stateToProjectCSV(). */
 function projectExtras(){
-  return { section: sectionSettings(), excluded:[...secExcluded], annots: secAnnots };
+  return { section: sectionSettings(), excluded:[...secExcluded], annots: secAnnots, block3d };
 }
+
+// "3D Block ↗" (admin): hand the current project to builder3d.html through
+// localStorage, plus which saved dataset it is, so the 3D page can save back.
+document.getElementById('open-3d').addEventListener('click', ()=>{
+  try {
+    localStorage.setItem('geovis_3d_handoff', JSON.stringify({
+      csv: stateToProjectCSV(state, sectionLine, projectExtras()), cloudId: dsOpenId || null }));
+  } catch {}   // storage blocked: the 3D page just opens on its own dataset picker
+});
 
 // ---- site-plan image export (task 6) --------------------------------------
 // Exports the plan exactly as framed on screen — basemap + site boundary +

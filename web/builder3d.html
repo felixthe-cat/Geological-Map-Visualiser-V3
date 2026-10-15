@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoVisualise — 3D Block Builder</title>
+  <meta name="description" content="Build a 3D soil block from Hong Kong ground-investigation boreholes under the Lands Department 3D map, slice it, and export the section to GeoStudio or PLAXIS.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ac845' stroke-width='2'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://data.map.gov.hk" crossorigin>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/",
+      "3d-tiles-renderer/three": "https://cdn.jsdelivr.net/npm/3d-tiles-renderer@0.5.3/build/index.three.js",
+      "3d-tiles-renderer/three/plugins": "https://cdn.jsdelivr.net/npm/3d-tiles-renderer@0.5.3/build/index.three-plugins.js"
+    }
+  }
+  </script>
+  <style>
+    :root{
+      --cream:#f0e9dc; --card:#fffdf8; --card2:#f7f2e8; --border:#c8bda8;
+      --ink:#1a1a0f; --forest:#2f5a1e; --forest-d:#1e3c12; --gold:#8a6508; --muted:#6b6250;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--cream);color:var(--ink);
+      font-family:'Outfit','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
+    a{color:var(--forest)}
+    header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 20px;
+      background:var(--forest-d);color:#f0e9dc}
+    header .logo{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:.02em}
+    header .spacer{flex:1}
+    header a{color:#d8e6c4;text-decoration:none;font-size:13px;white-space:nowrap}
+    .wrap{display:grid;grid-template-columns:360px 1fr;gap:16px;padding:16px;max-width:1600px;margin:0 auto}
+    .wrap>.panel{min-width:0}
+    @media(max-width:940px){.wrap{grid-template-columns:1fr}}
+    .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;
+      box-shadow:0 2px 10px rgba(0,0,0,.06);padding:14px}
+    .panel h3{margin:14px 0 6px;font-size:13px;color:var(--forest-d);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+    .panel h3:first-child{margin-top:0}
+    label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px;font-weight:500}
+    label.inline{display:flex;align-items:center;gap:6px;margin:4px 0;color:var(--ink);font-size:13px}
+    label.inline input{width:auto}
+    select,input{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;
+      background:var(--card2);font-family:inherit;font-size:13px;color:var(--ink)}
+    input[type=range]{padding:0}
+    button{cursor:pointer;border:none;border-radius:8px;padding:7px 12px;font-family:inherit;
+      font-size:13px;font-weight:600;background:var(--forest);color:#fff}
+    button:hover{background:var(--forest-d)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    button.ghost{background:var(--card2);color:var(--forest-d);border:1px solid var(--border)}
+    button.gold{background:var(--gold)}
+    .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}
+    .hint{font-size:12px;color:var(--muted)}
+    .status{font-size:12px;margin-top:6px;padding:6px 8px;border-radius:8px;background:var(--card2)}
+    .status.err{background:#f6dcd6;color:#7a2416}
+    .status.ok{background:#e3eed6;color:#24420f}
+    .tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:2px solid var(--border);margin-bottom:12px}
+    .tab{padding:8px 14px;border-radius:8px 8px 0 0;background:transparent;color:var(--muted);
+      font-weight:600;border:1px solid transparent;border-bottom:none}
+    .tab:hover{background:var(--card2)}
+    .tab.active{background:var(--card2);color:var(--forest-d);border-color:var(--border)}
+    .tabpane{display:none}
+    .tabpane.active{display:block}
+    #map{height:70vh;min-height:380px;border-radius:10px;border:1px solid var(--border)}
+    #view3d{position:relative;height:72vh;min-height:400px;border-radius:10px;overflow:hidden;
+      background:linear-gradient(#cfdde6,#eef0ea);border:1px solid var(--border)}
+    #view3d canvas{display:block}
+    #view3d .overlay{position:absolute;left:10px;bottom:10px;font-size:11px;color:#3d3529;
+      background:rgba(255,253,248,.85);padding:4px 8px;border-radius:6px;pointer-events:none}
+    #sec-svg{width:100%;height:auto;background:#fff;border:1px solid var(--border);border-radius:10px}
+    .legend div{display:flex;align-items:center;gap:6px;font-size:12.5px;margin:2px 0}
+    .legend .sw{width:14px;height:14px;border-radius:3px;border:1px solid #3d3529;flex:0 0 auto}
+    .val{font-variant-numeric:tabular-nums;color:var(--forest-d);font-weight:600}
+    #locked{max-width:520px;margin:60px auto;text-align:center}
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ac845" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        <polyline points="2 17 12 22 22 17"></polyline>
+        <polyline points="2 12 12 17 22 12"></polyline>
+      </svg>
+      GeoVisualise — 3D Block Builder
+    </span>
+    <span class="spacer"></span>
+    <a href="index.html">← Home</a>
+    <a href="builder.html">2D Builder</a>
+    <span id="auth-slot"></span>
+  </header>
+
+  <div id="locked" class="panel" style="display:none">
+    <h3>Admin only</h3>
+    <p class="hint">The 3D Block builder is still being tested. Sign in as admin from the home page to use it.</p>
+    <a href="index.html">← Back to home</a>
+  </div>
+
+  <div class="wrap" id="app" style="display:none">
+    <!-- ── CONTROLS ── -->
+    <div class="panel">
+      <h3>1 · Dataset</h3>
+      <select id="ds-select"></select>
+      <div class="row">
+        <button id="ds-load">Load</button>
+        <label class="ghost" style="margin:0"><input type="file" id="ds-file" accept=".csv,text/csv" style="display:none">
+          <span class="hint" style="cursor:pointer;text-decoration:underline">or open a project CSV…</span></label>
+      </div>
+      <div id="ds-note" class="status" style="display:none"></div>
+
+      <h3>2 · Site boundary</h3>
+      <div class="hint">Draw the area the block should fill on the Site Map tab.</div>
+      <div class="row">
+        <button id="bd-draw">Draw boundary</button>
+        <button class="ghost" id="bd-fit">Box around boreholes</button>
+      </div>
+      <div id="bd-info" class="hint" style="margin-top:4px"></div>
+
+      <h3>3 · Block</h3>
+      <label>Top of soil follows</label>
+      <label class="inline"><input type="radio" name="top" value="dtm" checked> Lands Dept bare-earth ground model</label>
+      <label class="inline"><input type="radio" name="top" value="bh"> Borehole ground levels</label>
+      <label for="base">Block base level (mPD) — blank = 5 m below the deepest hole</label>
+      <input type="number" id="base" step="1" placeholder="auto">
+      <label for="detail">Detail</label>
+      <select id="detail">
+        <option value="60">Coarse (fast)</option>
+        <option value="120" selected>Normal</option>
+        <option value="200">Fine</option>
+      </select>
+      <label class="inline"><input type="checkbox" id="use-tp"> Include trial pits</label>
+      <div class="row"><button class="gold" id="build">Build 3D block</button></div>
+      <div id="build-note" class="status" style="display:none"></div>
+
+      <h3>Layers</h3>
+      <div id="legend" class="legend hint">Build the block to see its layers.</div>
+
+      <h3>View</h3>
+      <label>Vertical exaggeration <span class="val" id="vex-val">1×</span></label>
+      <input type="range" id="vex" min="1" max="5" step="0.5" value="1">
+      <label class="inline"><input type="checkbox" id="mesh-on" checked> Lands Dept 3D photo map</label>
+      <label>Photo map opacity <span class="val" id="mesh-op-val">100%</span></label>
+      <input type="range" id="mesh-op" min="0" max="1" step="0.05" value="1">
+      <label>Photo map height adjustment (m) <span class="val" id="mesh-dz-val"></span></label>
+      <div class="row" style="margin-top:0">
+        <input type="number" id="mesh-dz" step="0.1" value="0" style="width:110px">
+        <button class="ghost" id="mesh-level" title="Line the photo map up with the ground levels again">Auto-level</button>
+      </div>
+      <label class="inline"><input type="checkbox" id="holes-on" checked> Show boreholes</label>
+
+      <h3>4 · Slice</h3>
+      <label class="inline"><input type="checkbox" id="sl-on"> Cut the block</label>
+      <label>Direction (° from north) <span class="val" id="sl-az-val">90°</span></label>
+      <input type="range" id="sl-az" min="0" max="179" step="1" value="90">
+      <label>Position <span class="val" id="sl-off-val">0 m</span></label>
+      <input type="range" id="sl-off" min="-100" max="100" step="0.5" value="0">
+      <label class="inline"><input type="checkbox" id="sl-flip"> Keep the other side</label>
+
+      <h3>Save</h3>
+      <div class="row">
+        <button class="ghost" id="save-cloud" disabled title="Open one of your saved datasets to save back to it">Save changes</button>
+        <button class="ghost" id="save-file">Download project CSV</button>
+      </div>
+      <div id="save-note" class="status" style="display:none"></div>
+    </div>
+
+    <!-- ── OUTPUT ── -->
+    <div class="panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="map">1 · Site Map</button>
+        <button class="tab" data-tab="block">2 · 3D Block</button>
+        <button class="tab" data-tab="section">3 · Section &amp; Export</button>
+      </div>
+      <div class="tabpane active" data-pane="map">
+        <div id="map"></div>
+        <div class="hint" style="margin-top:6px">Green dots: boreholes in the dataset. Orange: site boundary. Red: slice line (A → B).</div>
+      </div>
+      <div class="tabpane" data-pane="block">
+        <div id="view3d"><div class="overlay" id="view-info">Drag to rotate · right-drag to pan · scroll to zoom</div></div>
+        <div id="view-note" class="status" style="display:none"></div>
+      </div>
+      <div class="tabpane" data-pane="section">
+        <div id="sec-empty" class="hint">Turn on “Cut the block” (step 4) to get a section.</div>
+        <svg id="sec-svg" style="display:none" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="row">
+          <button id="exp-dxf" disabled>Download DXF (GeoStudio / PLAXIS 2D)</button>
+          <button class="ghost" id="exp-png" disabled>Download PNG</button>
+        </div>
+        <div class="hint" style="margin-top:6px">DXF is at true scale (no exaggeration): x = chainage from A (m), y = level (mPD), one closed outline per layer.
+          GeoStudio: File › Import › CAD drawing. PLAXIS 2D: Structures › Import geometry.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+  <script>
+    // Same client-side admin gate as the 3D features in the 2D builder (not real security).
+    document.getElementById(window.GeoAdmin.isAdmin() ? 'app' : 'locked').style.display = '';
+  </script>
+  <script type="module" src="builder3d.js"></script>
+</body>
+</html>

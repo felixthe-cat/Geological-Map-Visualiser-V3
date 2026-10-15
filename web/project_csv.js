@@ -58,7 +58,7 @@ function splitRows(text){
 /**
  * @param state  {boreholes:[{id,x,y,gl,kind,layers:[{surface,top,base,grade}]}], mode, sitePlan}
  * @param sectionLine {a:[lat,lng], b:[lat,lng]} | null
- * @param extras {section?:object, excluded?:string[], annots?:object[]} — the
+ * @param extras {section?:object, excluded?:string[], annots?:object[], block3d?:object} — the
  *   whole cross-section setup: every option control's value, the boreholes the
  *   user manually deselected, and any drawn annotations. Kept in the same
  *   `#GEOVIS` header line so one file — and therefore one cloud row — still
@@ -71,7 +71,8 @@ export function stateToProjectCSV(state, sectionLine, extras){
     sectionLine: sectionLine || null,
     section: e.section || null,
     excluded: e.excluded && e.excluded.length ? e.excluded : null,
-    annots: e.annots && e.annots.length ? e.annots : null };
+    annots: e.annots && e.annots.length ? e.annots : null,
+    block3d: e.block3d || null };
   let out = '#GEOVIS '+JSON.stringify(meta)+'\n' + COLS.join(',') + '\n';
   for (const bh of state.boreholes)
     for (const l of bh.layers)
@@ -121,7 +122,7 @@ export function projectCSVToState(text){
   const ix = n => header.indexOf(n);
   if (ix('kind')<0 && ix('grade')<0)                       // legacy 7-column CSV
     return { boreholes: csvToBoreholes(rows.slice(i-1).join('\n')), mode:null, bounds:null,
-             sectionLine:null, section:null, excluded:null, annots:null };
+             sectionLine:null, section:null, excluded:null, annots:null, block3d:null };
   const map={};
   for (; i<rows.length; i++){
     const p=splitCSVLine(rows[i]);
@@ -139,5 +140,6 @@ export function projectCSVToState(text){
            sectionLine:(meta&&meta.sectionLine)||null,
            section:(meta&&meta.section)||null,
            excluded:(meta&&meta.excluded)||null,
-           annots:(meta&&meta.annots)||null };
+           annots:(meta&&meta.annots)||null,
+           block3d:(meta&&meta.block3d)||null };     // 3D builder: boundary, slice, options
 }

@@ -112,6 +112,13 @@ assert.deepEqual(shuffled.boreholes[0].layers.map(l=>l.surface), ['Upper','Lower
   assert.equal(plain.section, null);
   assert.equal(plain.excluded, null);
   assert.equal(plain.annots, null);
+  assert.equal(plain.block3d, null);
+}
+// The 3D builder's boundary/slice block rides along untouched.
+{
+  const block3d = { boundary:[[1,2],[3,4],[5,1]], slice:{az:30, off:-4.5}, top:'dtm', base:-20 };
+  const r = projectCSVToState(stateToProjectCSV(state, sectionLine, { block3d }));
+  assert.deepEqual(r.block3d, block3d);
 }
 
 console.log('project_csv.js OK — full save/resume round trip is lossless (incl. commas, quotes, TP kind, grades, boundary, section line, section options, deselections, annotations)');
