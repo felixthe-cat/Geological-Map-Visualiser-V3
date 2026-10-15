@@ -79,7 +79,11 @@ export function stateToProjectCSV(state, sectionLine, extras){
   return out;
 }
 
-/** Plain 7-column CSV (the Import/export CSV textbox format). */
+/** Plain 7-column CSV (the old Import/export CSV textbox format).
+ *  It has no kind column, so `kind` comes back null ("unknown") rather than
+ *  'BH': the caller decides — builder.js importCSV() carries the type over
+ *  from the hole already loaded under the same id. Defaulting to 'BH' here is
+ *  how a text-box round trip once turned every trial pit into a borehole. */
 export function csvToBoreholes(text){
   const rows = splitRows(text).filter(r=>r.trim());
   if (!rows.length) throw new Error('No data.');
@@ -92,7 +96,7 @@ export function csvToBoreholes(text){
     if (p.length < LEGACY.length) continue;
     const id=(p[ix('borehole_id')]||'').trim(); if(!id) continue;
     if (!map[id]) map[id]={ id, x:num(p[ix('x')]), y:num(p[ix('y')]),
-      gl:num(p[ix('ground_level')]), kind:'BH', layers:[] };
+      gl:num(p[ix('ground_level')]), kind:null, layers:[] };
     map[id].layers.push({ surface:(p[ix('surface')]||'').trim(),
       top:num(p[ix('top_depth')]), base:num(p[ix('base_depth')]), grade:'' });
   }
@@ -124,7 +128,7 @@ export function projectCSVToState(text){
     if (p.length < 8) continue;
     const id=(p[ix('borehole_id')]||'').trim(); if(!id) continue;
     if (!map[id]) map[id]={ id, x:num(p[ix('x')]), y:num(p[ix('y')]), gl:num(p[ix('ground_level')]),
-      kind:(ix('kind')>=0?(p[ix('kind')]||'').trim():'')||'BH', layers:[] };
+      kind:(ix('kind')>=0?(p[ix('kind')]||'').trim().toUpperCase():'')||null, layers:[] };
     map[id].layers.push({ surface:(p[ix('surface')]||'').trim(), top:num(p[ix('top_depth')]),
       base:num(p[ix('base_depth')]), grade:(ix('grade')>=0?(p[ix('grade')]||'').trim():'') });
   }

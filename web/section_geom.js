@@ -7,12 +7,19 @@
 //   "behind" either end help the interpolation instead of being dropped the
 //   instant it's outside the drawn segment. 0 = only between A and B (plus
 //   the small fp-rounding margin below).
-export function sectionStations(A, B, holes, corridor, extension=0){
+// @param nearestWins  "nearer hole wins": drop a hole when the point on the
+//   line it projects to is closer to some other (nearer-to-line) hole than to
+//   the hole itself. A far hole then only contributes where nothing closer
+//   covers that stretch, so widening the corridor fills gaps instead of
+//   zig-zagging the horizons between near and far logs.
+// @returns {stations:[{id,dist,perp}], inSet:Set, shadowed:Map<id, idOfNearerHole>}
+export function sectionStations(A, B, holes, corridor, extension=0, nearestWins=false){
   const dx=B.e-A.e, dy=B.n-A.n, len=Math.hypot(dx,dy);
   // half-width either side of the line (m). Caller may pass an explicit
   // tolerance (slider); otherwise scale with line length.
   if (!(corridor > 0)) corridor = Math.max(30, len*0.4);
-  const stations=[], inSet=new Set();
+  let stations=[];
+  const inSet=new Set(), shadowed=new Map();
   if (len>=1){
     // small margin so boreholes on the endpoints survive floating-point
     // round-trip error, and ones just past an end still count; `extension`
@@ -22,11 +29,24 @@ export function sectionStations(A, B, holes, corridor, extension=0){
     for (const bh of holes){
       const t=((bh.x-A.e)*dx + (bh.y-A.n)*dy)/(len*len);        // 0..1 along the line
       const perp=Math.abs((bh.x-A.e)*dy - (bh.y-A.n)*dx)/len;   // distance from the line
-      if (t>=-tMargin && t<=1+tMargin && perp<=corridor){ stations.push({id:bh.id, dist:t*len, perp}); inSet.add(bh.id); }
+      if (t>=-tMargin && t<=1+tMargin && perp<=corridor) stations.push({id:bh.id, dist:t*len, perp});
+    }
+    if (nearestWins){
+      // Nearest-to-line first, so only holes already kept can shadow later ones.
+      // Distance from hole c's projected point (c.dist, 0) to kept hole k is
+      // hypot(k.dist-c.dist, k.perp); strict < keeps co-located ties for mergeTies.
+      // ponytail: O(n²) scan — fine for the tens of holes a section ever sees.
+      const kept=[];
+      for (const c of [...stations].sort((p,q)=>p.perp-q.perp)){
+        const k = kept.find(k=>Math.hypot(k.dist-c.dist, k.perp) < c.perp);
+        if (k) shadowed.set(c.id, k.id); else kept.push(c);
+      }
+      stations = kept;
     }
     stations.sort((p,q)=>p.dist-q.dist);
+    for (const s of stations) inSet.add(s.id);
   }
-  return { stations, inSet };
+  return { stations, inSet, shadowed };
 }
 
 // ---- horizon interpolation between boreholes -------------------------------

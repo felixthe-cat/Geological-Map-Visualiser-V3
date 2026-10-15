@@ -709,15 +709,17 @@ function updateSection(){
     .filter(b=>!secExcluded.has(b.id));
   const corridor = +document.getElementById('sec-tol').value;   // task 5: distance tolerance (m)
   const extension = +document.getElementById('sec-ext')?.value || 0;   // include boreholes behind A/B
-  const { stations, inSet } = sectionStations(A, B, secHoles, corridor, extension);
+  const nearestWins = document.getElementById('sec-nearest')?.checked;
+  const { stations, inSet, shadowed } = sectionStations(A, B, secHoles, corridor, extension, nearestWins);
   secBhLayer.clearLayers();
   for (const bh of allHoles){
-    const inSec=inSet.has(bh.id), off=secExcluded.has(bh.id);
+    const inSec=inSet.has(bh.id), off=secExcluded.has(bh.id), by=shadowed.get(bh.id);
     // Same grey as any hole outside the corridor — a deselected borehole reads
     // exactly like an excluded one, which is what it now is.
     L.circleMarker(toLL(bh.x,bh.y),{radius:inSec?6:4,color:'#1a1a0f',weight:1,
       fillColor:inSec?'#2f5a1e':'#a8a196',fillOpacity:.9})
       .bindTooltip(off ? `${bh.id} — deselected (click to put back in)`
+                 : by  ? `${bh.id} — left out: ${by} is closer to this part of the line`
                        : `${bh.id} (click to leave out of the section)`)
       .on('click', ev=>{ L.DomEvent.stop(ev); toggleSectionBorehole(bh.id); })
       .addTo(secBhLayer);
@@ -1469,7 +1471,7 @@ function exportStem(kind){
 const SEC_VALUE_IDS = ['sec-title','sec-vex','sec-tol','sec-ext','sec-interp',
                        'sec-ground','sec-extrap','sp-base'];
 const SEC_CHECK_IDS = ['sec-show-logs','sec-show-names','sec-show-offset',
-                       'sec-bh-only','sec-hover','sp-names'];
+                       'sec-bh-only','sec-nearest','sec-hover','sp-names'];
 function sectionSettings(){
   const o={};
   for (const id of SEC_VALUE_IDS){ const e=document.getElementById(id); if (e) o[id]=e.value; }
@@ -1515,7 +1517,8 @@ async function exportSitePlan(){
     ? sectionStations(toEN(...sectionLine.a), toEN(...sectionLine.b),
         holes.filter(b=>!secExcluded.has(b.id)),
         +document.getElementById('sec-tol').value,
-        +document.getElementById('sec-ext').value || 0).inSet
+        +document.getElementById('sec-ext').value || 0,
+        document.getElementById('sec-nearest')?.checked).inSet
     : new Set();
   setSpStatus('Rendering image…','busy');
   const msg = await exportMapPNG(secMap, {
@@ -1939,7 +1942,7 @@ document.getElementById('sec-vex').addEventListener('input', e=>{ document.getEl
 document.getElementById('sec-tol').addEventListener('input', e=>{ document.getElementById('sec-tol-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-ext').addEventListener('input', e=>{ document.getElementById('sec-ext-val').textContent=e.target.value+' m'; if (secMap) updateSection(); });
 document.getElementById('sec-title').addEventListener('input', ()=>{ if (secMap) updateSection(); });
-['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-interp','sec-ground',
+['sec-show-logs','sec-show-names','sec-show-offset','sec-bh-only','sec-nearest','sec-interp','sec-ground',
  'sec-extrap','sec-hover'].forEach(id=>
   document.getElementById(id).addEventListener('change', ()=>{ if (secMap) updateSection(); }));
 document.getElementById('sec-inc-reset').addEventListener('click', ()=>{
@@ -1986,8 +1989,16 @@ function importCSV(){
   try {
     const text=document.getElementById('csv').value.replace(/^﻿/,'').trim();
     if (text.startsWith('#GEOVIS')){ loadProjectCSV(text); setMode(state.mode); }
-    else { state.boreholes = projectCSVToState(text).boreholes; state.activeIdx = 0; }
-    info.textContent=`✓ imported ${state.boreholes.length} borehole(s)`;
+    else {
+      // A plain table may have no kind column (or blank cells). Keep each hole's
+      // type from the hole already loaded under the same id, so a trial pit
+      // can't silently come back as a borehole; unknown new holes default to BH.
+      const prev = new Map(state.boreholes.map(b=>[b.id, b.kind]));
+      state.boreholes = projectCSVToState(text).boreholes; state.activeIdx = 0;
+      for (const b of state.boreholes) if (!b.kind) b.kind = prev.get(b.id) || 'BH';
+    }
+    const tp = state.boreholes.filter(b=>b.kind==='TP').length;
+    info.textContent=`✓ imported ${state.boreholes.length} hole(s)`+(tp ? ` — ${tp} trial pit(s)` : '');
     refreshInput(); commit();
   }
   catch(err){ info.textContent='✗ '+err.message; }
@@ -2122,10 +2133,19 @@ async function saveAsNewDataset(){
 
 async function saveChangesToDataset(){
   if (!dsOpenId) return;
+  // Last line of defence against the trial-pit → borehole accident: never
+  // quietly overwrite a save that had more trial pits than the data now has.
+  const summary = dsCloud.summarise(state, sectionLine);
+  const before = dsCloudRows.find(r=>r.id===dsOpenId)?.meta?.trialPits || 0;
+  if (summary.trialPits < before && !confirm(
+      `This dataset was saved with ${before} trial pit(s), but it now has ${summary.trialPits}. `+
+      `Trial pits may have been turned into boreholes. Save over it anyway?`)){
+    dsNote('Save cancelled — the saved copy is unchanged.'); return;
+  }
   const btn = dsEl('ds-update'); btn.disabled = true; dsNote('Saving…');
   try {
     await dsCloud.updateProject(dsOpenId, stateToProjectCSV(state, sectionLine, projectExtras()),
-                                dsCloud.summarise(state, sectionLine));
+                                summary);
     await refreshDatasetList(dsOpenId);
     dsNote('✓ Saved over the open dataset.');
   } catch(err){ dsNote('✗ Save failed: '+(err?.message||err)); }

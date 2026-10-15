@@ -72,3 +72,9 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-10-01 — Under the CSV box there is now a ready-made prompt you can copy into Gemini or
   ChatGPT. Give it your ground investigation report and it returns borehole rows in the format
   the Import button expects.
+- 2026-10-15 — New section option "Nearer holes overrule far ones" (on by default). When you
+  widen the distance tolerance, a far-off hole is now left out wherever a closer hole already
+  covers that part of the line. Hover a grey hole on the site plan to see which hole replaced it.
+- 2026-10-15 — Trial pits now stay trial pits when you paste a table without a type column back
+  into the CSV box. If you try to save over a dataset with fewer trial pits than before, you are
+  asked first.

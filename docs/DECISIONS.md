@@ -196,3 +196,24 @@ setup. PLAXIS import was proven (15/15 polygons, meshed).
 **Reversible?** Cheap — one self-contained module (`cad_export.js`). Scripts (option 2) can be
 added later alongside it.
 
+### ADR-8: Thin far-off holes with a "nearer hole wins" rule, not distance weighting
+
+**Context**
+The distance tolerance is a yes/no corridor. Widening it puts a hole 80 m off the line on equal
+footing with one on the line, and straight lines between them zig-zag the horizons.
+
+**Options considered**
+1. *Nearer hole wins.* Drop a hole when its foot on the line is closer to a nearer, kept hole
+   than to the hole itself. Drawback: an all-or-nothing choice — a dropped hole contributes
+   nothing, even where it would agree with its neighbours.
+2. *Inverse-distance weighting by true 2D distance.* Every point is a blend. Drawback: an
+   off-line hole is no longer honoured, and the drawn logs stop matching the horizons.
+3. *Slice a plan-view surface* (grid interpolation, as for rockhead contours). Drawback: the
+   section becomes a model output that is hard to defend on a drawing.
+
+**Chosen + why**
+Option 1. It keeps the existing practice: real logs, straight lines between them. It needs no
+new parameter, and the tolerance becomes a safe ceiling. A checkbox turns it off.
+
+**Reversible?** Cheap — one checkbox, saved per project.
+

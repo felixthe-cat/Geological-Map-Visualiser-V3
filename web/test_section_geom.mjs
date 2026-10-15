@@ -161,3 +161,25 @@ console.log('ok — section projection + interpolation checks pass (incl. tied s
   assert.equal(cutPolygon({e:0,n:20},{e:100,n:20},sq), null, 'misses');
   console.log('rectangle helpers ok');
 }
+
+// "Nearer hole wins": a far hole next to a near one is dropped, a far hole in
+// an empty stretch is kept.
+{
+  const h = [
+    { id:'N1',  x:0,   y:0  },   // on the line
+    { id:'F1',  x:20,  y:60 },   // 60 m off, but N1 is only 20 m from its foot → dropped
+    { id:'N2',  x:200, y:5  },   // near the line
+    { id:'GAP', x:100, y:40 },   // 40 m off, nearest kept hole is 100 m along → kept
+    { id:'TIE', x:200, y:-5 },   // same chainage and offset as N2 → not shadowed (strict <)
+  ];
+  const A={e:0,n:0}, B={e:200,n:0};
+  const off = sectionStations(A, B, h, 100, 0, false);
+  assert.equal(off.stations.length, 5, 'rule off: every hole in the corridor counts');
+  assert.equal(off.shadowed.size, 0);
+  const on = sectionStations(A, B, h, 100, 0, true);
+  assert.deepStrictEqual(on.stations.map(s=>s.id).sort(), ['GAP','N1','N2','TIE']);
+  assert.equal(on.shadowed.get('F1'), 'N1', 'F1 is shadowed by N1');
+  assert(!on.inSet.has('F1') && on.inSet.has('GAP'));
+  assert(on.stations.every((s,i,a)=>!i || a[i-1].dist<=s.dist), 'still ordered along the line');
+  console.log('nearer-hole-wins ok');
+}

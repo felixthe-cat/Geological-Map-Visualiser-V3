@@ -4,6 +4,21 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-15 21:20 — Trial pits saved as boreholes; "nearer hole wins" for wide tolerances
+**Goal:** stop trial pits turning into boreholes after save/reload, and stop a wide distance tolerance pulling far-off holes into the section as noise.
+**Changed:**
+- `web/project_csv.js`: a missing or blank `kind` now parses as `null` (unknown), not `'BH'`; values upper-cased.
+- `web/builder.js`: `importCSV()` fills an unknown kind from the hole already loaded under the same id; "Save changes" asks before overwriting a dataset with fewer trial pits than it had; new `sec-nearest` checkbox wired into the section, site-plan export and saved settings; left-out holes show why in their map tooltip.
+- `web/section_geom.js`: `sectionStations(..., nearestWins)` drops a hole when its foot on the line is closer to an already-kept, nearer hole; returns `shadowed`.
+- `web/builder.html`: the checkbox (on by default).
+- Tests in `test_section_geom.mjs`, `test_project_csv.mjs`.
+**Worked:** all 7 Node self-checks pass. In the browser: a 7-column re-import kept TP1 as a trial pit; toggling the rule switched the section between 5 and 3 holes, with the right tooltips; no console errors.
+**Dead ends:** guessing TP from the hole name. In the CSDI index, about 6,750 holes named "TP…" are GCO probes, and about half of real trial pits are named "T.P.5" etc. Too unreliable.
+**Root cause:** before 2026-10-01 the CSV text box exported/imported 7 columns, with no kind, and the parser defaulted to BH. The cloud save "Lok Fu FWSR" (24–28 Sep) has all 19 TPs stored as BH. It has not been repaired.
+**Open:** the site-plan PNG export still ignores "Boreholes only" (an existing gap, untouched).
+
+---
+
 ### 2026-10-10 14:55 — Supabase inactivity keep-alive automation
 **Goal:** Supabase Free Tier pauses projects after 7 days of inactivity; create an automated system to query the database and keep it alive continuously.
 **Changed:**

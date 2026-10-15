@@ -65,7 +65,14 @@ BH-1,840000,820000,Rock,5,20,15`;
 const l1 = projectCSVToState(legacy);
 assert.equal(l1.boreholes.length, 1);
 assert.equal(l1.boreholes[0].layers.length, 2);
-assert.equal(l1.boreholes[0].kind, 'BH');
+// No kind column → unknown (null), NOT 'BH': the caller keeps the hole's
+// existing type. Defaulting to 'BH' here once turned every trial pit into a borehole.
+assert.equal(l1.boreholes[0].kind, null);
+// Blank kind cell → unknown too; lower-case 'tp' is normalised.
+const blank = projectCSVToState('borehole_id,x,y,ground_level,kind,surface,top_depth,base_depth,grade\n'+
+  'TP 1,1,2,3,,Fill,0,1,\nTP 2,1,2,3,tp,Fill,0,1,\n');
+assert.equal(blank.boreholes[0].kind, null);
+assert.equal(blank.boreholes[1].kind, 'TP');
 assert.equal(csvToBoreholes(legacy)[0].gl, 15);
 
 // ---- quoted-field splitter edge cases -------------------------------------
