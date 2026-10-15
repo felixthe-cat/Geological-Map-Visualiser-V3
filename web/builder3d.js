@@ -271,7 +271,7 @@ async function ensure3D(){
   const THREE = await import('three');
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
   const el=$('view3d');
-  const renderer=new THREE.WebGLRenderer({ antialias:true });
+  const renderer=new THREE.WebGLRenderer({ antialias:true, alpha:true })   // alpha: the CSS sky gradient shows through;
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.localClippingEnabled=true;
   el.prepend(renderer.domElement);
@@ -380,9 +380,10 @@ async function ensureTiles(){
   const tiles=new TilesRenderer(LANDSD_3D);
   // LandsD tile names contain '+', which the server reads as a space unless escaped (404s otherwise)
   tiles.registerPlugin({ name:'LANDSD_PLUS', preprocessURL: url => url.replace(/\+/g, '%2B') });
-  tiles.registerPlugin(new GLTFExtensionsPlugin({
-    ktxLoader: new KTX2Loader().setTranscoderPath(THREE_LIBS+'basis/').detectSupport(renderer),
-    dracoLoader: new DRACOLoader().setDecoderPath(THREE_LIBS+'draco/gltf/') }));
+  const ktx=new KTX2Loader().setTranscoderPath(THREE_LIBS+'basis/').detectSupport(renderer);
+  tiles.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader:ktx,
+    dracoLoader: new DRACOLoader().setDecoderPath(THREE_LIBS+'draco/gltf/'),
+    plugins:[ parser => new KTX2ImagePlugin(parser, ktx) ] }));
   tiles.errorTarget=6;
   tiles.setCamera(camera); tiles.setResolutionFromRenderer(camera, renderer);
   tiles.group.matrixAutoUpdate=false;
@@ -392,6 +393,18 @@ async function ensureTiles(){
   world.add(tiles.group);
   T.tiles=tiles;
   return tiles;
+}
+// LandsD photo-mesh textures are KTX2 images referenced WITHOUT the KHR_texture_basisu
+// extension (image.mimeType 'image/ktx2' straight on the texture source), so three's
+// GLTFLoader hands them to the browser's image decoder and they come out blank.
+// This glTF loader plugin routes those images through the KTX2 loader instead.
+class KTX2ImagePlugin {
+  constructor(parser, ktx){ this.parser=parser; this.ktx=ktx; this.name='LANDSD_KTX2_IMAGE'; }
+  loadTexture(i){
+    const json=this.parser.json, src=json.textures[i].source;
+    if (json.images[src]?.mimeType!=='image/ktx2') return null;
+    return this.parser.loadTextureImage(i, src, this.ktx);
+  }
 }
 function styleMesh(root){
   const op=+$('mesh-op').value;
@@ -428,15 +441,22 @@ async function setMesh(){
     tiles.forEachLoadedModel(s=>styleMesh(s));
   } catch(err){ console.error(err); note('view-note','✗ Could not load the Lands Dept 3D map: '+(err?.message||err),'err'); }
 }
-// Line the mesh up with the ground: drop rays at each borehole (and the centre),
-// compare with the collar level (boreholes) / DTM (centre), take the median.
+// Line the mesh up with the ground: drop rays at each borehole and on a grid over the
+// site, and compare with the collar level (boreholes) / bare-earth DTM (grid). The
+// photo-mesh is the TOP of trees and roofs, so most hits are too high; take the 85th
+// percentile of (ground − hit), i.e. the hits that landed on open ground.
 function autoLevel(){
   if (!T?.tiles || !O || !boundary) return;
   const { THREE, world }=T;
   world.updateMatrixWorld(true);
   const ray=new THREE.Raycaster(); ray.firstHitOnly=true;
   const targets=usedHoles().slice(0,30).map(b=>({ e:b.x, n:b.y, z:b.gl }));
-  const dc=dtmAt(O.e, O.n); if (dc!=null) targets.push({ e:O.e, n:O.n, z:dc });
+  const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]), pad=30;
+  for (let i=0;i<=6;i++) for (let j=0;j<=6;j++){
+    const e=Math.min(...xs)-pad+(Math.max(...xs)-Math.min(...xs)+2*pad)*i/6;
+    const n=Math.min(...ys)-pad+(Math.max(...ys)-Math.min(...ys)+2*pad)*j/6;
+    const z=dtmAt(e,n); if (z!=null) targets.push({ e, n, z });
+  }
   const d=[];
   for (const t of targets){
     const [x,,zz]=P(t.e,t.n,0);
@@ -446,11 +466,11 @@ function autoLevel(){
   }
   if (!d.length) return;
   d.sort((a,b)=>a-b);
-  const med=d[Math.floor(d.length/2)];
+  const med=d[Math.floor(0.85*(d.length-1))];
   $('mesh-dz').value=(+$('mesh-dz').value+med).toFixed(2);
   meshLevelled=true;
   setTilesFrame();
-  note('view-note',`Photo map lined up with ${d.length} ground level(s): moved ${med>=0?'up':'down'} ${Math.abs(med).toFixed(2)} m. `+
+  note('view-note',`Photo map lined up with ${d.length} ground point(s): moved ${med>=0?'up':'down'} ${Math.abs(med).toFixed(2)} m. `+
     'Tree tops and roofs still sit above the soil top — that is expected.','ok');
 }
 
