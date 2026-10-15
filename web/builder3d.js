@@ -67,7 +67,7 @@ async function fillDatasets(){
 async function loadSelected(){
   const v=$('ds-select').value;
   try {
-    if (v==='handoff'){ const h=readHandoff(); openProject(h.csv, h.cloudId, 'the 2D builder'); }
+    if (v==='handoff'){ const h=readHandoff(); openProject(h.csv, h.cloudId, 'the project from the 2D builder'); }
     else if (v.startsWith('cloud:')){
       note('ds-note','Opening…');
       const row=await cloud.getProject(v.slice(6));
@@ -256,7 +256,7 @@ function renderLegend(){
   const el=$('legend'); el.innerHTML='';
   model.keys.forEach((k,i)=>{
     const d=document.createElement('div');
-    d.innerHTML=`<input type="checkbox" checked data-k="${i}" style="width:auto"><span class="sw" style="background:${model.colour[k]}"></span>${model.label[k]}`;
+    d.innerHTML=`<input type="checkbox" checked data-k="${i}" style="width:auto"><span class="sw" style="background:${model.colour[k]}"></span>${esc(model.label[k])}`;
     d.querySelector('input').addEventListener('change', e=>{
       const m=T && T.blockG.children.find(o=>o.userData.k===i); if (m) m.visible=e.target.checked;
     });
@@ -271,7 +271,7 @@ async function ensure3D(){
   const THREE = await import('three');
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
   const el=$('view3d');
-  const renderer=new THREE.WebGLRenderer({ antialias:true, alpha:true })   // alpha: the CSS sky gradient shows through;
+  const renderer=new THREE.WebGLRenderer({ antialias:true, alpha:true });   // alpha: the CSS sky gradient shows through
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.localClippingEnabled=true;
   el.prepend(renderer.domElement);
@@ -410,6 +410,13 @@ function styleMesh(root){
   const op=+$('mesh-op').value;
   root.traverse(o=>{
     if (!o.material) return;
+    // the tiles ask for KHR_materials_unlit (the photo already has the light baked in);
+    // swap any lit material for an unlit one, or our scene lights darken it twice
+    if (!o.material.isMeshBasicMaterial){
+      const old=o.material;
+      o.material=new T.THREE.MeshBasicMaterial({ map:old.map, alphaTest:old.alphaTest, side:old.side });
+      old.dispose();
+    }
     for (const m of [].concat(o.material)){
       m.clippingPlanes=[T.clip]; m.transparent=op<1; m.opacity=op; m.depthWrite=op>=1; m.needsUpdate=true;
     }
@@ -511,6 +518,17 @@ function updateSlice(){
   renderSection();
 }
 
+// Put the camera square-on to the cut face, on the side that was cut away.
+function lookAtCut(){
+  if (!T || !slice || !$('sl-on').checked) return;
+  showTab('block');
+  const { camera, controls, clip }=T;
+  const [mx,,mz]=P((slice.A.e+slice.B.e)/2, (slice.A.n+slice.B.n)/2, 0);
+  const midY=((O.z+model.base)/2-O.z)*vex(), d=slice.half*2.2;
+  controls.target.set(mx, midY, mz);
+  camera.position.set(mx-clip.normal.x*d, midY+d*0.25, mz-clip.normal.z*d);
+}
+
 // ---- section tab ------------------------------------------------------------------------------------------------
 function renderSection(){
   const svg=$('sec-svg');
@@ -521,7 +539,7 @@ function renderSection(){
   const ve=vex();
   const xMin=Math.min(...runs.map(r=>r.from)), xMax=Math.max(...runs.map(r=>r.to));
   const zMax=Math.max(...runs.flatMap(r=>r.curves[0])), zMin=model.base;
-  const W=1000, pad={l:60,r:20,t:30,b:40}, sx=(W-pad.l-pad.r)/((xMax-xMin)||1);
+  const W=1000, legendH=22*Math.ceil(model.keys.length/2), pad={l:64,r:20,t:34,b:48+legendH}, sx=(W-pad.l-pad.r)/((xMax-xMin)||1);
   const H=Math.min(900, Math.max(220, (zMax-zMin)*sx*ve+pad.t+pad.b));
   const sz=(H-pad.t-pad.b)/((zMax-zMin)||1);
   const X=c=>pad.l+(c-xMin)*sx, Y=z=>pad.t+(zMax-z)*sz;
@@ -531,17 +549,22 @@ function renderSection(){
   // axes: level every "nice" step, chainage every "nice" step
   const nice=span=>{ const r=span/6, p=10**Math.floor(Math.log10(r)); return [1,2,5,10].map(m=>m*p).find(v=>v>=r); };
   const zs=nice(zMax-zMin), cs=nice(xMax-xMin);
-  s+=`<g font-size="11" fill="#3d3529" font-family="sans-serif">`;
+  s+=`<g font-size="14" fill="#3d3529" font-family="sans-serif">`;
   for (let z=Math.ceil(zMin/zs)*zs; z<=zMax; z+=zs)
     s+=`<line x1="${pad.l-4}" x2="${W-pad.r}" y1="${Y(z)}" y2="${Y(z)}" stroke="#000" stroke-opacity=".08"/><text x="${pad.l-6}" y="${Y(z)+4}" text-anchor="end">${z}</text>`;
   for (let c=Math.ceil(xMin/cs)*cs; c<=xMax; c+=cs)
     s+=`<text x="${X(c)}" y="${H-pad.b+16}" text-anchor="middle">${Math.round(c)}</text>`;
-  s+=`<text x="${pad.l}" y="${H-6}">Chainage from A (m)</text><text x="12" y="${pad.t-12}">mPD</text>`;
+  s+=`<text x="${pad.l}" y="${H-legendH-8}">Chainage from A (m)</text><text x="12" y="${pad.t-12}">mPD</text>`;
+  model.keys.forEach((k,i)=>{                       // colour key, two columns
+    const x=pad.l+(i%2)*440, y=H-legendH+4+Math.floor(i/2)*22;
+    s+=`<rect x="${x}" y="${y}" width="14" height="14" fill="${model.colour[k]}" stroke="#3d3529"/><text x="${x+20}" y="${y+12}">${esc(model.label[k])}</text>`;
+  });
   s+=`<text x="${pad.l}" y="${pad.t-12}" font-weight="bold" fill="#c0262d">A</text><text x="${W-pad.r}" y="${pad.t-12}" text-anchor="end" font-weight="bold" fill="#c0262d">B</text>`;
   s+=`<text x="${W/2}" y="${pad.t-12}" text-anchor="middle">Slice ${$('sl-az').value}° from north · vertical exaggeration ${ve}×</text></g>`;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML=s;
 }
+const esc=t=>String(t).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function stem(){ return `section3d_${$('sl-az').value}deg_${new Date().toISOString().slice(0,10)}`; }
 function download(name, blob){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
@@ -602,6 +625,7 @@ $('mesh-level').addEventListener('click', autoLevel);
 $('holes-on').addEventListener('change', e=>{ if (T) T.holeG.visible=e.target.checked; });
 for (const id of ['sl-on','sl-az','sl-off','sl-flip'])
   $(id).addEventListener(id==='sl-az'||id==='sl-off' ? 'input' : 'change', ()=>{ syncLabels(); updateSlice(); });
+$('sl-look').addEventListener('click', lookAtCut);
 $('exp-dxf').addEventListener('click', exportDXF);
 $('exp-png').addEventListener('click', exportPNG);
 $('save-file').addEventListener('click', ()=>{
