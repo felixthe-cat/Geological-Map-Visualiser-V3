@@ -13,6 +13,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-15 22:10 — 3D Block: remove trees and buildings from the photo map over the site
+**Goal:** the LandsD photo-mesh includes trees, so the ground looked metres higher than the soil block's top.
+**Changed:** `web/builder3d.js` `flattenTile()`: inside the boundary every mesh vertex is laid on the block's ground surface (+5 cm). Outside, vertices more than 2 m above it are lowered: fully within 10 m, fading out over 20 m. Original positions are kept, so the tick box, re-levelling and rebuilds start from the real mesh. Auto-level now raycasts the unflattened mesh. `web/builder3d.html`: "Remove trees & buildings over the site" tick box (on by default, saved with the project).
+**Worked:** in the browser, at 4 points inside the boundary the photo map is within 0.1 m of the block top (before: canopy up to ~25 m above). Turning the tick box off restores the trees, and on removes them again. Block check passes.
+**Dead ends:** none. One false alarm: a test read heights without dividing out the 1.5× vertical exaggeration.
+**Open:** buildings inside the boundary are flattened too (deliberately, for a ground model). Outside the boundary the 2 m threshold leaves low shrubs. Tuning knobs: `TREE_H`, `CLEAR`, `TAPER`.
+
+---
+
 ### 2026-10-15 21:55 — 3D Block builder built (builder3d.html)
 **Goal:** a 3D viewer built like the 2D builder: LandsD 3D map, soil block inside a drawn boundary, draggable slice that also cuts the map, export to GeoStudio/PLAXIS.
 **Changed:**

@@ -13,7 +13,7 @@
 // the photo-mesh and the boreholes all stretch together.
 // ================================================================
 
-import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, polyArea, defaultBase } from './block3d.js';
+import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, polyArea, defaultBase, pointInPoly } from './block3d.js';
 import { projectCSVToState, stateToProjectCSV } from './project_csv.js';
 import { EXAMPLES } from './examples.js';
 import { sectionRegions, toDXF, layerName } from './cad_export.js';
@@ -102,6 +102,7 @@ function applyOptions(b){
   $('use-tp').checked = !!b.useTP;
   if (b.vex) $('vex').value=b.vex;
   if (b.meshOn!=null) $('mesh-on').checked=!!b.meshOn;
+  if (b.meshFlat!=null) $('mesh-flat').checked=!!b.meshFlat;
   if (b.meshOp!=null) $('mesh-op').value=b.meshOp;
   $('mesh-dz').value = Number.isFinite(b.meshDz) ? b.meshDz : 0;
   meshLevelled = Number.isFinite(b.meshDz);
@@ -114,7 +115,7 @@ function applyOptions(b){
 function block3dSettings(){
   const base=$('base').value.trim();
   return { boundary, top:topMode(), base: base===''?null:+base, detail:+$('detail').value,
-    useTP:$('use-tp').checked, vex:vex(), meshOn:$('mesh-on').checked, meshOp:+$('mesh-op').value,
+    useTP:$('use-tp').checked, vex:vex(), meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
     meshDz: meshLevelled ? +$('mesh-dz').value : null,
     slice:{ on:$('sl-on').checked, az:+$('sl-az').value, off:+$('sl-off').value, flip:$('sl-flip').checked } };
 }
@@ -387,7 +388,7 @@ async function ensureTiles(){
   tiles.errorTarget=6;
   tiles.setCamera(camera); tiles.setResolutionFromRenderer(camera, renderer);
   tiles.group.matrixAutoUpdate=false;
-  tiles.addEventListener('load-model', ({ scene })=>styleMesh(scene));
+  tiles.addEventListener('load-model', ({ scene })=>{ styleMesh(scene); flattenTile(scene); });
   tiles.addEventListener('tiles-load-end', ()=>{ if (!meshLevelled) autoLevel(); });
   tiles.addEventListener('load-error', e=>console.warn('[3d tiles]', e.url, e.error));
   world.add(tiles.group);
@@ -422,6 +423,62 @@ function styleMesh(root){
     }
   });
 }
+// ---- tree / building removal --------------------------------------------------------------
+// The photo-mesh is one skin over ground, trees and roofs. Inside the boundary every
+// vertex is laid on the block's own ground surface (+5 cm, so the photo drapes over the
+// block top instead of fighting it). Outside, anything more than TREE_H above that
+// ground is lowered: fully within CLEAR m of the boundary, fading out over TAPER m.
+// Originals are kept, so switching it off or re-levelling starts from the real mesh.
+const TREE_H=2, CLEAR=10, TAPER=20;   // m — calibration knobs (same idea as Infographic-Production)
+function distToPoly(x, y, poly){
+  let best=Infinity;
+  for (let i=0;i<poly.length;i++){
+    const [ax,ay]=poly[i], [bx,by]=poly[(i+1)%poly.length], dx=bx-ax, dy=by-ay;
+    const t=Math.max(0, Math.min(1, ((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy||1)));
+    best=Math.min(best, Math.hypot(x-ax-t*dx, y-ay-t*dy));
+  }
+  return best;
+}
+function flattenTile(root, on=$('mesh-flat').checked){
+  if (!T || !O) return;
+  on = on && !!model && !!boundary;
+  const { THREE }=T;
+  const xs=boundary ? boundary.map(p=>p[0]-O.e) : [0], zs=boundary ? boundary.map(p=>-(p[1]-O.n)) : [0];
+  const R=CLEAR+TAPER, x0=Math.min(...xs)-R, x1=Math.max(...xs)+R, z0=Math.min(...zs)-R, z1=Math.max(...zs)+R;
+  const ground=new Map();                                  // 1 m cache: model.at() is IDW (+ DTM lookup)
+  const groundAt=(e,n)=>{ const k=Math.round(e)+','+Math.round(n);
+    let g=ground.get(k); if (g===undefined){ g=model.at(e,n)[0]; ground.set(k,g); } return g; };
+  const v=new THREE.Vector3();
+  root.traverse(o=>{
+    if (!o.isMesh) return;
+    const g=o.geometry, pos=g.attributes.position;
+    if (!g.userData.orig){ if (!on) return; g.userData.orig=pos.array.slice(); }
+    pos.array.set(g.userData.orig);
+    if (on){
+      // mesh-local -> world-local (x = E−E0, y = mPD−ZREF, z = −(N−N0)), unaffected by exaggeration
+      const L=new THREE.Matrix4();
+      for (let n=o; n; n=n.parent){ if (n.matrixAutoUpdate) n.updateMatrix(); L.premultiply(n.matrix); if (n===root) break; }
+      L.premultiply(T.tiles.group.matrix);
+      const Li=L.clone().invert();
+      for (let i=0;i<pos.count;i++){
+        v.fromBufferAttribute(pos, i).applyMatrix4(L);
+        if (v.x<x0 || v.x>x1 || v.z<z0 || v.z>z1) continue;   // cheap reject: far from the site
+        const e=v.x+O.e, n=O.n-v.z, h=v.y+O.z, gr=groundAt(e,n);
+        let h2=h;
+        if (pointInPoly(e, n, boundary)) h2=gr+0.05;
+        else if (h-gr>TREE_H){
+          const d=distToPoly(e, n, boundary);
+          const f=d<CLEAR ? 1 : d<R ? 1-(d-CLEAR)/TAPER : 0;
+          h2=h-(h-gr)*f;
+        }
+        if (h2===h) continue;
+        v.y=h2-O.z; v.applyMatrix4(Li);
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+    }
+    pos.needsUpdate=true; g.computeBoundingBox(); g.computeBoundingSphere();
+  });
+}
 // ECEF -> scene, via local east/north/up at the origin; `dz` turns ellipsoid height into mPD.
 function setTilesFrame(){
   if (!T?.tiles || !O) return;
@@ -434,6 +491,7 @@ function setTilesFrame(){
   t[1]+= +$('mesh-dz').value - O.z;
   T.tiles.group.matrix.set(...R[0], t[0], ...R[1], t[1], ...R[2], t[2], 0,0,0,1);
   T.tiles.group.matrixWorldNeedsUpdate=true;
+  T.tiles.forEachLoadedModel(s=>flattenTile(s));      // heights moved: redo the tree removal
   // ponytail: ENU about the site, not the HK1980 grid — grid convergence here is
   // ~0.03°, i.e. under 0.2 m over 300 m. Rotate by it if sites get kilometres wide.
 }
@@ -455,6 +513,7 @@ async function setMesh(){
 function autoLevel(){
   if (!T?.tiles || !O || !boundary) return;
   const { THREE, world }=T;
+  T.tiles.forEachLoadedModel(s=>flattenTile(s, false));   // level against the real mesh, not our flattened one
   world.updateMatrixWorld(true);
   const ray=new THREE.Raycaster(); ray.firstHitOnly=true;
   const targets=usedHoles().slice(0,30).map(b=>({ e:b.x, n:b.y, z:b.gl }));
@@ -471,14 +530,14 @@ function autoLevel(){
     const hit=ray.intersectObject(T.tiles.group, true)[0];
     if (hit) d.push(t.z-(hit.point.y/vex()+O.z));
   }
-  if (!d.length) return;
+  if (!d.length){ setTilesFrame(); return; }
   d.sort((a,b)=>a-b);
   const med=d[Math.floor(0.85*(d.length-1))];
   $('mesh-dz').value=(+$('mesh-dz').value+med).toFixed(2);
   meshLevelled=true;
   setTilesFrame();
   note('view-note',`Photo map lined up with ${d.length} ground point(s): moved ${med>=0?'up':'down'} ${Math.abs(med).toFixed(2)} m. `+
-    'Tree tops and roofs still sit above the soil top — that is expected.','ok');
+    ($('mesh-flat').checked ? 'Trees and buildings over the site are laid flat on the ground.' : 'Tree tops and roofs sit above the soil top.'),'ok');
 }
 
 // ---- slice ------------------------------------------------------------------------------------------------------
@@ -619,6 +678,7 @@ $('vex').addEventListener('input', ()=>{
   if (T && model){ T.world.scale.y=vex(); renderSection(); }
 });
 $('mesh-on').addEventListener('change', setMesh);
+$('mesh-flat').addEventListener('change', ()=>{ if (T?.tiles) T.tiles.forEachLoadedModel(s=>flattenTile(s)); });
 $('mesh-op').addEventListener('input', ()=>{ syncLabels(); if (T?.tiles) T.tiles.forEachLoadedModel(s=>styleMesh(s)); });
 $('mesh-dz').addEventListener('change', ()=>{ meshLevelled=true; setTilesFrame(); });
 $('mesh-level').addEventListener('click', autoLevel);

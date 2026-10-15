@@ -84,3 +84,7 @@ What changed for you, newest at the bottom of each day. Append only.
   follows the Lands Dept bare-earth ground model or the boreholes' own ground levels. Slide a
   cut plane through the block and the map, then download that section as a DXF for GeoStudio or
   PLAXIS 2D, or as a PNG. The boundary and cut are saved with the project.
+- 2026-10-15 — 3D Block builder: the Lands Dept photo map no longer shows trees and buildings
+  over your site. Inside the boundary it now lies on the block's ground surface. Just outside,
+  trees are lowered gradually. Untick "Remove trees & buildings over the site" to see the
+  original map.
