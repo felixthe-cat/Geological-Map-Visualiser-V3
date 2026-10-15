@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-15 21:30 — Plan for a 3D Block builder (planning only)
+**Goal:** a 3D viewer built like the 2D builder: LandsD 3D map, soil block inside a drawn boundary, draggable slice, export to GeoStudio/PLAXIS (Revit evaluated).
+**Changed:** `docs/PLAN_3D_BLOCK.md` (new): the agreed scope, the user's answers, the geometry method, files to add, and the risks. No code was written.
+**Worked:** checked live that the LandsD 3D tiles (tileset, sub-tilesets, `.b3dm`) return 200 without a key, and send CORS headers for the Vercel origin. So the browser can stream them directly.
+**Dead ends:** none yet.
+**Open:** waiting for the user's go-ahead. Revit (via IFC) and PLAXIS 3D are deferred. Whether the tiles' CORS rules allow localhost is not checked.
+
+---
+
 ### 2026-10-15 21:20 — Trial pits saved as boreholes; "nearer hole wins" for wide tolerances
 **Goal:** stop trial pits turning into boreholes after save/reload, and stop a wide distance tolerance pulling far-off holes into the section as noise.
 **Changed:**
