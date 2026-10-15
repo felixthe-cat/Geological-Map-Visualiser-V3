@@ -78,3 +78,9 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-10-15 — Trial pits now stay trial pits when you paste a table without a type column back
   into the CSV box. If you try to save over a dataset with fewer trial pits than before, you are
   asked first.
+- 2026-10-15 — (Admin) New **3D Block builder**: open it from "3D Block ↗" in the 2D builder.
+  Draw the site boundary on the map and build a 3D block of the soil and rock layers under the
+  Lands Department 3D photo map. Rotate, pan and zoom it. Choose whether the top of the soil
+  follows the Lands Dept bare-earth ground model or the boreholes' own ground levels. Slide a
+  cut plane through the block and the map, then download that section as a DXF for GeoStudio or
+  PLAXIS 2D, or as a PNG. The boundary and cut are saved with the project.

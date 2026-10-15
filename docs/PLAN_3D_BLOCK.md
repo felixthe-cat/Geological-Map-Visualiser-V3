@@ -1,6 +1,6 @@
 # Plan — 3D Block Builder (`builder3d.html`)
 
-Status: **proposed 2026-10-15, awaiting user go-ahead.**
+Status: **built 2026-10-15** — see DEVLOG for what was verified. Revit/IFC and PLAXIS 3D still deferred.
 
 ## Goal
 

@@ -13,6 +13,19 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-15 21:55 — 3D Block builder built (builder3d.html)
+**Goal:** a 3D viewer built like the 2D builder: LandsD 3D map, soil block inside a drawn boundary, draggable slice that also cuts the map, export to GeoStudio/PLAXIS.
+**Changed:**
+- `web/builder3d.html`, `web/builder3d.js` (new): admin-gated page. Datasets (2D hand-off, examples, cloud, file) → boundary (draw / box) → three.js block + live LandsD tiles → slice → section SVG, DXF, PNG; save to cloud or CSV.
+- `web/block3d.js` + `web/test_block3d.mjs` (new): pure model / clipped-grid triangulation / slice sampling.
+- `web/strata.js`, `web/dtm_tiles.js` (new): stratum colours and DTM tile fetching, moved out of `builder.js` so both pages share them.
+- `web/project_csv.js`: `#GEOVIS` header carries `block3d`. `web/builder.js` keeps it through 2D saves, and adds the "3D Block ↗" link with a localStorage hand-off.
+**Worked:** all 7 Node self-checks pass. In the browser (hillside example): block built in both soil-top modes; DH 3 horizons match the log exactly; photo-mesh textured; auto-level −1.07 m (the same as Infographic-Production's figure); slice cuts mesh + block with capped face; section tab + DXF enabled; L-shaped saved boundary restores; 2D builder loads with no console errors; hand-off works.
+**Dead ends:** (1) Photo-mesh came out white: the textures are KTX2 images without `KHR_texture_basisu`, so GLTFLoader skipped them. Fixed with a small glTF plugin. (2) Median auto-level moved the mesh 12.6 m down, because rays hit tree canopy. Now uses the 85th percentile over a 7×7 DTM grid plus the boreholes.
+**Open:** DXF not yet opened in GeoStudio/PLAXIS. Revit/IFC and PLAXIS 3D deferred. Auto-level varies by ~1 m with the boundary (DTM ±5 m class). Boreholes are not cut by the slice. Cloud "Save changes" from the 3D page is untested against the real DB.
+
+---
+
 ### 2026-10-15 21:30 — Plan for a 3D Block builder (planning only)
 **Goal:** a 3D viewer built like the 2D builder: LandsD 3D map, soil block inside a drawn boundary, draggable slice, export to GeoStudio/PLAXIS (Revit evaluated).
 **Changed:** `docs/PLAN_3D_BLOCK.md` (new): the agreed scope, the user's answers, the geometry method, files to add, and the risks. No code was written.

@@ -217,3 +217,48 @@ new parameter, and the tolerance becomes a safe ceiling. A checkbox turns it off
 
 **Reversible?** Cheap — one checkbox, saved per project.
 
+
+### ADR-9: Stream the LandsD 3D photo-mesh live in the 3D Block builder, not a baked copy
+
+**Context**
+The 3D Block builder needs the Lands Department 3D Visualisation Map as its ground skin, for
+any site in Hong Kong. Infographic-Production baked a 520 m square of it offline.
+
+**Options considered**
+1. *Stream the Cesium 3D Tiles live* (`3d-tiles-renderer` on three.js). Drawback: the page
+   depends on a government server, and depends on that server keeping its key-free, CORS-open
+   access (checked 2026-10-15: no key needed, and our origin is allowed).
+2. *Bake per site offline* (Infographic-Production's crawler). Drawback: it only works for
+   sites someone has pre-processed, so it can't work for a site drawn in the browser.
+3. *A server-side relay that holds a key.* Drawback: a moving part that turned out to be
+   unnecessary, and it pays for all the tile traffic.
+
+**Chosen + why**
+Option 1. It is the only one that works for any site, and nothing has to run on our side.
+Two quirks needed fixes. Tile names contain `+`, which must be sent as `%2B`. Textures are
+KTX2 images without the `KHR_texture_basisu` tag, so a small glTF plugin routes them to the
+KTX2 loader.
+
+**Reversible?** Cheap — the mesh is one optional layer (`ensureTiles()` in `builder3d.js`).
+If LandsD adds a key, put a relay in `web/api/`.
+
+### ADR-10: The 3D block uses the 2D section's layer rules, with IDW across the plan
+
+**Context**
+The 3D block and the 2D cross-section must agree. Otherwise one of them is wrong on a drawing.
+
+**Options considered**
+1. *Reuse the 2D rules.* Global stratum order, horizons that only step down, and
+   "ground, then each thickness ≥ 0". Spread across the plan by inverse-distance weighting
+   (IDW, an average weighted by closeness). Drawback: IDW makes bullseyes around isolated
+   holes and gives no error estimate.
+2. *Implicit modelling (GemPy).* Drawback: it needs the Python backend, which the user has
+   stopped, and its surfaces don't honour the logs exactly.
+3. *Kriging.* Drawback: a fitted variogram per layer is not defensible with 4–20 holes.
+
+**Chosen + why**
+Option 1. It honours every log exactly at the hole (checked: DH 3 matches its log to the cm).
+A missing stratum pinches out instead of inverting. The deepest stratum is carried down to the
+block base.
+
+**Reversible?** Cheap — swap the interpolator inside `makeModel()` in `block3d.js`.
