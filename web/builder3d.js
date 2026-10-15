@@ -650,4 +650,3 @@ $('save-cloud').addEventListener('click', saveCloud);
   await fillDatasets();
   if ($('ds-select').value) await loadSelected();
 })();
-window.__b3d={ get map(){return map;}, get T(){return T;}, get model(){return model;}, get block(){return block;} };   // DEBUG-REMOVE
