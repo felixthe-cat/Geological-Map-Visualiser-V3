@@ -1,0 +1,37 @@
+# Pings Supabase twice a week at a random time so the free-tier project is
+# never paused for 7 days of inactivity. Backup to the daily Vercel cron
+# (web/vercel.json -> /api/keep-alive): either one alone keeps it awake.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: '17 3 * * 2'   # Tue 03:17 UTC
+    - cron: '43 15 * * 5'  # Fri 15:43 UTC
+  workflow_dispatch:       # "Run workflow" button for a manual test
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Wait a random 0-4 hours
+        # ponytail: skip the wait on manual runs so a test finishes at once
+        if: github.event_name == 'schedule'
+        run: |
+          delay=$(( RANDOM % 14400 ))
+          echo "Sleeping ${delay}s"
+          sleep "$delay"
+
+      - name: Ping Supabase
+        env:
+          # Public anon key (same one shipped in web/supabase_config.js); RLS protects the data.
+          SUPABASE_URL: https://ylxyovcujybqodjesbvo.supabase.co
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlseHlvdmN1anlicW9kamVzYnZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NzEyNDUsImV4cCI6MjA5NjE0NzI0NX0.9sVC_mEqRTHvq2lRiWCpMBo8AHgpwlCecJxssJ01Zl8
+        # --fail makes a non-2xx answer fail the job, so GitHub emails you; retries cover a blip.
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-delay 30 \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/projects?select=id&limit=1"
+          echo
+          echo "Supabase ping OK at $(date -u)"
