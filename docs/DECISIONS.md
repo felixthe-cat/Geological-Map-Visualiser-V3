@@ -262,3 +262,21 @@ A missing stratum pinches out instead of inverting. The deepest stratum is carri
 block base.
 
 **Reversible?** Cheap — swap the interpolator inside `makeModel()` in `block3d.js`.
+
+
+---
+
+### ADR-11: Keep the Vercel daily cron and add a random-timed GitHub Actions ping, rather than replace it
+
+**Context**
+Supabase free tier pauses after 7 days idle. A daily Vercel cron already pings it at a fixed time; the user wanted at least two pings a week at random times.
+
+**Options considered**
+1. *Vercel cron only.* Already works, but Vercel cron times are fixed, so no randomness.
+2. *Move everything to GitHub Actions with a random sleep.* Gives random times, but GitHub disables scheduled workflows after 60 days with no commits, so an abandoned repo would stop pinging.
+3. *Both.* Random pings from GitHub; Vercel stays as a fixed daily backstop. Drawback: two places to look.
+
+**Chosen + why**
+Option 3. Either pinger alone keeps the project awake, so one failing (or being disabled) doesn't cause a pause. Repo is public, so the multi-hour sleeps cost nothing.
+
+**Reversible?** Cheap — delete the workflow file or the `crons` entry in `web/vercel.json`.

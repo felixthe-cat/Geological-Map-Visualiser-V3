@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-10-31 18:30 — Random-timed Supabase keep-alive (GitHub Actions)
+**Goal:** keep Supabase from pausing after 1 week idle, pinging at least twice a week at random times even when nobody uses the site.
+**Changed:** `.github/workflows/supabase-keep-alive.yml` (new): runs Tue 03:17 and Fri 15:43 UTC, sleeps a random 0-4 h (scheduled runs only), then reads one row from `/rest/v1/projects` with the public anon key; `curl --fail --retry 3`, so a bad answer fails the run and GitHub emails. Has a manual "Run workflow" trigger.
+**Worked:** the existing daily Vercel cron (`/api/keep-alive`) is confirmed firing: Supabase edge logs show its request at 04:07 UTC today. The workflow's ping command ran locally and returned OK; the YAML parses.
+**Dead ends:** none.
+**Open:** not yet run on GitHub. Scheduled workflows only run from the default branch (`master`), which is 75 commits behind `main`. Waiting on the user: make `main` the default, or copy the file to `master`. GitHub also disables schedules after 60 days without commits; the Vercel cron is the backstop for that.
+
+---
+
 ### 2026-10-15 21:45 — Repaired the old "Lok Fu FWSR" cloud save
 **Goal:** "set the 19 TP holes in the old Lok Fu FWSR save back to trial pits (copy them from the newer 20260928 save)".
 **Changed:** no code. In the Supabase `projects` table, row "Lok Fu FWSR": the `kind` column went BH → TP on 50 CSV rows (19 holes), for every hole id that is TP in "20260928 Lok Fu FWSR"; `meta.trialPits` was 0 and is now 19. Supersedes the "not repaired" note in the entry below.
