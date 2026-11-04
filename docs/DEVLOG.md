@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-04 — Keep-alive workflow: default branch switched to main
+**Goal:** "Make main the default" so the GitHub scheduled ping can run.
+**Changed:** GitHub repo setting only: default branch `master` → `main`. Supersedes the "default branch" item under Open in the 2026-10-31 keep-alive entry.
+**Worked:** `gh repo view` reports `main` as default.
+**Dead ends:** the auto-push hook had committed the workflow but its push was rejected: the stored GitHub login lacks the `workflow` scope, which GitHub requires to add or change files under `.github/workflows/`. Every push from `main` is blocked until that scope is granted.
+**Open:** user must grant the `workflow` scope (`gh auth refresh`), then push `main` and do one manual test run of the workflow.
+
+---
+
 ### 2026-10-31 18:30 — Random-timed Supabase keep-alive (GitHub Actions)
 **Goal:** keep Supabase from pausing after 1 week idle, pinging at least twice a week at random times even when nobody uses the site.
 **Changed:** `.github/workflows/supabase-keep-alive.yml` (new): runs Tue 03:17 and Fri 15:43 UTC, sleeps a random 0-4 h (scheduled runs only), then reads one row from `/rest/v1/projects` with the public anon key; `curl --fail --retry 3`, so a bad answer fails the run and GitHub emails. Has a manual "Run workflow" trigger.
