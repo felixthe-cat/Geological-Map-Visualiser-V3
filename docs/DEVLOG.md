@@ -4,6 +4,18 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 00:02 — Admin gate: new password, local password file
+**Goal:** change the admin password and keep the plain password in a local file that git never sees.
+**Changed:**
+- `web/admin.js`: `HASH` constant (line 10) replaced with the SHA-256 of the new password. Only the hash lives in the repo.
+- `.gitignore`: added `admin_password.local.txt` (with a comment) so the local file is never staged.
+- `admin_password.local.txt` (new, untracked, git-ignored): holds the plain password for the owner. Not in the repo.
+**Worked:** `git check-ignore` matches the new file. Hashing the password read back from the file gives the same value as `HASH` in `admin.js`. `git status` shows only `.gitignore` and `web/admin.js` modified.
+**Dead ends:** none.
+**Open:** the old password no longer unlocks the admin gate. The change is not committed yet; the session Stop hook will stage and push `web/admin.js` and `.gitignore`. The gate is client-side only and is a deterrent, not real security (see `project_admin_gate` note).
+
+---
+
 ### 2026-11-10 23:58 — 3D Block builder: load CEDD 0.5 m LiDAR tiles from disk
 **Goal:** use the 0.5 m LiDAR ground model as the terrain; the user downloaded one RASTER-DTM tile to try.
 **Changed:**
