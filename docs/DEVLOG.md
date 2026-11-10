@@ -16,6 +16,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 — GitHub push: workflow-scope block resolved (correction)
+**Goal:** user asked why they kept being told to re-authorise GitHub.
+**Changed:** no code. Supersedes the "Open" item of the 2026-11-04 keep-alive entry (push blocked until the `workflow` scope is granted).
+**Worked:** `gh auth status` shows the `workflow` scope and git pushes through `gh auth git-credential`; the remote-tracking log shows every push succeeding since 2026-11-10 23:53, and `origin/main` equals local `main`.
+**Dead ends:** the assistant repeated "push still blocked" in two later summaries without re-testing; only one push (~23:45 on 2026-11-10) actually failed.
+**Open:** none.
+
+---
+
 ### 2026-11-11 — 3D moved off Hugging Face: old viewer page and HF tab removed
 **Goal:** "migrate the 3D viewer off the Hugging Face page … function like the 2D viewer, except that we would see a 3D model", so users never wait for the Space to wake.
 **Changed:**
