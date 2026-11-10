@@ -7,7 +7,7 @@
 // still bypass a client-side check (e.g. by setting the localStorage flag).
 // For genuine access control the gated features would need server-side auth.
 (function () {
-  const HASH = '3efe99e46720081c7105586a292cdaa01128e92c9b15cee4486f772c79ce838e';
+  const HASH = 'acd3f40f3a531aacafce58f42cc3d8d229af5dc36e23723dd4477953ce476b4c';
   const KEY = 'geovis_admin';
 
   async function sha256(s) {

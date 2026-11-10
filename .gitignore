@@ -49,3 +49,6 @@ References from Datagov/
 
 # promo video project (renders, node deps)
 videos/
+
+# Local admin password for the website gate (never commit)
+admin_password.local.txt
