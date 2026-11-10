@@ -4,6 +4,18 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-10 — Handover: HANDOVER.md turned into a per-session index
+**Goal:** write the session handover for the 3D Block builder work.
+**Changed:**
+- `HANDOVER.md`: now an index table (one row per session note).
+- `handovers/2026-10-15_fa302799_3d-block-builder.md` (new): this session's note.
+- `handovers/2026-09-24_legacy_previous-note.md` (new): the old single-file note, moved unchanged.
+**Worked:** checked that the live `builder3d.js` contains the tree-flattening fix, and that later sessions touched only the keep-alive and the docs.
+**Dead ends:** none.
+**Open:** the items listed in the new note (DXF import into GeoStudio/PLAXIS untested, cloud save from the 3D page untested, Revit/PLAXIS 3D deferred).
+
+---
+
 ### 2026-11-04 — Keep-alive workflow: default branch switched to main
 **Goal:** "Make main the default" so the GitHub scheduled ping can run.
 **Changed:** GitHub repo setting only: default branch `master` → `main`. Supersedes the "default branch" item under Open in the 2026-10-31 keep-alive entry.
