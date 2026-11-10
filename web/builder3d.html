@@ -128,6 +128,10 @@
       <label>Top of soil follows</label>
       <label class="inline"><input type="radio" name="top" value="dtm" checked> Lands Dept bare-earth ground model</label>
       <label class="inline"><input type="radio" name="top" value="bh"> Borehole ground levels</label>
+      <label for="lidar-file" title="The ground model above is on a 5 m grid. CEDD's 2020 LiDAR survey is on a 0.5 m grid, but has to be downloaded tile by tile from sdportal.cedd.gov.hk (product: RASTER-DTM). Pick the .tif file(s) here; they stay on your computer.">Finer ground: load 0.5 m LiDAR tile(s) (.tif) — optional</label>
+      <input type="file" id="lidar-file" accept=".tif,.tiff,image/tiff" multiple>
+      <div id="lidar-note" class="status" style="display:none"></div>
+      <div class="hint">LiDAR data © CEDD, HKSAR Government. Tiles are kept for this visit only.</div>
       <label for="base">Block base level (mPD) — blank = 5 m below the deepest hole</label>
       <input type="number" id="base" step="1" placeholder="auto">
       <label for="detail">Detail</label>
@@ -135,6 +139,7 @@
         <option value="60">Coarse (fast)</option>
         <option value="120" selected>Normal</option>
         <option value="200">Fine</option>
+        <option value="300">Very fine (for 0.5 m LiDAR, slower)</option>
       </select>
       <label class="inline"><input type="checkbox" id="use-tp"> Include trial pits</label>
       <div class="row"><button class="gold" id="build">Build 3D block</button></div>

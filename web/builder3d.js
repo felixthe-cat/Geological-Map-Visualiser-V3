@@ -21,6 +21,7 @@ import { sectionRegions, toDXF, layerName } from './cad_export.js';
 import { sampleElevation, tileCoord } from './terrain.js';
 import { fetchDtmTile, dtmTileGetter } from './dtm_tiles.js';
 import { classColour } from './strata.js';
+import { parseDtmTiff, sampleGrid, gridBounds } from './lidar_tile.js';
 
 const $ = id => document.getElementById(id);
 const LANDSD_3D = 'https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json';
@@ -228,7 +229,26 @@ async function prefetchDtm(){
   const got=await Promise.all(jobs);
   return got.some(Boolean);
 }
+// 0.5 m LiDAR tiles the user loaded from disk (CEDD has no live feed for them: the
+// portal is order-and-download). They are held in memory for this visit only.
+let lidar=[];
+async function loadLidar(files){
+  let ok=0; const bad=[];
+  for (const f of files){
+    try {
+      // A wrong or damaged file must not take the page down: report it and carry on with the rest.
+      const g=parseDtmTiff(await f.arrayBuffer());
+      lidar=lidar.filter(o=>o.x0!==g.x0 || o.y0!==g.y0);      // same sheet loaded twice: keep the new one
+      lidar.push(g); ok++;
+    } catch(err){ bad.push(`${f.name}: ${err?.message||err}`); }
+  }
+  const b=lidar.map(gridBounds);
+  const cover=lidar.length ? ` Covers E ${Math.min(...b.map(v=>v[0]))}–${Math.max(...b.map(v=>v[2]))}, N ${Math.min(...b.map(v=>v[1]))}–${Math.max(...b.map(v=>v[3]))}.` : '';
+  note('lidar-note', (ok ? `✓ ${lidar.length} LiDAR tile(s) loaded.${cover}` : '')+(bad.length ? ' ✗ '+bad.join(' · ') : ''), bad.length && !ok ? 'err' : 'ok');
+  if (ok && model) build();                                   // already built: redo it on the finer ground
+}
 function dtmAt(e,n){
+  for (const g of lidar){ const z=sampleGrid(g, e, n); if (z!=null) return z; }   // outside the tiles: fall back to 5 m
   const [lat,lng]=toLL(e,n);
   const z=sampleElevation(dtmTileGetter, lng, lat);
   return Number.isFinite(z) && z>-50 ? z : null;     // no-data cells come back as huge negatives
@@ -245,7 +265,13 @@ async function build(){
     let top=topMode(), msg='';
     if (top==='dtm'){
       note('build-note','Fetching the Lands Dept ground model…');
-      if (!await prefetchDtm()){ top='bh'; msg=' Ground model unavailable here — used borehole ground levels instead.'; }
+      if (!await prefetchDtm() && !lidar.length){ top='bh'; msg=' Ground model unavailable here — used borehole ground levels instead.'; }
+      else if (lidar.length){
+        const hit=boundary.filter(p=>lidar.some(g=>sampleGrid(g, p[0], p[1])!=null)).length;
+        msg = hit===boundary.length ? ' Ground: 0.5 m LiDAR.'
+            : hit ? ' Ground: 0.5 m LiDAR where your tiles reach, the 5 m model elsewhere.'
+            : ' Your LiDAR tiles do not reach this boundary — used the 5 m model.';
+      }
     }
     note('build-note','Building the block…');
     await new Promise(r=>setTimeout(r,20));            // let the message paint
@@ -821,6 +847,7 @@ $('ds-file').addEventListener('change', async e=>{
   try { openProject(await f.text(), null, f.name); } catch(err){ note('ds-note','✗ '+(err?.message||err),'err'); }
   e.target.value='';
 });
+$('lidar-file').addEventListener('change', async e=>{ await loadLidar([...e.target.files]); e.target.value=''; });
 $('bd-draw').addEventListener('click', startDraw);
 $('bd-fit').addEventListener('click', fitBoundary);
 $('build').addEventListener('click', build);

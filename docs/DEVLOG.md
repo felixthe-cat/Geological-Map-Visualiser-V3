@@ -4,6 +4,18 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-10 23:58 — 3D Block builder: load CEDD 0.5 m LiDAR tiles from disk
+**Goal:** use the 0.5 m LiDAR ground model as the terrain; the user downloaded one RASTER-DTM tile to try.
+**Changed:**
+- `web/lidar_tile.js` (new) + `web/test_lidar_tile.mjs` (new): `parseDtmTiff()` reads the CEDD tile (classic TIFF, uncompressed float32, 128 px tiles or strips, GeoTIFF tiepoint + pixel scale, no-data tag); `sampleGrid()` bilinear lookup; `gridBounds()`.
+- `web/builder3d.js`: `loadLidar()` keeps parsed tiles in memory; `dtmAt()` tries them first and falls back to the 5 m model; the build note says which ground was used.
+- `web/builder3d.html`: file picker (multiple `.tif`), CEDD credit line, "Very fine" detail option (300 cells).
+**Worked:** the real tile `11NW10D` parses to 1500 × 1200 cells of 0.5 m, E 836750–837500, N 821600–822200, 17.6 to 98.5 mPD, no gaps. In the preview a 200 m block on that tile showed platforms and cut slopes the 5 m model smooths away; a junk `.tif` was reported and skipped. 9 self-check scripts pass.
+**Dead ends:** none. Chose a ~60-line reader over geotiff.js because the tiles are one fixed, uncompressed flavour and a pure function can be tested in Node.
+**Open:** tiles are not remembered between visits and are not saved with the project. Supersedes the "terrain is still the 5 m model" item in the entry below and the "add the file loader later" part of ADR-13. The contour shader looks speckled on rough, nearly flat LiDAR ground that sits on a contour level.
+
+---
+
 ### 2026-11-10 23:40 — 3D Block builder: white-model look, 2 m contours, white buildings, slice handles
 **Goal:** "top surface be the terrain … with the buildings … plain white … sides the geological map … a cross-section plane the user can drag and rotate".
 **Changed:**

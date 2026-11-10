@@ -97,3 +97,7 @@ What changed for you, newest at the bottom of each day. Append only.
   cut and the green ring to turn it. The sliders still work and follow the handles.
 - 2026-11-10 — The 3D view no longer has perspective, so looking straight down gives a true
   plan. A north arrow in the corner turns with the view.
+- 2026-11-10 — You can now load 0.5 m LiDAR ground tiles (the "RASTER-DTM" .tif files from
+  CEDD's Spatial Data Portal) into the 3D Block page. The block's ground and the 2 m contours
+  then follow the fine survey instead of the 5 m model. Pick "Very fine" under Detail to see
+  it properly. The tiles stay on your computer and need loading again on your next visit.
