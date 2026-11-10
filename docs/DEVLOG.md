@@ -16,6 +16,19 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 — 3D moved off Hugging Face: old viewer page and HF tab removed
+**Goal:** "migrate the 3D viewer off the Hugging Face page … function like the 2D viewer, except that we would see a 3D model", so users never wait for the Space to wake.
+**Changed:**
+- `web/viewer.html`, `web/app.js`: deleted (the page only embedded the HF Space in an iframe).
+- `web/builder.html` / `web/builder.js`: removed the "3D Viewer ↗" header link, the "5 · 3D via Hugging Face" tab and its GemPy send code (`sendToHF`, `HF_SPACE`, `HF_URL`).
+- `web/index.html`: the three 3D entries (nav, hero button, about card) now open `builder3d.html`; card text describes the 3D block.
+- `web/vercel.json`: permanent redirects `/viewer` and `/viewer.html` → `/builder3d` for old bookmarks.
+**Worked:** preview: 2D builder shows four tabs, header links are Home + 3D Block, tabs switch with no new errors; home page's three 3D links all go to `builder3d.html`.
+**Dead ends:** none.
+**Open:** by the user's choice, borehole-log loading and original-AGS download in `web/sitemap.js` still call the HF Space (`fetch_stratigraphy`, `fetch_raw_ags`), so the Site Map's "Load into 2D Builder" still waits for it to wake. CEDD's archive sends no CORS header, so moving that off HF needs a Vercel function, not browser code. The HF Space and `app.py` GemPy endpoints are left as they are.
+
+---
+
 ### 2026-11-10 23:58 — 3D Block builder: load CEDD 0.5 m LiDAR tiles from disk
 **Goal:** use the 0.5 m LiDAR ground model as the terrain; the user downloaded one RASTER-DTM tile to try.
 **Changed:**

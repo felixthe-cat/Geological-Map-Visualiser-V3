@@ -53,7 +53,7 @@
     <nav class="hero-nav">
       <div class="hero-nav-inner">
         <a href="builder.html" class="nav-link">2D Builder</a>
-        <a href="viewer.html" class="nav-link locked3d" data-lock3d aria-disabled="true">3D Viewer<span class="coming-soon">Coming soon</span></a>
+        <a href="builder3d.html" class="nav-link locked3d" data-lock3d aria-disabled="true">3D Builder<span class="coming-soon">Coming soon</span></a>
         <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
         <!-- both only rendered once cloud accounts are configured (web/supabase_config.js);
              which of the two shows depends on whether anyone is signed in -->
@@ -90,7 +90,7 @@
           </svg>
           2D Log &amp; Cross-Section Builder
         </a>
-        <a href="viewer.html" class="hero-cta hero-cta-primary locked3d" data-lock3d aria-disabled="true">
+        <a href="builder3d.html" class="hero-cta hero-cta-primary locked3d" data-lock3d aria-disabled="true">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
@@ -122,10 +122,10 @@
           <p>Enter boreholes layer-by-layer with a live log preview, then generate interpolated cross-sections. Runs instantly in your browser.</p>
           <span class="about-card-cta">Open 2D Builder →</span>
         </a>
-        <a href="viewer.html" class="about-card locked3d" data-lock3d aria-disabled="true">
+        <a href="builder3d.html" class="about-card locked3d" data-lock3d aria-disabled="true">
           <h3>3D Geological Map Visualiser</h3>
-          <p>Implicit 3D modelling — rotate, slice and export interactive geological surfaces and volumetric strata.</p>
-          <span class="about-card-cta">Open 3D Viewer →<span class="coming-soon">Coming soon</span></span>
+          <p>The same boreholes as a 3D block under the real terrain and buildings — drag a cut through it to see the ground, and export the section to GeoStudio or PLAXIS.</p>
+          <span class="about-card-cta">Open 3D Builder →<span class="coming-soon">Coming soon</span></span>
         </a>
       </div>
     </div>
@@ -176,7 +176,5 @@
       });
     })();
   </script>
-  <!-- app.js drives viewer.html's HF iframe; the landing page has no iframe, so
-       it does not load it (it was throwing on every visit). -->
 </body>
 </html>

@@ -1,7 +1,7 @@
 // ================================================================
 // GeoVisualise — 2D Borehole Log & Cross-Section builder
 // Editable, Subcores-style borehole entry with live log preview.
-// Ships the same dataset to the GemPy Hugging Face Space (two-way pipeline).
+// The same dataset opens in the 3D Block builder (builder3d.html) via a localStorage hand-off.
 // ================================================================
 
 import { sectionStations, interpolateHorizons, boxToPts, ptsToBox, resizeFromCorner, cutPolygon } from './section_geom.js';
@@ -10,9 +10,6 @@ import { stateToProjectCSV, projectCSVToState } from './project_csv.js';
 import { colourFor, classKey, classLabel, classColour } from './strata.js';
 import { dtmTileGetter, prefetchDtmTiles } from './dtm_tiles.js';
 
-const HF_SPACE = 'ferxxxxx/Geological-Map-Visualiser-V3';
-const HF_URL   = 'https://ferxxxxx-geological-map-visualiser-v3.hf.space';
-document.getElementById('hf-open').href = HF_URL;
 
 // ---- STATE (source of truth) ----------------------------------------
 // state.boreholes = [{id,x,y,gl, layers:[{surface,top,base}]}]  (top/base = depth below GL)
@@ -1772,33 +1769,6 @@ function exportPNG(svgEl, name){
   img.src=svg64;
 }
 
-// ---- HUGGING FACE PIPELINE ------------------------------------------
-function setStatus(msg,cls){ const s=document.getElementById('hf-status'); s.style.display='block'; s.className='status '+cls; s.textContent=msg; }
-async function sendToHF(){
-  setStatus('Connecting to Hugging Face Space…','busy');
-  showToast('Running 3D model on Hugging Face…');
-  try {
-    const mod=await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
-    const { Client, handle_file }=mod;
-    const app=await Client.connect(HF_SPACE);
-    setStatus('Connected. Sending borehole dataset and running GemPy…','busy');
-    const csv=stateToCSV();
-    const res_=+document.getElementById('hf-res').value, dip_=+document.getElementById('hf-dip').value, az_=+document.getElementById('hf-az').value;
-    let res;
-    try { res=await app.predict('/build_model_csv',[csv,res_,dip_,az_]); }
-    catch { const file=handle_file(new File([csv],'boreholes.csv',{type:'text/csv'}));
-      const args=[file,res_,dip_,az_,'Interface Separation Surfaces',1,1,true,true,false,false,'X',50];
-      try { res=await app.predict('/build_model',args); } catch { res=await app.predict('/generate_model',args); } }
-    setStatus('✓ Hugging Face received the data and built the model. Open the Space to view/download the 3D result.','ok');
-    console.log('[HF] result',res);
-  } catch(err){
-    setStatus('Pipeline reached Hugging Face but returned: '+(err?.message||err)+'\n(If the Space was asleep it may need a moment — retry.)','err');
-    console.error('[HF]',err);
-  } finally {
-    hideToast();
-  }
-}
-
 // ==== wiring ==========================================================
 function renderSectionFromUI(){ renderSitePlan(); }
 
@@ -1928,7 +1898,6 @@ document.getElementById('ctr-base').addEventListener('change', e=>{
   if (ctrMap) setBase(ctrMap, 'ctr', e.target.value);
 });
 document.getElementById('ctr-export').addEventListener('click', exportContour);
-document.getElementById('hf-send').addEventListener('click', sendToHF);
 
 // The textbox takes the same project format the dataset picker and "Download
 // project CSV" produce (#GEOVIS line + 9 columns), so text copied out of the

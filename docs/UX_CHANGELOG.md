@@ -101,3 +101,7 @@ What changed for you, newest at the bottom of each day. Append only.
   CEDD's Spatial Data Portal) into the 3D Block page. The block's ground and the 2 m contours
   then follow the fine survey instead of the 5 m model. Pick "Very fine" under Detail to see
   it properly. The tiles stay on your computer and need loading again on your next visit.
+- 2026-11-11 — The old "3D Viewer" (which opened the Hugging Face app) is gone. Every 3D link
+  on the home page now opens the 3D Builder, and old links to the viewer forward there too.
+- 2026-11-11 — The 2D Builder no longer has the "3D via Hugging Face" tab. Use the
+  "3D Block ↗" link in its header to see the same boreholes in 3D.
