@@ -263,3 +263,40 @@ export function sliceLine(poly, az, off){
   return { A:{ e:mx-ux*half, n:my-uy*half }, B:{ e:mx+ux*half, n:my+uy*half },
            normal:[nx,ny], half };
 }
+
+// ---- white-model helpers (building outlines, slice handle) ----
+
+/**
+ * Esri polygon rings -> [{ outer, holes }]. A ring wound the same way as the first
+ * one is a new outline; one wound the other way is a hole in the outline before it.
+ * ponytail: assumes holes follow their outline (true for the LandsD building layer);
+ * do a point-in-ring match if a source ever interleaves them.
+ */
+export function ringsToShapes(rings){
+  const out=[]; let sign=0;
+  for (let r of rings){
+    const a0=r[0], a1=r[r.length-1];
+    if (r.length>1 && a0[0]===a1[0] && a0[1]===a1[1]) r=r.slice(0,-1);   // drop the closing point
+    if (r.length<3) continue;
+    const s=Math.sign(polyArea(r)); if (!s) continue;
+    if (!sign) sign=s;
+    if (s===sign || !out.length) out.push({ outer:r, holes:[] });
+    else out[out.length-1].holes.push(r);
+  }
+  return out;
+}
+
+/**
+ * Inverse of sliceLine(): the slider values for a slice whose normal is (nx,ny) and
+ * which passes through (e,n). Direction is kept in 0…179°, so a normal pointing the
+ * "other" way comes back with wrapped=true (the caller swaps the kept side).
+ */
+export function sliceFromPose(poly, nx, ny, e, n){
+  let az=Math.round(Math.atan2(-ny, nx)*180/Math.PI);
+  az=((az%360)+360)%360;
+  const wrapped=az>=180; if (wrapped) az-=180;
+  const xs=poly.map(p=>p[0]), ys=poly.map(p=>p[1]);
+  const cx=(Math.min(...xs)+Math.max(...xs))/2, cy=(Math.min(...ys)+Math.max(...ys))/2;
+  const r=az*Math.PI/180;
+  return { az, off:(e-cx)*Math.cos(r)-(n-cy)*Math.sin(r), wrapped };
+}

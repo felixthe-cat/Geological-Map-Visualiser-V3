@@ -280,3 +280,25 @@ Supabase free tier pauses after 7 days idle. A daily Vercel cron already pings i
 Option 3. Either pinger alone keeps the project awake, so one failing (or being disabled) doesn't cause a pause. Repo is public, so the multi-hour sleeps cost nothing.
 
 **Reversible?** Cheap — delete the workflow file or the `crons` entry in `web/vercel.json`.
+
+---
+
+### ADR-12: White buildings come from the Lands Dept building map (outline + roof level), not from recolouring the photo mesh
+**Context:** the white-model view needs plain white buildings. The 3D photo map is one skin over ground, trees and roofs.
+**Options considered:**
+- *Recolour the photo mesh by height above ground.* Reuses `flattenTile()`. Drawback: trees become white lumps and building edges are soft.
+- *Extrude building outlines from the CSDI "Building" FeatureServer.* Clean card-model blocks; one keyless request per boundary; CORS open to Vercel and localhost. Drawback: flat roofs only, no podium/tower stepping beyond what the outlines give, and a second government server the page depends on.
+- *LandsD 3D-BIT00 models.* Real roof shapes. Drawback: MAX/3DS/FBX/VRML downloads per tile, nothing a browser can query live.
+**Chosen + why:** outlines extruded live. User picked this option; it is the only one that is both crisp and loadable on demand.
+**Reversible?** Cheap: `setBuildings()` is self-contained.
+
+---
+
+### ADR-13: Keep the live 5 m ground model; do not wire in the CEDD 0.5 m LiDAR yet
+**Context:** the user asked for the 0.5 m LiDAR terrain as the top surface.
+**Options considered:**
+- *Stream it live.* Not possible: the CEDD Spatial Data Portal hands out tiles by order after a captcha; there is no public tile or image service for the 0.5 m model.
+- *Let the user load a downloaded LiDAR tile file into the page.* Works offline of any service. Drawback: the file format and tile size are unverified until a real tile is in hand, and a parser written blind would be untested.
+- *Stay on the Esri-hosted LandsD 5 m DTM tiles (current).* Already live and tested. Drawback: 2 m contours are smoother than reality; small cut slopes and platforms are lost.
+**Chosen + why:** stay on 5 m for now and add the file loader once the user has downloaded one tile to test against. The terrain enters through one function (`dtmAt`), so the swap is small.
+**Reversible?** Cheap.

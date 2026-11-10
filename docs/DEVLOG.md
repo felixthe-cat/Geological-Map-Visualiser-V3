@@ -4,6 +4,21 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-10 23:40 — 3D Block builder: white-model look, 2 m contours, white buildings, slice handles
+**Goal:** "top surface be the terrain … with the buildings … plain white … sides the geological map … a cross-section plane the user can drag and rotate".
+**Changed:**
+- `web/builder3d.js`: orthographic camera, sky + warm sun with shadows, north arrow; a sage terrain skin over the block top with 2 m contours drawn in its shader; `setBuildings()` fetches Lands Dept building outlines (CSDI "Building" FeatureServer, `BaseHeight`/`TopHeight`) and extrudes them as chalk blocks with edge lines; two `TransformControls` on one handle (arrow = move the cut, ring = turn it) feeding the existing sliders through `onHandle()`.
+- `web/builder3d.html`: two new layer toggles (terrain + contours, buildings), photo map now off by default, "concept model" tag, north arrow, hints.
+- `web/block3d.js` (+ `test_block3d.mjs`): `ringsToShapes()` (Esri rings to outline + holes), `sliceFromPose()` (inverse of `sliceLine()`).
+**Worked:** local preview on the hillside example with a 200 m box: contours visible, 8 buildings drawn, arrow drag moved the cut 10 → 60 m with direction unchanged, ring drag turned it 60 → 46°, "Face the cut" and the photo map still work. All 8 `web/test_*.mjs` pass.
+**Dead ends:**
+- Contours as separate line geometry 8 cm above the skin: invisible. The skin's polygon offset is slope-scaled, which in an orthographic view is metres on steep ground, so it beat the lines. Moved the contours into the skin's fragment shader.
+- Arrow and ring picked up the same drag (the ring's hit area crosses the arrow). Fixed by disabling the other gizmo while one is dragging.
+- CEDD 0.5 m LiDAR: `sdportal.cedd.gov.hk` is an order-and-download portal behind a captcha (LAS / TIFF tiles), with no tile service a browser can stream. Not wired in; see ADR-13.
+**Open:** terrain is still the 5 m Lands Dept model. Buildings are flat-roofed extrusions, only those whose centre is inside the boundary. Not yet checked on the live site until deployed. Tone mapping from the style guide deliberately left off so layer colours match the legend.
+
+---
+
 ### 2026-11-10 — Handover: HANDOVER.md turned into a per-session index
 **Goal:** write the session handover for the 3D Block builder work.
 **Changed:**

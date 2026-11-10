@@ -1,7 +1,7 @@
 // Self-check for the 3D block geometry. Run: node web/test_block3d.mjs
 import assert from 'node:assert';
 import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, clipToRect, triangulate,
-         polyArea, pointInPoly } from './block3d.js';
+         polyArea, pointInPoly, ringsToShapes, sliceFromPose } from './block3d.js';
 import { sectionRegions } from './cad_export.js';
 
 const near=(a,b,t=1e-6)=>Math.abs(a-b)<=t;
@@ -57,5 +57,22 @@ assert.ok(regs.some(r=>r.name==='GV'));
 // --- slice line through the bbox centre, north-south ---
 const sl=sliceLine(poly, 0, 0);
 assert.ok(near(sl.A.e,50) && near(sl.B.e,50) && sl.B.n>sl.A.n);
+
+// --- building rings: closing point dropped, opposite winding = hole ---
+{
+  const sq=(x,y,s)=>[[x,y],[x,y+s],[x+s,y+s],[x+s,y],[x,y]];                 // clockwise, closed
+  const sh=ringsToShapes([sq(0,0,10), sq(2,2,3).reverse(), sq(20,0,5)]);
+  assert.strictEqual(sh.length, 2);
+  assert.ok(sh[0].outer.length===4 && sh[0].holes.length===1 && sh[1].holes.length===0);
+}
+
+// --- slice handle: pose -> sliders is the inverse of sliceLine ---
+for (const az of [0,37,90,179]) for (const off of [-12.5,0,30]){
+  const s=sliceLine(poly, az, off), me=(s.A.e+s.B.e)/2, mn=(s.A.n+s.B.n)/2;
+  const a=sliceFromPose(poly, s.normal[0], s.normal[1], me, mn);
+  assert.ok(a.az===az && near(a.off,off) && !a.wrapped);
+  const b=sliceFromPose(poly, -s.normal[0], -s.normal[1], me, mn);           // handle turned right round
+  assert.ok(b.az===az && near(b.off,off) && b.wrapped);
+}
 
 console.log('test_block3d: all checks passed');

@@ -65,13 +65,19 @@
     .tabpane.active{display:block}
     #map{height:70vh;min-height:380px;border-radius:10px;border:1px solid var(--border)}
     #view3d{position:relative;height:72vh;min-height:400px;border-radius:10px;overflow:hidden;
-      background:linear-gradient(#cfdde6,#eef0ea);border:1px solid var(--border)}
+      background:#e9ede4;border:1px solid var(--border)}
+    #view3d .tag{position:absolute;left:10px;top:10px;font-size:9px;font-weight:700;letter-spacing:1.8px;color:#ad7946;pointer-events:none}
+    #view3d .tag b{display:block;font:400 11px 'Segoe UI',sans-serif;letter-spacing:0;color:#728079;margin-top:2px}
+    #north{position:absolute;right:14px;top:12px;width:30px;height:30px;pointer-events:none;color:#253e38;
+      font:700 10px 'Segoe UI',sans-serif;text-align:center;line-height:1}
+    #north::after{content:'';display:block;margin:2px auto 0;width:0;height:0;
+      border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:16px solid #253e38}
     #view3d canvas{display:block}
     #view3d .overlay{position:absolute;left:10px;bottom:10px;font-size:11px;color:#3d3529;
       background:rgba(255,253,248,.85);padding:4px 8px;border-radius:6px;pointer-events:none}
     #sec-svg{width:100%;height:auto;background:#fff;border:1px solid var(--border);border-radius:10px}
     .legend div{display:flex;align-items:center;gap:6px;font-size:12.5px;margin:2px 0}
-    .legend .sw{width:14px;height:14px;border-radius:3px;border:1px solid #3d3529;flex:0 0 auto}
+    .legend .sw,label .sw{width:14px;height:14px;border-radius:3px;border:1px solid #3d3529;flex:0 0 auto}
     .val{font-variant-numeric:tabular-nums;color:var(--forest-d);font-weight:600}
     #locked{max-width:520px;margin:60px auto;text-align:center}
   </style>
@@ -140,7 +146,9 @@
       <h3>View</h3>
       <label>Vertical exaggeration <span class="val" id="vex-val">1×</span></label>
       <input type="range" id="vex" min="1" max="5" step="0.5" value="1">
-      <label class="inline"><input type="checkbox" id="mesh-on" checked> Lands Dept 3D photo map</label>
+      <label class="inline" title="The top of the block in one ground colour with contour lines every 2 m, so only the sides and the cut show geology."><input type="checkbox" id="terr-on" checked> <span class="sw" style="background:#7f9f73"></span> Terrain surface + 2 m contours</label>
+      <label class="inline" title="Building outlines and roof levels from the Lands Dept building map, drawn as plain white blocks."><input type="checkbox" id="bld-on" checked> <span class="sw" style="background:#f1f1ea"></span> Buildings (white blocks)</label>
+      <label class="inline"><input type="checkbox" id="mesh-on"> Lands Dept 3D photo map</label>
       <label class="inline" title="The photo map is the top of the trees and roofs. Inside the boundary it is laid flat on the block's ground surface; just outside, trees are lowered gradually."><input type="checkbox" id="mesh-flat" checked> Remove trees &amp; buildings over the site</label>
       <label>Photo map opacity <span class="val" id="mesh-op-val">100%</span></label>
       <input type="range" id="mesh-op" min="0" max="1" step="0.05" value="1">
@@ -153,6 +161,7 @@
 
       <h3>4 · Slice</h3>
       <label class="inline"><input type="checkbox" id="sl-on"> Cut the block</label>
+      <div class="hint">In the 3D view, drag the arrow to move the cut and the ring to turn it. The sliders do the same.</div>
       <label>Direction (° from north) <span class="val" id="sl-az-val">90°</span></label>
       <input type="range" id="sl-az" min="0" max="179" step="1" value="90">
       <label>Position <span class="val" id="sl-off-val">0 m</span></label>
@@ -180,7 +189,11 @@
         <div class="hint" style="margin-top:6px">Green dots: boreholes in the dataset. Orange: site boundary. Red: slice line (A → B).</div>
       </div>
       <div class="tabpane" data-pane="block">
-        <div id="view3d"><div class="overlay" id="view-info">Drag to rotate · right-drag to pan · scroll to zoom</div></div>
+        <div id="view3d">
+          <div class="tag">CONCEPT MODEL<b>Layers are estimated between boreholes · not for construction</b></div>
+          <div id="north">N</div>
+          <div class="overlay" id="view-info">Drag to rotate · right-drag to pan · scroll to zoom · with the cut on: drag the arrow to move it, the ring to turn it</div>
+        </div>
         <div id="view-note" class="status" style="display:none"></div>
       </div>
       <div class="tabpane" data-pane="section">

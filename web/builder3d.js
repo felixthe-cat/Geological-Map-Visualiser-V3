@@ -13,7 +13,8 @@
 // the photo-mesh and the boreholes all stretch together.
 // ================================================================
 
-import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, polyArea, defaultBase, pointInPoly } from './block3d.js';
+import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, polyArea, defaultBase, pointInPoly,
+         ringsToShapes, sliceFromPose } from './block3d.js';
 import { projectCSVToState, stateToProjectCSV } from './project_csv.js';
 import { EXAMPLES } from './examples.js';
 import { sectionRegions, toDXF, layerName } from './cad_export.js';
@@ -25,6 +26,12 @@ const $ = id => document.getElementById(id);
 const LANDSD_3D = 'https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json';
 const THREE_LIBS = 'https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/libs/';
 const HANDOFF_KEY = 'geovis_3d_handoff';
+// Lands Dept "Building" layer on the CSDI portal: outlines + BaseHeight / TopHeight (mPD).
+// No key; sends CORS headers for the Vercel origin and for localhost.
+const BLD_URL = 'https://portal.csdi.gov.hk/server/rest/services/common/landsd_rcd_1637211194312_35158/FeatureServer/0/query';
+// White-model palette (site-model-viewer-style skill): sage ground, chalk buildings.
+const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', edge:'#40554e' };   // contour = #40523b for the shader
+const CONTOUR_M = 2;
 
 // ---- state -----------------------------------------------------------------
 let proj = null;        // projectCSVToState() result of the open dataset
@@ -102,6 +109,8 @@ function applyOptions(b){
   $('use-tp').checked = !!b.useTP;
   if (b.vex) $('vex').value=b.vex;
   if (b.meshOn!=null) $('mesh-on').checked=!!b.meshOn;
+  if (b.terrOn!=null) $('terr-on').checked=!!b.terrOn;
+  if (b.bldOn!=null) $('bld-on').checked=!!b.bldOn;
   if (b.meshFlat!=null) $('mesh-flat').checked=!!b.meshFlat;
   if (b.meshOp!=null) $('mesh-op').value=b.meshOp;
   $('mesh-dz').value = Number.isFinite(b.meshDz) ? b.meshDz : 0;
@@ -115,7 +124,7 @@ function applyOptions(b){
 function block3dSettings(){
   const base=$('base').value.trim();
   return { boundary, top:topMode(), base: base===''?null:+base, detail:+$('detail').value,
-    useTP:$('use-tp').checked, vex:vex(), meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
+    useTP:$('use-tp').checked, vex:vex(), terrOn:$('terr-on').checked, bldOn:$('bld-on').checked, meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
     meshDz: meshLevelled ? +$('mesh-dz').value : null,
     slice:{ on:$('sl-on').checked, az:+$('sl-az').value, off:+$('sl-off').value, flip:$('sl-flip').checked } };
 }
@@ -271,31 +280,58 @@ async function ensure3D(){
   if (T) return T;
   const THREE = await import('three');
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
+  const { TransformControls } = await import('three/addons/controls/TransformControls.js');
   const el=$('view3d');
   const renderer=new THREE.WebGLRenderer({ antialias:true, alpha:true });   // alpha: the CSS sky gradient shows through
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.localClippingEnabled=true;
+  renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   el.prepend(renderer.domElement);
   const scene=new THREE.Scene();
-  const camera=new THREE.PerspectiveCamera(45, 1, 0.5, 30000);
+  // Orthographic: no perspective distortion, so the top view is a true plan.
+  // The frustum is sized in resize() from T.half (half the view height, m).
+  const camera=new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 30000);
   const controls=new OrbitControls(camera, renderer.domElement);
   controls.enableDamping=true; controls.screenSpacePanning=true;
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7a60, 1.7));
-  const sun=new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(-400, 800, 500); scene.add(sun);
+  // white sky with an olive bounce off the ground, and a warm low sun with soft shadows
+  scene.add(new THREE.HemisphereLight('#ffffff', '#747e61', 1.7));
+  const sun=new THREE.DirectionalLight('#fff7e7', 2.1); sun.castShadow=true;
+  sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias=-0.00012; sun.shadow.normalBias=0.12;
+  scene.add(sun);
   const world=new THREE.Group(); scene.add(world);
-  const blockG=new THREE.Group(), capG=new THREE.Group(), holeG=new THREE.Group();
-  world.add(blockG, capG, holeG);
+  const blockG=new THREE.Group(), capG=new THREE.Group(), holeG=new THREE.Group(), terrG=new THREE.Group(), bldG=new THREE.Group();
+  world.add(blockG, capG, holeG, terrG, bldG);
   const clip=new THREE.Plane(new THREE.Vector3(1,0,0), 0);
-  T={ THREE, renderer, scene, camera, controls, world, blockG, capG, holeG, clip, tiles:null };
+  // Slice handle: an arrow to push the cut along, a ring to turn it. Both drive the
+  // same invisible object; onHandle() turns its pose back into the two sliders.
+  const handle=new THREE.Object3D(); scene.add(handle);
+  const gizmos=['translate','rotate'].map(mode=>{
+    const tc=new TransformControls(camera, renderer.domElement);
+    tc.setMode(mode); tc.setSpace('local'); tc.setSize(0.9); tc.attach(handle);
+    tc.showZ=false; tc[mode==='translate' ? 'showY' : 'showX']=false;   // arrow = local X (the cut's normal), ring = vertical axis
+    tc.addEventListener('dragging-changed', e=>{
+      controls.enabled=!e.value; T.dragging=e.value;
+      for (const o of T.gizmos) if (o!==tc) o.enabled=!e.value;         // arrow and ring overlap: only the one grabbed first moves
+      if (e.value) T.flip0=$('sl-flip').checked; else updateSlice();    // on release: snap the handle to the slider values
+    });
+    tc.addEventListener('objectChange', onHandle);
+    const helper=tc.getHelper(); helper.visible=false; tc.enabled=false; scene.add(helper);
+    return tc;
+  });
+  T={ THREE, renderer, scene, camera, controls, sun, world, blockG, capG, holeG, terrG, bldG, clip, handle, gizmos,
+      half:100, span:100, topY:0, dragging:false, flip0:false, tiles:null };
   const resize=()=>{
     const w=el.clientWidth, h=el.clientHeight; if (!w || !h) return;
-    renderer.setSize(w, h); camera.aspect=w/h; camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    camera.left=-T.half*w/h; camera.right=T.half*w/h; camera.top=T.half; camera.bottom=-T.half; camera.updateProjectionMatrix();
     if (T.tiles) T.tiles.setResolutionFromRenderer(camera, renderer);
   };
+  T.resize=resize;
   new ResizeObserver(resize).observe(el); resize();
   renderer.setAnimationLoop(()=>{
     if (!el.clientWidth) return;                    // tab hidden: don't render or stream tiles
     controls.update();
+    $('north').style.transform=`rotate(${controls.getAzimuthalAngle()}rad)`;   // scene north is -z
     camera.updateMatrixWorld();
     if (T.tiles && T.tiles.group.visible) T.tiles.update();
     renderer.render(scene, camera);
@@ -305,12 +341,12 @@ async function ensure3D(){
 function disposeGroup(g){
   for (const o of [...g.children]){ g.remove(o); o.geometry?.dispose(); o.material?.dispose?.(); }
 }
-function clearScene(){ if (T){ disposeGroup(T.blockG); disposeGroup(T.capG); disposeGroup(T.holeG); } }
+function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG]) disposeGroup(g); bldKey=null; } }
 
 const P = (e,n,z) => [e-O.e, z-O.z, -(n-O.n)];      // HK1980 + mPD -> scene
 
 async function showBlock(){
-  const { THREE, blockG, holeG, world, camera, controls, clip }=await ensure3D();
+  const { THREE, blockG, holeG, terrG, world, camera, controls, clip, sun }=await ensure3D();
   clearScene();
   world.scale.y=vex();
   const { xy, z, tris, ring, ringZ, nH }=block, V=xy.length/2, R=ring.length, nS=nH-1;
@@ -356,19 +392,118 @@ async function showBlock(){
     }
   }
   holeG.visible=$('holes-on').checked;
+  // terrain skin: the block's own top surface in one sage colour, so the top reads as
+  // ground and only the sides / the cut show geology. 3 cm up + polygonOffset wins the z-fight.
+  let zTop=-Infinity;
+  const tp=[];
+  for (let v=0; v<V; v++){ zTop=Math.max(zTop, z[v*nH]); tp.push(...P(xy[2*v], xy[2*v+1], z[v*nH]+0.03)); }
+  T.topY=zTop-O.z;
+  const tg=new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3)); tg.setIndex([...tris]);
+  tg.computeVertexNormals();
+  const skinMat=new THREE.MeshLambertMaterial({ color:LOOK.terrain, side:THREE.DoubleSide, flatShading:true,
+    clippingPlanes:[clip], polygonOffset:true, polygonOffsetFactor:-(nS+1), polygonOffsetUnits:-(nS+1) });
+  // Contours are drawn by the surface's own shader (darken the pixels within ~1 px of
+  // every CONTOUR_M of level). Separate line geometry lost the depth fight against the
+  // polygon-offset skin on steep ground; this cannot, and the lines stay 1 px wide at any zoom.
+  const z0=O.z.toFixed(2), step=CONTOUR_M.toFixed(1);
+  skinMat.onBeforeCompile=sh=>{
+    sh.vertexShader=sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vH;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvH=position.y;');     // y = mPD − ZREF, before exaggeration
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vH;')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+        float h=(vH+${z0})/${step};
+        float d=abs(fract(h-0.5)-0.5)/fwidth(h);            // pixels to the nearest contour level
+        gl_FragColor.rgb=mix(${LOOK.contour}, gl_FragColor.rgb, 0.35+0.65*smoothstep(0.5,1.5,d));`);
+  };
+  const skin=new THREE.Mesh(tg, skinMat);
+  skin.receiveShadow=true;
+  terrG.add(skin);
+  terrG.visible=$('terr-on').checked;
   // camera: looking at the block from the south-west, a little above
   const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]);
   const span=Math.max(40, Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys));
   const midZ=((O.z+model.base)/2-O.z)*vex();
+  T.span=span; T.half=span*0.8; camera.zoom=1;
   controls.target.set(0, midZ, 0);
-  camera.position.set(-span*0.7, midZ+span*0.8, span*0.9);
-  camera.near=Math.max(0.5, span/500); camera.far=span*60; camera.updateProjectionMatrix();
+  camera.position.set(-span*2.8, midZ+span*3.2, span*3.6);   // orthographic: distance only has to clear the model
+  camera.near=0.1; camera.far=span*30;
+  T.resize();
+  sun.position.set(-span*1.2, span*2.4, span*0.6);
+  Object.assign(sun.shadow.camera, { left:-span*1.5, right:span*1.5, top:span*1.5, bottom:-span*1.5, near:1, far:span*8 });
+  sun.shadow.camera.updateProjectionMatrix();
   updateSlice();
   setMesh();
+  setBuildings();
 }
 // "hsl(…)" palette entries and hex both go through a canvas so THREE.Color gets plain hex
 const _cx=document.createElement('canvas').getContext('2d');
 function cssColour(c){ _cx.fillStyle='#000'; _cx.fillStyle=c; return _cx.fillStyle; }
+
+// ---- white building blocks ---------------------------------------------------------------
+// Outlines + roof levels from the Lands Dept building map, pushed up as plain chalk
+// blocks (an architect's card model). Only buildings whose centre is inside the
+// boundary: there is no ground outside it for the others to stand on.
+let bldKey=null;                       // what the current blocks were built for
+async function setBuildings(){
+  if (!T || !model || !boundary) return;
+  const on=$('bld-on').checked;
+  T.bldG.visible=on;
+  const key=JSON.stringify(boundary)+model.base+topMode();
+  if (!on || bldKey===key) return;
+  bldKey=key;
+  try {
+    const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]);
+    const q=new URLSearchParams({ where:'1=1', geometryType:'esriGeometryEnvelope', inSR:2326, outSR:2326,
+      geometry:[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)].join(','),
+      spatialRel:'esriSpatialRelIntersects', outFields:'BaseHeight,TopHeight', f:'json' });
+    // A slow or blocked government server must not hang the page: give up after 20 s.
+    const res=await fetch(BLD_URL+'?'+q, { signal:AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const feats=(await res.json()).features||[];
+    if (bldKey!==key) return;                              // boundary changed while waiting
+    const { THREE, bldG, clip }=T;
+    disposeGroup(bldG);
+    const pos=[], idx=[]; let n=0;
+    for (const f of feats){
+      const top=f.attributes.TopHeight;
+      if (!Number.isFinite(top) || !f.geometry?.rings) continue;
+      for (const { outer, holes } of ringsToShapes(f.geometry.rings)){
+        const ce=outer.reduce((s,p)=>s+p[0],0)/outer.length, cn=outer.reduce((s,p)=>s+p[1],0)/outer.length;
+        if (!pointInPoly(ce, cn, boundary)) continue;
+        // foot: the lowest ground under the outline (or the surveyed base if lower), sunk 0.3 m so no gap shows on a slope
+        const ground=outer.map(p=>model.at(p[0],p[1])[0]);
+        const base=Math.min(...ground, Number.isFinite(f.attributes.BaseHeight) ? f.attributes.BaseHeight : Infinity)-0.3;
+        if (top-base<1) continue;
+        const v2=r=>r.map(p=>new THREE.Vector2(p[0],p[1]));
+        const s0=pos.length/3;
+        for (const p of [outer, ...holes].flat()) pos.push(...P(p[0],p[1],top));                // roof
+        for (const t of THREE.ShapeUtils.triangulateShape(v2(outer), holes.map(v2))) idx.push(s0+t[0], s0+t[1], s0+t[2]);
+        for (const r of [outer, ...holes]) for (let i=0;i<r.length;i++){                       // walls (own corners -> crisp edges)
+          const a=r[i], b=r[(i+1)%r.length], s=pos.length/3;
+          pos.push(...P(a[0],a[1],top), ...P(b[0],b[1],top), ...P(b[0],b[1],base), ...P(a[0],a[1],base));
+          idx.push(s,s+1,s+2, s,s+2,s+3);
+        }
+        n++;
+      }
+    }
+    if (n){
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+      g.computeVertexNormals();
+      const m=new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color:LOOK.building, side:THREE.DoubleSide, flatShading:true, clippingPlanes:[clip] }));
+      m.castShadow=true; m.receiveShadow=true;
+      bldG.add(m);
+      bldG.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25),
+        new THREE.LineBasicMaterial({ color:LOOK.edge, transparent:true, opacity:0.55, clippingPlanes:[clip] })));
+    }
+    note('view-note', n ? `${n} building(s) drawn from the Lands Dept building map (outline + roof level).`
+                        : 'No mapped buildings inside this boundary.', 'ok');
+  } catch(err){
+    bldKey=null;                                             // let the next toggle retry
+    console.error(err); note('view-note','✗ Could not load the building outlines: '+(err?.message||err),'err');
+  }
+}
 
 // ---- Lands Dept 3D photo-mesh ----------------------------------------------------------------------------
 async function ensureTiles(){
@@ -556,6 +691,11 @@ function updateSlice(){
     clip.normal.set(s*nx, 0, -s*ny);
     clip.constant=-(clip.normal.x*px + clip.normal.z*pz);
     if (!on) clip.set(new THREE.Vector3(0,1,0), 1e9);          // nothing clipped
+    for (const g of T.gizmos){ g.enabled=on; g.getHelper().visible=on; }
+    if (!T.dragging){                                          // mid-drag the handle leads; otherwise it follows the sliders
+      T.handle.position.set(px, (T.topY+2)*vex(), pz);
+      T.handle.rotation.set(0, -(+$('sl-az').value)*Math.PI/180, 0);   // local X -> the cut's normal
+    }
     disposeGroup(capG);
     const ux=(slice.B.e-slice.A.e)/(2*slice.half), uy=(slice.B.n-slice.A.n)/(2*slice.half);
     for (const r of runs) for (const reg of sectionRegions(r.xq, r.curves, model.keys)){
@@ -577,15 +717,27 @@ function updateSlice(){
   renderSection();
 }
 
+// The 3D handle was dragged: read its pose back into the direction / position sliders.
+function onHandle(){
+  const { THREE, handle }=T;
+  handle.position.y=(T.topY+2)*vex();
+  const x=new THREE.Vector3(1,0,0).applyQuaternion(handle.quaternion);
+  const s=sliceFromPose(boundary, x.x, -x.z, handle.position.x+O.e, O.n-handle.position.z);
+  $('sl-az').value=s.az; $('sl-off').value=s.off;
+  $('sl-flip').checked = T.flip0 !== s.wrapped;                // turned past 0/180 deg: keep the same side
+  syncLabels(); updateSlice();
+}
+
 // Put the camera square-on to the cut face, on the side that was cut away.
 function lookAtCut(){
   if (!T || !slice || !$('sl-on').checked) return;
   showTab('block');
   const { camera, controls, clip }=T;
   const [mx,,mz]=P((slice.A.e+slice.B.e)/2, (slice.A.n+slice.B.n)/2, 0);
-  const midY=((O.z+model.base)/2-O.z)*vex(), d=slice.half*2.2;
+  const midY=((O.z+model.base)/2-O.z)*vex(), d=T.span*4;
   controls.target.set(mx, midY, mz);
   camera.position.set(mx-clip.normal.x*d, midY+d*0.25, mz-clip.normal.z*d);
+  camera.zoom=T.half/(slice.half*1.15); camera.updateProjectionMatrix();
 }
 
 // ---- section tab ------------------------------------------------------------------------------------------------
@@ -675,9 +827,11 @@ $('build').addEventListener('click', build);
 $('use-tp').addEventListener('change', ()=>{ drawMap(false); updateBoundaryInfo(); });
 $('vex').addEventListener('input', ()=>{
   syncLabels();
-  if (T && model){ T.world.scale.y=vex(); renderSection(); }
+  if (T && model){ T.world.scale.y=vex(); updateSlice(); }      // also re-seats the slice handle on the stretched block
 });
 $('mesh-on').addEventListener('change', setMesh);
+$('terr-on').addEventListener('change', e=>{ if (T) T.terrG.visible=e.target.checked; });
+$('bld-on').addEventListener('change', setBuildings);
 $('mesh-flat').addEventListener('change', ()=>{ if (T?.tiles) T.tiles.forEachLoadedModel(s=>flattenTile(s)); });
 $('mesh-op').addEventListener('input', ()=>{ syncLabels(); if (T?.tiles) T.tiles.forEachLoadedModel(s=>styleMesh(s)); });
 $('mesh-dz').addEventListener('change', ()=>{ meshLevelled=true; setTilesFrame(); });

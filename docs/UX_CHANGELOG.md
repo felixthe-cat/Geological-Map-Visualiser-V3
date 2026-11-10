@@ -88,3 +88,12 @@ What changed for you, newest at the bottom of each day. Append only.
   over your site. Inside the boundary it now lies on the block's ground surface. Just outside,
   trees are lowered gradually. Untick "Remove trees & buildings over the site" to see the
   original map.
+- 2026-11-10 — The 3D Block view now looks like a white card model: a plain green ground
+  surface with contour lines every 2 m on top, and the soil and rock layers showing on the
+  sides and on the cut. The photo map is still there as a tick box, off by default.
+- 2026-11-10 — Buildings inside your site boundary now appear as plain white blocks, taken from
+  the Lands Department building map (outline and roof level).
+- 2026-11-10 — With "Cut the block" on, you can drag the red arrow in the 3D view to move the
+  cut and the green ring to turn it. The sliders still work and follow the handles.
+- 2026-11-10 — The 3D view no longer has perspective, so looking straight down gives a true
+  plan. A north arrow in the corner turns with the view.
