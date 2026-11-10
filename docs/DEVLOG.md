@@ -16,6 +16,17 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 — Handover note for session c779fc23
+**Goal:** write the session handover.
+**Changed:**
+- `handovers/2026-11-11_c779fc23_white-model-lidar.md` (new): white model, LiDAR loader, HF removal, open items.
+- `HANDOVER.md`: new top row; header now says Hugging Face is used only for AGS log loading.
+**Worked:** commit and push succeeded; `origin/main` = local.
+**Dead ends:** none.
+**Open:** as listed in the note (LiDAR hosting choice, AGS loading still on HF, untested DXF import and cloud save).
+
+---
+
 ### 2026-11-11 — GitHub push: workflow-scope block resolved (correction)
 **Goal:** user asked why they kept being told to re-authorise GitHub.
 **Changed:** no code. Supersedes the "Open" item of the 2026-11-04 keep-alive entry (push blocked until the `workflow` scope is granted).
