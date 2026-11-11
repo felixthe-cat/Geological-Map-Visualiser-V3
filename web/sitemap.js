@@ -150,6 +150,28 @@ function fillBboxFields(bounds){
   lastBounds = { latMin:sw.lat, latMax:ne.lat, lngMin:sw.lng, lngMax:ne.lng, eMin, eMax, nMin, nMax };
 }
 
+// Typing a box by hand: whichever system was typed (lat/lng or HK1980 eastings/northings) fills the
+// other one and redraws the rectangle on the map, so the eight boxes and the map never disagree.
+function typedBbox(sys){
+  const ids = sys==='hk' ? ['bb-e-min','bb-e-max','bb-n-min','bb-n-max'] : ['bb-lng-min','bb-lng-max','bb-lat-min','bb-lat-max'];
+  const [x0,x1,y0,y1] = ids.map(readCoord);
+  if (![x0,x1,y0,y1].every(Number.isFinite) || x0>=x1 || y0>=y1) return;      // not a full, valid box yet
+  let sw, ne;
+  if (sys==='hk'){
+    const a=proj4('HK1980','EPSG:4326',[x0,y0]), b=proj4('HK1980','EPSG:4326',[x1,y1]);
+    sw=[a[1],a[0]]; ne=[b[1],b[0]];
+  } else { sw=[y0,x0]; ne=[y1,x1]; }
+  const rect=L.rectangle([sw,ne], { color:'#b8860b', weight:2 });
+  drawnLayer.clearLayers(); drawnLayer.addLayer(rect);
+  fillBboxFields(rect.getBounds());
+  if (sys==='hk'){                                                           // keep exactly what was typed (the round trip moves it by millimetres)
+    ids.forEach((id,i)=>{ document.getElementById(id).value=[x0,x1,y0,y1][i]; });
+    Object.assign(lastBounds, { eMin:x0, eMax:x1, nMin:y0, nMax:y1 });
+  }
+  map.fitBounds(rect.getBounds().pad(0.3));
+  setStatus('Area set from the typed coordinates. Click “Search boreholes”.','ok');
+}
+
 // ---- search ----------------------------------------------------------
 // An empty <input type=number> reads as '' and `+'' === 0`, which is a finite
 // number — so a blank box used to "search" lat/lng 0,0 and report 0 boreholes
@@ -165,7 +187,7 @@ async function searchBbox(){
   const lngMin=readCoord('bb-lng-min');
   const lngMax=readCoord('bb-lng-max');
   if (![latMin,latMax,lngMin,lngMax].every(Number.isFinite)){
-    setStatus('Draw a rectangle on the map first (or type a full bounding box — all four values).','err'); return;
+    setStatus('Draw a rectangle on the map first, or type all four values of a bounding box (lat/lng or HK1980).','err'); return;
   }
   if (latMin>=latMax || lngMin>=lngMax){
     setStatus('That bounding box is empty — each “min” must be smaller than its “max”.','err'); return;
@@ -413,7 +435,7 @@ async function loadInto2D(){
   if (dlBtn){ dlBtn.disabled = false; dlBtn.title = `Download the original CEDD AGS file(s) for ${lastRepnos.length} report(s)`; }
 
   if (onLoadTo2D) onLoadTo2D(boreholes, sitePlan);
-  setLoadStatus(`Loaded ${boreholes.length} borehole(s) with real logged stratigraphy into the 2D Builder`+
+  setLoadStatus(`Loaded ${boreholes.length} borehole(s) with their logged layers. Open tab 2 to check them`+
                 (skipped ? ` (${skipped} with no geological log skipped)` : '')+
                 (duplicates ? ` (${duplicates} duplicate station(s) from repeated reports merged)` : '')+
                 (clipped ? ` — ${clipped} more were beyond the ${MAX_IMPORT.toLocaleString()}-borehole limit` : '')+'.'+
@@ -430,7 +452,7 @@ That is a lot of boreholes: the cross-section and contour redraws will take a mo
 // One report -> that report's original .zip; several -> a STORED container zip
 // holding the original .zip files. See test_raw_ags.py for the byte-level proof.
 async function downloadAgs(){
-  if (!lastRepnos.length){ setLoadStatus('Load boreholes into the 2D Builder first.','err'); return; }
+  if (!lastRepnos.length){ setLoadStatus('Load the boreholes first.','err'); return; }
   toast.show(`Fetching the original CEDD AGS file(s) for ${lastRepnos.length} report(s)…`);
   setLoadStatus(`Fetching ${lastRepnos.length} original AGS report file(s) from the CEDD archive…`,'busy');
   try {
@@ -515,15 +537,15 @@ export async function initSiteMap(opts={}){
   });
 
   document.getElementById('map-search').addEventListener('click', searchBbox);
+  for (const id of ['bb-e-min','bb-e-max','bb-n-min','bb-n-max']) document.getElementById(id).addEventListener('change', ()=>typedBbox('hk'));
+  for (const id of ['bb-lat-min','bb-lat-max','bb-lng-min','bb-lng-max']) document.getElementById(id).addEventListener('change', ()=>typedBbox('ll'));
+  document.getElementById('map-coverage').addEventListener('change', e=>{ document.getElementById('cov-row').style.display = e.target.checked ? '' : 'none'; });
   document.getElementById('map-coverage').addEventListener('change', toggleCoverage);
   document.getElementById('map-show-noags').addEventListener('change',
     ()=>{ plotResults(lastResults); renderResults(lastResults); });
   document.getElementById('map-to-2d').addEventListener('click', loadInto2D);
   const _dl=document.getElementById('map-download-ags');
   if (_dl) _dl.addEventListener('click', downloadAgs);
-  document.getElementById('map-to-3d').addEventListener('click', ()=>{
-    setStatus('3D export from the map is not built yet (prototype placeholder).','');
-  });
 
   setTimeout(()=>map.invalidateSize(), 100);
   setStatus('Map ready. Use the ▭ rectangle tool (top-left) to select an area.','ok');

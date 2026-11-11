@@ -21,6 +21,7 @@ import { sectionRegions, toDXF, layerName } from './cad_export.js';
 import { sampleElevation, tileCoord } from './terrain.js';
 import { fetchDtmTile, dtmTileGetter } from './dtm_tiles.js';
 import { classColour } from './strata.js';
+import { footprint, lineSpans, earthworks } from './structure.js';
 import { parseDtmTiff, sampleGrid, gridBounds, unpackGrid, sheetName, SHEET } from './lidar_tile.js';
 import { SUPABASE_URL } from './supabase_config.js';
 
@@ -42,7 +43,7 @@ const ROAD_URL = CSDI+'landsd_rcd_1637310758814_80061/FeatureServer/0/query';
 const ROAD_W = { 'Highway':14, 'Main Road':11, 'Secondary Road':7.3, 'Restricted Road':5, 'Track':3 };   // 'Tunnel' is underground: not drawn
 const BLD_URL = 'https://portal.csdi.gov.hk/server/rest/services/common/landsd_rcd_1637211194312_35158/FeatureServer/0/query';
 // White-model palette (site-model-viewer-style skill): sage ground, chalk buildings.
-const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', edge:'#40554e' };   // contour = #40523b for the shader
+const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', structure:'#c96f3b', edge:'#40554e' };   // contour = #40523b for the shader
 const CONTOUR_M = 2;
 
 // ---- state -----------------------------------------------------------------
@@ -137,14 +138,19 @@ function applyOptions(b){
   $('sl-on').checked=!!s.on; $('sl-flip').checked=!!s.flip;
   $('sl-az').value=s.az ?? 90;
   $('sl-off').value=s.off ?? 0;
+  const st=b.structure||{};
+  $('st-on').checked=!!st.on; $('st-form').style.display=st.on?'':'none';
+  for (const id of ST_IDS) $(id).value=st[id.slice(3)] ?? (id==='st-rot' ? 0 : '');
   syncLabels();
 }
+const ST_IDS=['st-e','st-n','st-len','st-wid','st-rot','st-found','st-height'];
 function block3dSettings(){
   const base=$('base').value.trim();
   return { boundary, top:topMode(), base: base===''?null:+base, detail:+$('detail').value,
     useTP:$('use-tp').checked, vex:vex(), terrOn:$('terr-on').checked, bldOn:$('bld-on').checked, infraOn:$('infra-on').checked, holesOn:$('holes-on').checked, meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
     meshDz: meshLevelled ? +$('mesh-dz').value : null,
-    slice:{ on:$('sl-on').checked, az:+$('sl-az').value, off:+$('sl-off').value, flip:$('sl-flip').checked } };
+    slice:{ on:$('sl-on').checked, az:+$('sl-az').value, off:+$('sl-off').value, flip:$('sl-flip').checked },
+    structure:{ on:$('st-on').checked, ...Object.fromEntries(ST_IDS.map(id=>[id.slice(3), $(id).value===''?null:+$(id).value])) } };
 }
 function projectCSV(){
   const state={ boreholes:proj.boreholes, mode:proj.mode||'depth', sitePlan: proj.bounds ? { bounds:proj.bounds } : null };
@@ -156,10 +162,11 @@ function syncLabels(){
   $('mesh-op-val').textContent=Math.round(+$('mesh-op').value*100)+'%';
   $('sl-az-val').textContent=$('sl-az').value+'°';
   $('sl-off-val').textContent=(+$('sl-off').value).toFixed(1)+' m';
+  $('st-rot-val').textContent=$('st-rot').value+'°';
 }
 
 // ---- site map -----------------------------------------------------------------------------
-let map=null, holesLayer=null, bdLayer=null, slLayer=null;
+let map=null, holesLayer=null, bdLayer=null, slLayer=null, stLayer=null;
 async function initMap(){
   const { ensureMapLibs } = await import('./sitemap.js');
   await ensureMapLibs();
@@ -170,7 +177,7 @@ async function initMap(){
     layers[name]=L.tileLayer(bm.url, { maxZoom:bm.maxZoom, maxNativeZoom:bm.maxNativeZoom, attribution:bm.attribution });
   layers['Google Hybrid'].addTo(map);
   L.control.layers(layers).addTo(map);
-  holesLayer=L.layerGroup().addTo(map); bdLayer=L.layerGroup().addTo(map); slLayer=L.layerGroup().addTo(map);
+  holesLayer=L.layerGroup().addTo(map); bdLayer=L.layerGroup().addTo(map); slLayer=L.layerGroup().addTo(map); stLayer=L.layerGroup().addTo(map);
 }
 function usedHoles(){
   if (!proj) return [];
@@ -370,8 +377,8 @@ async function ensure3D(){
   sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias=-0.00012; sun.shadow.normalBias=0.12;
   scene.add(sun);
   const world=new THREE.Group(); scene.add(world);
-  const blockG=new THREE.Group(), capG=new THREE.Group(), holeG=new THREE.Group(), terrG=new THREE.Group(), bldG=new THREE.Group(), infraG=new THREE.Group();
-  world.add(blockG, capG, holeG, terrG, bldG, infraG);
+  const blockG=new THREE.Group(), capG=new THREE.Group(), holeG=new THREE.Group(), terrG=new THREE.Group(), bldG=new THREE.Group(), infraG=new THREE.Group(), structG=new THREE.Group();
+  world.add(blockG, capG, holeG, terrG, bldG, infraG, structG);
   const clip=new THREE.Plane(new THREE.Vector3(1,0,0), 0);
   // Slice handle: an arrow to push the cut along, a ring to turn it. Both drive the
   // same invisible object; onHandle() turns its pose back into the two sliders.
@@ -389,7 +396,7 @@ async function ensure3D(){
     const helper=tc.getHelper(); helper.visible=false; tc.enabled=false; scene.add(helper);
     return tc;
   });
-  T={ THREE, renderer, scene, camera, controls, sun, world, blockG, capG, holeG, terrG, bldG, infraG, clip, handle, gizmos,
+  T={ THREE, renderer, scene, camera, controls, sun, world, blockG, capG, holeG, terrG, bldG, infraG, structG, clip, handle, gizmos,
       half:100, span:100, topY:0, dragging:false, flip0:false, tiles:null };
   const resize=()=>{
     const w=el.clientWidth, h=el.clientHeight; if (!w || !h) return;
@@ -414,7 +421,7 @@ if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__geo3d=()=>T;
 function disposeGroup(g){
   for (const o of [...g.children]){ g.remove(o); o.geometry?.dispose(); o.material?.dispose?.(); }
 }
-function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG, T.infraG]) disposeGroup(g); bldKey=infraKey=null; prisms=[]; decks=[]; } }
+function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG, T.infraG, T.structG]) disposeGroup(g); bldKey=infraKey=null; prisms=[]; decks=[]; } }
 
 const P = (e,n,z) => [e-O.e, z-O.z, -(n-O.n)];      // HK1980 + mPD -> scene
 
@@ -512,6 +519,8 @@ async function showBlock(){
   setMesh();
   setBuildings();
   setInfra();
+  updateStructure();
+  $('exp-view').disabled=$('exp-glb').disabled=false;
 }
 // "hsl(…)" palette entries and hex both go through a canvas so THREE.Color gets plain hex
 const _cx=document.createElement('canvas').getContext('2d');
@@ -726,37 +735,160 @@ function prismCaps(){
   const { THREE, capG }=T;
   for (const o of [...capG.children]) if (o.userData.prism){ capG.remove(o); o.geometry.dispose(); o.material.dispose(); }
   if (!slice || !$('sl-on').checked) return;
-  const L=2*slice.half, ux=(slice.B.e-slice.A.e)/L, uy=(slice.B.n-slice.A.n)/L;
-  const pos=[], idx=[], edge=[];
-  for (const { rings, base, top } of [...($('bld-on').checked ? prisms : []), ...($('infra-on').checked ? decks : [])]){
-    const ts=[];
-    for (const r of rings) for (let i=0;i<r.length;i++){
-      const a=r[i], b=r[(i+1)%r.length];
-      const da=(a[0]-slice.A.e)*uy-(a[1]-slice.A.n)*ux, db=(b[0]-slice.A.e)*uy-(b[1]-slice.A.n)*ux;   // signed distance from the cut line
-      if ((da>0)===(db>0)) continue;
-      const f=da/(da-db), x=a[0]+f*(b[0]-a[0]), y=a[1]+f*(b[1]-a[1]);
-      ts.push((x-slice.A.e)*ux+(y-slice.A.n)*uy);
-    }
-    ts.sort((p,q)=>p-q);
-    for (let i=0;i+1<ts.length;i+=2){
-      if (ts[i+1]-ts[i]<0.01) continue;
-      const at=t=>[slice.A.e+ux*t, slice.A.n+uy*t], a=at(ts[i]), b=at(ts[i+1]);
+  const L=2*slice.half, A=[slice.A.e, slice.A.n], u=[(slice.B.e-slice.A.e)/L, (slice.B.n-slice.A.n)/L];
+  const faces=(list, colour, units)=>{
+    const pos=[], idx=[], edge=[];
+    for (const { rings, base, top } of list) for (const [t0,t1] of lineSpans(rings, A, u)){
+      const at=t=>[A[0]+u[0]*t, A[1]+u[1]*t], a=at(t0), b=at(t1);
       const q=[[a,top],[b,top],[b,base],[a,base]].map(([p,z])=>P(p[0], p[1], z(p[0],p[1])));
       const s0=pos.length/3;
       pos.push(...q.flat()); idx.push(s0,s0+1,s0+2, s0,s0+2,s0+3);
       for (let k=0;k<4;k++) edge.push(...q[k], ...q[(k+1)%4]);
     }
-  }
-  if (!pos.length) return;
+    if (!pos.length) return;
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+    const m=new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:colour, side:THREE.DoubleSide,
+      polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:units }));
+    const l=new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(edge, 3)),
+      new THREE.LineBasicMaterial({ color:LOOK.edge }));
+    m.userData.prism=l.userData.prism=true;
+    capG.add(m, l);
+  };
+  // Below ground a building's face is flush with the geology's own cut face: pushed back a hair, so the soil wins there.
+  faces([...($('bld-on').checked ? prisms : []), ...($('infra-on').checked ? decks : [])], LOOK.building, 40);
+  // The proposed structure is the opposite: it replaces the ground it is dug into, so it is pulled in front of the soil.
+  const st=structure();
+  if (st) faces([{ rings:[footprint(st)], top:()=>st.found+st.height, base:()=>st.found }], LOOK.structure, -40);
+}
+
+// ---- proposed structure ----------------------------------------------------------------------------------------
+// A box the user places on the site (see structure.js). Drawn on the map, in the 3D view (cut with
+// the block, like everything else), on the section, and costed as dig / fill against the ground model.
+function structure(){
+  if (!$('st-on').checked) return null;
+  const s=Object.fromEntries(ST_IDS.map(id=>[id.slice(3), $(id).value===''?NaN:+$(id).value]));
+  return Object.values(s).every(Number.isFinite) && s.len>0 && s.wid>0 && s.height>0 ? s : null;
+}
+// First switch-on: a sensible box in the middle of the site, founded 3 m into the ground there.
+function defaultStructure(){
+  if (!boundary) return;
+  const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]);
+  const e=(Math.min(...xs)+Math.max(...xs))/2, n=(Math.min(...ys)+Math.max(...ys))/2;
+  const span=Math.min(Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys));
+  const g=model ? model.at(e,n)[0] : (usedHoles()[0]?.gl ?? 0);
+  const set=(id,v)=>{ $(id).value=v; };
+  set('st-e', e.toFixed(1)); set('st-n', n.toFixed(1));
+  if ($('st-len').value==='') set('st-len', Math.max(6, Math.round(span*0.3)));
+  if ($('st-wid').value==='') set('st-wid', Math.max(4, Math.round(span*0.18)));
+  if ($('st-found').value==='') set('st-found', Math.round(g-3));
+  if ($('st-height').value==='') set('st-height', 12);
+}
+function drawStructureOnMap(keepPin){
+  if (!stLayer) return;
+  const st=structure();
+  for (const l of stLayer.getLayers()) if (!(keepPin && l.options.draggable)) stLayer.removeLayer(l);
+  if (!st) return;
+  L.polygon(footprint(st).map(p=>toLL(p[0],p[1])), { color:LOOK.structure, weight:2.5, fillColor:LOOK.structure, fillOpacity:.35 }).addTo(stLayer);
+  if (keepPin) return;                                          // mid-drag: the pin is under the user's finger, leave it
+  L.marker(toLL(st.e, st.n), { draggable:true, title:'Drag to move the proposed structure' })
+    .on('drag', e=>{ const [x,y]=fromLL(e.latlng.lat, e.latlng.lng); $('st-e').value=x.toFixed(1); $('st-n').value=y.toFixed(1); updateStructure(true); })
+    .on('dragend', ()=>updateStructure())
+    .addTo(stLayer);
+}
+function drawStructure3D(){
+  if (!T) return;
+  const { THREE, structG, clip }=T;
+  disposeGroup(structG);
+  const st=structure();
+  if (!st || !model) return;
+  const fp=footprint(st), top=st.found+st.height, pos=[], idx=[];
+  addPrism(pos, idx, [fp], ()=>top, ()=>st.found);
+  const s0=pos.length/3;                                        // underside, so a box above the ground is closed
+  for (const p of fp) pos.push(...P(p[0], p[1], st.found));
+  idx.push(s0,s0+2,s0+1, s0,s0+3,s0+2);
   const g=new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
-  // below ground the face is flush with the geology's own cut face: pushed back a hair, so the soil wins there
-  const m=new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:LOOK.building, side:THREE.DoubleSide,
-    polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:40 }));
-  const l=new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(edge, 3)),
-    new THREE.LineBasicMaterial({ color:LOOK.edge }));
-  m.userData.prism=l.userData.prism=true;
-  capG.add(m, l);
+  g.computeVertexNormals();
+  const m=new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color:LOOK.structure, flatShading:true, side:THREE.DoubleSide, clippingPlanes:[clip] }));
+  m.castShadow=true; m.receiveShadow=true;
+  structG.add(m, new THREE.LineSegments(new THREE.EdgesGeometry(g, 25), new THREE.LineBasicMaterial({ color:'#5c2b10', clippingPlanes:[clip] })));
+  // Its outline on the ground, so a structure that is wholly below ground still shows where it is.
+  const line=[];
+  for (let i=0;i<4;i++){
+    const a=fp[i], b=fp[(i+1)%4], n=Math.max(1, Math.ceil(Math.hypot(b[0]-a[0], b[1]-a[1])/2));
+    for (let k=0;k<n;k++) for (const f of [k/n, (k+1)/n]){ const x=a[0]+(b[0]-a[0])*f, y=a[1]+(b[1]-a[1])*f; line.push(...P(x, y, model.at(x,y)[0]+0.4)); }
+  }
+  structG.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(line, 3)),
+    new THREE.LineBasicMaterial({ color:LOOK.structure, clippingPlanes:[clip] })));
+}
+const m3=v=>Math.round(v).toLocaleString()+' m³';
+function structureReport(){
+  const out=$('st-out'), st=structure();
+  out.style.display = $('st-on').checked ? 'block' : 'none';
+  out.className='status';
+  if (!$('st-on').checked){ tellHeight(); return; }
+  if (!st){ out.textContent='Fill in every box above (length, width and height must be more than 0).'; tellHeight(); return; }
+  if (!model){ out.textContent='Build the 3D block to see the ground under the structure and the earthworks.'; tellHeight(); return; }
+  const w=earthworks(st, model.at, model.keys.length, (e,n)=>pointInPoly(e,n,boundary));
+  if (!w.area){ out.className='status err'; out.textContent='The structure is outside the site boundary. Move it onto the site, or redraw the boundary around it.'; tellHeight(); return; }
+  const sw=k=>`<span class="sw" style="background:${model.colour[k]}"></span>`;
+  const row=(a,b)=>`<tr><td>${a}</td><td>${b}</td></tr>`;
+  let h=`<table>`+
+    row('Plan size', `${st.len} × ${st.wid} m = ${Math.round(st.len*st.wid).toLocaleString()} m²`)+
+    row('Top level', `${(st.found+st.height).toFixed(1)} mPD`)+
+    row('Existing ground under it', `${w.gMin.toFixed(1)} to ${w.gMax.toFixed(1)} mPD`)+
+    row('<b>Dig out (excavation)</b>', `<b>${m3(w.cut)}</b>`)+
+    row('<b>Fill up to founding level</b>', `<b>${m3(w.fill)}</b>`);
+  if (w.cut>0.5){
+    h+=`<tr><td colspan="2" class="h">Dug from each layer</td></tr>`;
+    model.keys.forEach((k,i)=>{ if (w.cutByLayer[i]>0.5) h+=row(sw(k)+esc(model.label[k]), m3(w.cutByLayer[i])); });
+  }
+  h+=`<tr><td colspan="2" class="h">Ground at the founding level (${st.found} mPD)</td></tr>`;
+  model.keys.forEach((k,i)=>{ if (w.atFound[i]>0.005) h+=row(sw(k)+esc(model.label[k]), Math.round(w.atFound[i]*100)+'%'); });
+  if (w.atFound.air>0.005) h+=row('Above the ground (needs fill)', Math.round(w.atFound.air*100)+'%');
+  h+=`</table><div class="hint" style="margin:6px 0 0">Volumes assume vertical sides straight below the footprint: no side slopes, working space or bulking.`+
+    (w.covered<0.995 ? ` Only the ${Math.round(w.covered*100)}% of the footprint inside the site boundary is counted.` : '')+
+    (w.belowBase ? ` The founding level is below the block's base (${model.base} mPD) in places; the deepest layer is assumed there.` : '')+`</div>`;
+  out.innerHTML=h;
+  tellHeight();
+}
+function updateStructure(dragging){
+  syncLabels();
+  $('st-form').style.display=$('st-on').checked ? '' : 'none';
+  drawStructureOnMap(dragging===true);
+  drawStructure3D();
+  prismCaps();
+  renderSection();
+  structureReport();
+}
+
+// ---- export the 3D view ------------------------------------------------------------------------------------------
+function exportView(){
+  if (!T) return;
+  const { renderer, scene, camera, gizmos }=T;
+  const shown=gizmos.map(g=>g.getHelper().visible);
+  gizmos.forEach(g=>{ g.getHelper().visible=false; });          // the slice handle is a control, not part of the picture
+  renderer.render(scene, camera);                               // the canvas only holds a frame until the browser next paints: read it now
+  // the 3D canvas is see-through (the page's sky colour shows behind it): paint it onto a solid background for the file
+  const src=renderer.domElement, c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
+  const g=c.getContext('2d'); g.fillStyle='#e9ece4'; g.fillRect(0,0,c.width,c.height); g.drawImage(src,0,0);
+  c.toBlob(b=>download(`block3d_view_${new Date().toISOString().slice(0,10)}.png`, b));
+  gizmos.forEach((g,i)=>{ g.getHelper().visible=shown[i]; });
+}
+async function exportGLB(){
+  if (!T || !model) return;
+  try {
+    const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+    const { THREE }=T;
+    // The whole block at true scale (no vertical exaggeration, no cut: the cut is a view setting). Metres; y is up;
+    // the origin is the site centre at ground level. The photo map is not included.
+    const root=new THREE.Group(); root.name='GeoVisualise block';
+    for (const [name, g] of [['geology', T.blockG], ['terrain', T.terrG], ['buildings', T.bldG], ['roads_bridges', T.infraG], ['proposed_structure', T.structG], ['boreholes', T.holeG]])
+      if (g.visible && g.children.length){ const c=g.clone(); c.name=name; root.add(c); }
+    const buf=await new GLTFExporter().parseAsync(root, { binary:true, onlyVisible:true });
+    download(`block3d_${new Date().toISOString().slice(0,10)}.glb`, new Blob([buf], { type:'model/gltf-binary' }));
+  } catch(err){ console.error(err); viewNote('export', '✗ Could not write the 3D model: '+(err?.message||err), true); }
 }
 
 // ---- Lands Dept 3D photo-mesh ----------------------------------------------------------------------------
@@ -1018,14 +1150,31 @@ function renderSection(){
   if (!has) return;
   const ve=vex();
   const xMin=Math.min(...runs.map(r=>r.from)), xMax=Math.max(...runs.map(r=>r.to));
-  const zMax=Math.max(...runs.flatMap(r=>r.curves[0])), zMin=model.base;
-  const W=1000, legendH=22*Math.ceil(model.keys.length/2), pad={l:64,r:20,t:34,b:48+legendH}, sx=(W-pad.l-pad.r)/((xMax-xMin)||1);
+  // the proposed structure where the cut passes through it: [chainage from, to]
+  const st=structure(), L=2*slice.half;
+  const stSpans=st ? lineSpans([footprint(st)], [slice.A.e, slice.A.n], [(slice.B.e-slice.A.e)/L, (slice.B.n-slice.A.n)/L])
+    .map(([a,b])=>[Math.max(a,xMin), Math.min(b,xMax)]).filter(([a,b])=>b-a>0.01) : [];
+  const stTop=st ? st.found+st.height : null;
+  const zMax=Math.max(...runs.flatMap(r=>r.curves[0]), ...(stSpans.length ? [stTop] : [])), zMin=Math.min(model.base, ...(stSpans.length ? [st.found] : []));
+  const nKey=model.keys.length+(stSpans.length ? 1 : 0);
+  const W=1000, legendH=22*Math.ceil(nKey/2), pad={l:64,r:20,t:34,b:48+legendH}, sx=(W-pad.l-pad.r)/((xMax-xMin)||1);
   const H=Math.min(900, Math.max(220, (zMax-zMin)*sx*ve+pad.t+pad.b));
   const sz=(H-pad.t-pad.b)/((zMax-zMin)||1);
   const X=c=>pad.l+(c-xMin)*sx, Y=z=>pad.t+(zMax-z)*sz;
   let s=`<rect width="${W}" height="${H}" fill="#fff"/>`;
   for (const r of runs) for (const reg of sectionRegions(r.xq, r.curves, model.keys))
     s+=`<polygon points="${reg.pts.map(([c,z])=>X(c).toFixed(1)+','+Y(z).toFixed(1)).join(' ')}" fill="${model.colour[reg.name]}" stroke="#1a1a0f" stroke-width=".7"/>`;
+  if (stSpans.length){
+    s+=`<defs><pattern id="st-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="${LOOK.structure}" fill-opacity=".55"/><line x1="0" y1="0" x2="0" y2="8" stroke="#5c2b10" stroke-width="1.2"/></pattern></defs>`;
+    for (const [a,b] of stSpans){
+      const x=X(a), w=X(b)-X(a), y=Y(stTop), hgt=Y(st.found)-Y(stTop);
+      s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${hgt.toFixed(1)}" fill="url(#st-hatch)" stroke="#5c2b10" stroke-width="1.6"/>`;
+      // founding level: a tick line and its value, kept inside the drawing
+      const lx=Math.min(X(b)+6, W-pad.r-150);
+      s+=`<line x1="${x.toFixed(1)}" x2="${(X(b)+4).toFixed(1)}" y1="${Y(st.found).toFixed(1)}" y2="${Y(st.found).toFixed(1)}" stroke="#5c2b10" stroke-width="1.6"/>`+
+         `<text x="${lx.toFixed(1)}" y="${(Y(st.found)-5).toFixed(1)}" font-size="13" font-family="sans-serif" font-weight="bold" fill="#5c2b10" stroke="#fff" stroke-width="3" paint-order="stroke">founding ${st.found} mPD</text>`;
+    }
+  }
   // axes: level every "nice" step, chainage every "nice" step
   const nice=span=>{ const r=span/6, p=10**Math.floor(Math.log10(r)); return [1,2,5,10].map(m=>m*p).find(v=>v>=r); };
   const zs=nice(zMax-zMin), cs=nice(xMax-xMin);
@@ -1039,6 +1188,10 @@ function renderSection(){
     const x=pad.l+(i%2)*440, y=H-legendH+4+Math.floor(i/2)*22;
     s+=`<rect x="${x}" y="${y}" width="14" height="14" fill="${model.colour[k]}" stroke="#3d3529"/><text x="${x+20}" y="${y+12}">${esc(model.label[k])}</text>`;
   });
+  if (stSpans.length){
+    const i=model.keys.length, x=pad.l+(i%2)*440, y=H-legendH+4+Math.floor(i/2)*22;
+    s+=`<rect x="${x}" y="${y}" width="14" height="14" fill="url(#st-hatch)" stroke="#5c2b10"/><text x="${x+20}" y="${y+12}">Proposed structure (top ${stTop.toFixed(1)}, founding ${st.found} mPD)</text>`;
+  }
   s+=`<text x="${pad.l}" y="${pad.t-12}" font-weight="bold" fill="#c0262d">A</text><text x="${W-pad.r}" y="${pad.t-12}" text-anchor="end" font-weight="bold" fill="#c0262d">B</text>`;
   s+=`<text x="${W/2}" y="${pad.t-12}" text-anchor="middle">Slice ${$('sl-az').value}° from north · vertical exaggeration ${ve}×</text></g>`;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -1053,7 +1206,10 @@ function download(name, blob){
 function exportDXF(){
   const regions=runs.flatMap(r=>sectionRegions(r.xq, r.curves, model.keys))
     .map(reg=>({ name:layerName(model.label[reg.name]), pts:reg.pts }));
-  download(stem()+'.dxf', new Blob([toDXF(regions)], { type:'application/dxf' }));
+  const st=structure(), L=2*slice.half;
+  const extra=st ? lineSpans([footprint(st)], [slice.A.e, slice.A.n], [(slice.B.e-slice.A.e)/L, (slice.B.n-slice.A.n)/L])
+    .map(([a,b])=>({ name:'PROPOSED_STRUCTURE', pts:[[a,st.found],[b,st.found],[b,st.found+st.height],[a,st.found+st.height]] })) : [];
+  download(stem()+'.dxf', new Blob([toDXF(regions, extra)], { type:'application/dxf' }));
 }
 function exportPNG(){
   const svg=$('sec-svg'), vb=svg.viewBox.baseVal;
@@ -1118,6 +1274,25 @@ $('holes-on').addEventListener('change', e=>{ if (T) T.holeG.visible=e.target.ch
 for (const id of ['sl-on','sl-az','sl-off','sl-flip'])
   $(id).addEventListener(id==='sl-az'||id==='sl-off' ? 'input' : 'change', ()=>{ syncLabels(); updateSlice(); });
 $('sl-look').addEventListener('click', lookAtCut);
+$('st-on').addEventListener('change', ()=>{ if ($('st-on').checked && $('st-e').value==='') defaultStructure(); updateStructure(); });
+for (const id of ST_IDS) $(id).addEventListener('input', ()=>updateStructure());
+$('st-centre').addEventListener('click', ()=>{ $('st-e').value=''; defaultStructure(); updateStructure(); });
+$('st-place').addEventListener('click', ()=>{
+  if (!map) return;
+  showTab('map');
+  map.getContainer().style.cursor='crosshair';
+  note('build-note', 'Click the spot on the site map where the centre of the structure should go.');
+  map.once('click', e=>{
+    map.getContainer().style.cursor='';
+    const [x,y]=fromLL(e.latlng.lat, e.latlng.lng);
+    $('st-e').value=x.toFixed(1); $('st-n').value=y.toFixed(1);
+    if ($('st-len').value==='') defaultStructure(), ($('st-e').value=x.toFixed(1)), ($('st-n').value=y.toFixed(1));
+    note('build-note', '');
+    updateStructure();
+  });
+});
+$('exp-view').addEventListener('click', exportView);
+$('exp-glb').addEventListener('click', exportGLB);
 $('exp-dxf').addEventListener('click', exportDXF);
 $('exp-png').addEventListener('click', exportPNG);
 $('save-file').addEventListener('click', ()=>{

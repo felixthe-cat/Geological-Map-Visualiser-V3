@@ -79,6 +79,12 @@
     .legend div{display:flex;align-items:center;gap:6px;font-size:12.5px;margin:2px 0}
     .legend .sw,label .sw{width:14px;height:14px;border-radius:3px;border:1px solid #3d3529;flex:0 0 auto}
     .val{font-variant-numeric:tabular-nums;color:var(--forest-d);font-weight:600}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+    .grid2 input{width:100%}
+    #st-out table{width:100%;border-collapse:collapse;margin-top:4px}
+    #st-out td{padding:2px 0;vertical-align:top} #st-out td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    #st-out .h{font-weight:700;padding-top:6px}
+    #st-out .sw{display:inline-block;width:11px;height:11px;border-radius:2px;border:1px solid #3d3529;margin-right:5px;vertical-align:-1px}
     #locked{max-width:520px;margin:60px auto;text-align:center}
       /* inside the 2D builder's 3D tabs: no page chrome, no dataset picker, no own save */
     .embed header,.embed .solo{display:none}
@@ -193,6 +199,29 @@
       <label class="inline"><input type="checkbox" id="sl-flip"> Keep the other side</label>
       <div class="row"><button class="ghost" id="sl-look">Face the cut</button></div>
 
+      <h3>5 · Proposed structure</h3>
+      <label class="inline"><input type="checkbox" id="st-on"> Add a proposed structure (a box)</label>
+      <div id="st-form" style="display:none">
+        <div class="hint">Place a box on the site to see what ground it sits in and how much digging or filling it needs. It shows on the map, in the 3D view and on the section, and updates as you type.</div>
+        <div class="row">
+          <button class="ghost" id="st-place" title="Then click the spot on the site map">Place on map</button>
+          <button class="ghost" id="st-centre" title="Move it to the middle of the site boundary">Centre of site</button>
+        </div>
+        <div class="grid2">
+          <div><label for="st-e">Easting (m)</label><input type="number" id="st-e" step="0.5"></div>
+          <div><label for="st-n">Northing (m)</label><input type="number" id="st-n" step="0.5"></div>
+          <div><label for="st-len">Length (m)</label><input type="number" id="st-len" min="1" step="0.5"></div>
+          <div><label for="st-wid">Width (m)</label><input type="number" id="st-wid" min="1" step="0.5"></div>
+        </div>
+        <label for="st-rot" title="Bearing of the long side, clockwise from north. 0° = the length runs north–south, 90° = east–west.">Rotation (° from north) <span class="val" id="st-rot-val">0°</span></label>
+        <input type="range" id="st-rot" min="0" max="179" step="1" value="0">
+        <div class="grid2">
+          <div><label for="st-found" title="Level of the underside of the structure">Founding level (mPD)</label><input type="number" id="st-found" step="0.5"></div>
+          <div><label for="st-height" title="From the founding level up to the top">Height (m)</label><input type="number" id="st-height" min="0.5" step="0.5"></div>
+        </div>
+        <div id="st-out" class="status" style="display:none"></div>
+      </div>
+
       <div class="solo">
       <h3>Save</h3>
       <div class="row">
@@ -213,13 +242,17 @@
       <div class="tabpane active" data-pane="map">
         <h3 class="stage">Site boundary map</h3>
         <div id="map"></div>
-        <div class="hint" style="margin-top:6px">Green dots: boreholes in the dataset. Orange: site boundary. Red: slice line (A → B).</div>
+        <div class="hint" style="margin-top:6px">Green dots: boreholes in the dataset. Orange: site boundary. Red: slice line (A → B). Brown: proposed structure (drag its pin to move it).</div>
       </div>
       <div class="tabpane" data-pane="block">
         <div id="view3d">
           <div class="tag">CONCEPT MODEL<b>Layers are estimated between boreholes · not for construction</b></div>
           <div id="north">N</div>
           <div class="overlay" id="view-info">Drag to rotate · right-drag to pan · scroll to zoom · with the cut on: drag the arrow to move it, the ring to turn it</div>
+        </div>
+        <div class="row">
+          <button class="ghost" id="exp-view" disabled title="A picture of the 3D view exactly as it is on screen">Download 3D view (PNG)</button>
+          <button class="ghost" id="exp-glb" disabled title="The whole block, buildings, roads and structure as a 3D model file, true scale, in metres. Opens in Blender, Windows 3D Viewer, or any glTF viewer.">Download 3D model (GLB)</button>
         </div>
         <div id="view-note" class="status" style="display:none"></div>
       </div>

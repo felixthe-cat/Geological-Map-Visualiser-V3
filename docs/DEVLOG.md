@@ -4,6 +4,19 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-12 — Proposed structure, 3D exports, site-map coordinate fix (audit part-way)
+**Goal:** let the user place a rotatable box (proposed structure) and see its geology and dig/fill; export the 3D block; start a whole-site audit.
+**Changed:**
+- `web/structure.js` (new) + `web/test_structure.mjs`: `footprint`, `lineSpans`, `earthworks`.
+- `web/builder3d.js` / `.html`: "5 · Proposed structure" panel (centre, size, rotation, founding level, height), map polygon + draggable pin, 3D box cut with the block, hatched box and legend entry on the section, `PROPOSED_STRUCTURE` DXF layer, dig/fill table by layer; `exportView` (PNG) and `exportGLB`; structure saved in the project settings.
+- `web/sitemap.js`: typed HK1980 or lat/lng boxes now set the search area (`typedBbox`); dead "Send to 3D Builder" handler removed.
+- `web/builder.html`: placeholder button removed, density key hidden until coverage is on, "2D Builder" wording replaced, step-by-step hint on the site map.
+**Worked:** localhost: structure shows on map, 3D cut and section; PNG 945x646, GLB 4.2 MB, DXF with structure layer; typed HK1980 box found 215 boreholes and loaded 171 with logs in 12 s. All 10 self-checks pass.
+**Dead ends:** none yet.
+**Open (audit stopped at tab 3, usage limit):** exported 2D section on a dense line has overlapping borehole names / off-line distances, the legend box touches the B end, and "No Recovery" / "Wash Boring" are interpolated as soil layers. Tabs 4 and 5, the landing-page text clean-up, the audit report and the presentation update are not done.
+
+---
+
 ### 2026-11-11 19:40 — Handover note for session c079ecc2
 **Goal:** leave the next session able to continue without this conversation.
 **Changed:** `handovers/2026-11-11_c079ecc2_lidar-hosting-3d-merge.md` (new), `HANDOVER.md` (this session's row only), learning log outside the repo.

@@ -116,3 +116,6 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-11-11 — The 3D block now shows roads and bridges in white, trimmed to the site (tick box "Roads & bridges"). Road widths are typical values and bridge levels are estimates.
 - 2026-11-11 — A building cut by a section now shows a solid white face instead of a hollow inside.
 - 2026-11-11 — New "How It's Done" page: where the data comes from, how results are worked out (with animations), what you can do with them, their limits, and further reading.
+- 2026-11-12 — 3D tab: you can add a proposed structure (a box with size, rotation, founding level and height). It shows on the map, the 3D block and the section, with dig and fill volumes by layer.
+- 2026-11-12 — 3D tab: new buttons to download the 3D view as a picture and the 3D block as a model file (GLB).
+- 2026-11-12 — Site map: typing HK1980 eastings and northings now sets the search area (before, only latitude/longitude worked).

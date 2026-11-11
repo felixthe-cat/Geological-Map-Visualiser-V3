@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GeoVisualise — 2D Log & Cross-Section Builder</title>
+  <title>GeoVisualise — Builder</title>
   <meta name="description" content="Free browser tool that turns Hong Kong CEDD ground-investigation data (AGS) into borehole logs, geological cross-sections and rockhead contour plans.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ac845' stroke-width='2'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E">
   <!-- the map tile IS the page's largest content: warm the tile/library origins and
@@ -183,7 +183,7 @@
         <polyline points="2 17 12 22 22 17"></polyline>
         <polyline points="2 12 12 17 22 12"></polyline>
       </svg>
-      GeoVisualise — 2D Builder
+      GeoVisualise — Builder
     </span>
     <span class="spacer"></span>
     <a href="index.html">← Home</a>
@@ -335,7 +335,7 @@ TP1,836998.14,821769.70,72.49,TP,Fill,0,0.6,</textarea>
           <input type="file" id="proj-file" accept=".csv,text/csv" style="display:none">
         </div>
         <div class="row" style="margin-top:6px">
-          <button class="mini" id="proj-load" disabled>Load project into 2D Builder →</button>
+          <button class="mini" id="proj-load" disabled>Load project →</button>
         </div>
         <div id="proj-info" class="hint"></div>
       </details>
@@ -560,7 +560,7 @@ TP1,836998.14,821769.70,72.49,TP,Fill,0,0.6,</textarea>
 
       <!-- SITE MAP -->
       <div class="tabpane active" data-pane="map">
-        <div class="hint">Draw a rectangle (▭ tool, top-left of map) to select a site area — the coordinates fill in automatically, then search the CSDI borehole database (bundled offline, no sync needed).</div>
+        <div class="hint"><b>Step 1.</b> Draw a rectangle around your site (▭ tool, top-left of the map), or type its coordinates below. <b>Step 2.</b> Search for boreholes. <b>Step 3.</b> Load them with their logs, then work through the tabs from left to right.</div>
         <div id="map-canvas" style="height:420px;border:1px solid var(--border);border-radius:10px;overflow:hidden"></div>
         <!-- kept in flow (empty = transparent) so revealing the first "Loading
              map… / Map ready" message does not shift the page — that was an
@@ -574,8 +574,8 @@ TP1,836998.14,821769.70,72.49,TP,Fill,0,0.6,</textarea>
           <label style="margin:0" title="Shade the whole territory by how many boreholes with AGS stratigraphy it holds, so you can pick a site instead of guessing"><input type="checkbox" id="map-coverage" style="width:auto"> <b>Show AGS data coverage</b> (whole territory)</label>
           <label style="margin:0"><input type="checkbox" id="map-show-noags" style="width:auto" checked> Show boreholes without AGS data</label>
         </div>
-        <div class="row" style="gap:8px;margin-top:4px;font-size:11px;color:var(--muted)">
-          <span>density:</span>
+        <div class="row" id="cov-row" style="display:none;gap:8px;margin-top:4px;font-size:11px;color:var(--muted)">
+          <span>Boreholes with AGS logs per cell:</span>
           <span><span style="display:inline-block;width:14px;height:11px;background:#b9d18a;border:1px solid #8aa96a;vertical-align:middle"></span> 1–4</span>
           <span><span style="display:inline-block;width:14px;height:11px;background:#7aa945;vertical-align:middle"></span> 5–19</span>
           <span><span style="display:inline-block;width:14px;height:11px;background:#4a7c2a;vertical-align:middle"></span> 20–49</span>
@@ -603,8 +603,7 @@ TP1,836998.14,821769.70,72.49,TP,Fill,0,0.6,</textarea>
         <div id="map-results" style="max-height:220px;overflow:auto;margin-top:8px"></div>
 
         <div class="row" style="margin-top:10px">
-          <button class="gold" id="map-to-2d">Load into 2D Builder (with strata) →</button>
-          <button class="ghost" id="map-to-3d" title="Prototype placeholder">Send to 3D Builder (not built)</button>
+          <button class="gold" id="map-to-2d">Load these boreholes (with their logs) →</button>
         </div>
         <div id="load-status" class="status" style="display:none"></div>
         <div class="hint">Only boreholes with AGS data (green) are loaded — their <b>logged stratigraphy</b> is fetched on demand from the CEDD AGS open-data archive.</div>
