@@ -187,7 +187,6 @@
     </span>
     <span class="spacer"></span>
     <a href="index.html">← Home</a>
-    <a href="builder3d.html" id="open-3d" class="locked3d" data-lock3d aria-disabled="true" title="Open these boreholes in the 3D Block builder">3D Block ↗<span class="coming-soon">Coming soon</span></a>
     <span id="auth-slot"></span>
   </header>
 
@@ -348,6 +347,13 @@ TP1,836998.14,821769.70,72.49,TP,Fill,0,0.6,</textarea>
         <button class="tab" data-tab="log">2 · Borehole Log</button>
         <button class="tab" data-tab="section">3 · Cross-Section</button>
         <button class="tab" data-tab="contour">4 · Rock Contour</button>
+        <button class="tab locked3d" data-tab="block3d" data-pane="view3d" data-lock3d>5 · 3D Terrain Block<span class="coming-soon">Coming soon</span></button>
+        <button class="tab locked3d" data-tab="section3d" data-pane="view3d" data-lock3d>6 · 3D Cross-Section<span class="coming-soon">Coming soon</span></button>
+      </div>
+
+      <!-- 3D (tabs 5 + 6): the 3D Block builder page, fed the current project by builder.js -->
+      <div class="tabpane" data-pane="view3d">
+        <iframe id="frame3d" title="3D terrain block" style="width:100%;height:calc(100vh - 150px);min-height:760px;border:0;display:block"></iframe>
       </div>
 
       <!-- LOG -->

@@ -15,6 +15,8 @@ import { dtmTileGetter, prefetchDtmTiles } from './dtm_tiles.js';
 // state.boreholes = [{id,x,y,gl, layers:[{surface,top,base}]}]  (top/base = depth below GL)
 let state = { boreholes: [], activeIdx: 0, mode: 'depth', sitePlan: null };
 let block3d = null;                          // builder3d.html settings, carried through saves untouched
+let sent3d = null;                           // borehole rows last sent to the 3D tabs' page (null: it does not hold this project)
+let pending3d = null;                        // 3D tab asked for before that page finished loading
 // Derived (consumed by renderers)
 let BH = {}; let STRAT = [];                 // STRAT = ordered class keys (grade or surface)
 let STRAT_LABEL = {}, STRAT_COLOUR = {};     // class key -> legend label / colour
@@ -62,7 +64,8 @@ function loadProjectCSV(text){
   // controls keep whatever they are currently set to and both lists reset.
   secExcluded = new Set(Array.isArray(p.excluded) ? p.excluded : []);
   secAnnots   = Array.isArray(p.annots) ? p.annots.map(normAnnot).filter(Boolean) : [];
-  block3d     = p.block3d || null;       // 3D builder's own settings — carried, never edited here
+  block3d     = p.block3d || null;       // 3D tabs' settings (boundary, slice, options)
+  sent3d = null;                         // the 3D tabs still show the previous project: its settings are not this one's
   applySectionSettings(p.section);
   renderAnnotList();
 }
@@ -1434,16 +1437,31 @@ function applySectionSettings(o){
 }
 /** The extras half of a saved project — see stateToProjectCSV(). */
 function projectExtras(){
+  // once the 3D tabs hold this project, their live settings are the ones to save
+  if (sent3d) block3d = document.getElementById('frame3d').contentWindow.geo3d?.settings() || block3d;
   return { section: sectionSettings(), excluded:[...secExcluded], annots: secAnnots, block3d };
 }
 
-// "3D Block ↗" (admin): hand the current project to builder3d.html through
-// localStorage, plus which saved dataset it is, so the 3D page can save back.
-document.getElementById('open-3d').addEventListener('click', ()=>{
-  try {
-    localStorage.setItem('geovis_3d_handoff', JSON.stringify({
-      csv: stateToProjectCSV(state, sectionLine, projectExtras()), cloudId: dsOpenId || null }));
-  } catch {}   // storage blocked: the 3D page just opens on its own dataset picker
+// ---- 3D tabs (5 · 3D Terrain Block, 6 · 3D Cross-Section) ------------------------------
+// builder3d.html?embed=1 runs in an iframe (same origin). It is handed the current project
+// when a 3D tab opens, and again only if the boreholes have changed since: changing a 3D
+// option must not rebuild the block or reset the view.
+function open3d(tab){
+  const f=document.getElementById('frame3d'), inner = tab==='section3d' ? 'section' : 'block';
+  const g=f.contentWindow.geo3d;
+  if (!g){ pending3d=tab; if (!f.getAttribute('src')) f.src='builder3d.html?embed=1'; return; }
+  const csv=stateToProjectCSV(state, sectionLine, projectExtras());
+  const rows=csv.slice(csv.indexOf('\n'));   // everything after the #GEOVIS settings line
+  if (rows!==sent3d){ sent3d=rows; g.open(csv, dsOpenId || null, inner); }
+  else g.show(inner);
+}
+window.addEventListener('message', e=>{
+  if (e.origin!==location.origin || !e.data?.geo3d) return;
+  if (e.data.geo3d==='ready' && pending3d){ const t=pending3d; pending3d=null; open3d(t); }
+  if (e.data.geo3d==='tab' && currentTab().endsWith('3d')){   // the 3D page changed its own tab: keep ours in step
+    const want = e.data.tab==='section' ? 'section3d' : 'block3d';
+    document.querySelectorAll('.tab').forEach(x=>{ if (x.dataset.pane==='view3d') x.classList.toggle('active', x.dataset.tab===want); });
+  }
 });
 
 // ---- site-plan image export (task 6) --------------------------------------
@@ -1777,13 +1795,14 @@ function renderSectionFromUI(){ renderSitePlan(); }
 let panelCollapsed = false;
 function currentTab(){ const t=document.querySelector('.tab.active'); return t?t.dataset.tab:'map'; }
 function applyTabLayout(tab){
-  const hideEntry = (tab === 'map') || panelCollapsed;
+  const wide = tab === 'map' || tab.endsWith('3d');           // full width, no data-entry panel
+  const hideEntry = wide || panelCollapsed;
   document.getElementById('entry-panel').style.display = hideEntry ? 'none' : '';
   const wrap = document.getElementById('wrap');
-  wrap.classList.toggle('map-mode', tab === 'map');
-  wrap.classList.toggle('entry-collapsed', panelCollapsed && tab !== 'map');
+  wrap.classList.toggle('map-mode', wide);
+  wrap.classList.toggle('entry-collapsed', panelCollapsed && !wide);
   const exp = document.getElementById('panel-expand');
-  if (exp) exp.classList.toggle('show', panelCollapsed && tab !== 'map');
+  if (exp) exp.classList.toggle('show', panelCollapsed && !wide);
 }
 function setPanelCollapsed(flag){
   panelCollapsed = flag;
@@ -1799,8 +1818,9 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.tabpane').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
-  document.querySelector(`.tabpane[data-pane="${t.dataset.tab}"]`).classList.add('active');
+  document.querySelector(`.tabpane[data-pane="${t.dataset.pane || t.dataset.tab}"]`).classList.add('active');
   applyTabLayout(t.dataset.tab);
+  if (t.dataset.pane==='view3d') open3d(t.dataset.tab);
   if (t.dataset.tab==='section') renderSectionFromUI();
   if (t.dataset.tab==='log'){ renderLogLive(); renderLogPlan(); }
   if (t.dataset.tab==='map') openSiteMap();

@@ -4,6 +4,24 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 16:30 — 3D display bugs, full 3D test sweep, 3D merged into the 2D builder tabs
+**Goal:** fix soil colours showing through the terrain and through section cuts, trim edge buildings, hide boreholes by default, test every 3D feature with screenshots, and make the 3D builder tabs 5 and 6 of the 2D builder.
+**Changed:**
+- `web/builder3d.js`: layer meshes use a fixed depth offset (`polygonOffsetFactor:0`, units k+1) instead of a slope-scaled one; terrain skin has none. Buildings are trimmed with `clipToPoly`, wound outwards, lit on the outside and flat grey on the inside (`LOOK.buildingCut`). Borehole sticks take the clipping plane. Photo map gets a fixed depth margin (`PHOTO_BIAS`, `photoUnits`, `biasBuildings`). `applyOptions` resets every option to its default; `holesOn` is saved. `EMBED` mode (`?embed=1`) exposes `window.geo3d` {open, show, settings} and posts `ready` / `tab` messages. Localhost-only `window.__geo3d` test hook.
+- `web/block3d.js`: `clipToConvex`, `isConvex`, `clipToPoly`. `web/test_block3d.mjs`: checks for them.
+- `web/builder3d.html`: boreholes off by default; `.solo` blocks (dataset picker, save) and the header are hidden in embed mode.
+- `web/builder.html`: tabs "5 · 3D Terrain Block" and "6 · 3D Cross-Section" (admin-locked like the other 3D features) sharing one iframe pane; header "3D Block" link removed.
+- `web/builder.js`: `open3d`, message listener, `sent3d` / `pending3d`; `projectExtras` takes live 3D settings from the iframe; 3D tabs use the full-width layout.
+- `docs/qa/3D_BUILDER_QA.md` + `docs/qa/img/` (30 pictures): the test report. `docs/DECISIONS.md`: ADR-17, ADR-18.
+**Worked:** before/after screenshots for each bug on a 30-hole, 7-layer test site (see the QA report). Tabs 5/6 build the block from the 2D project, keep it when switching tabs, and their settings land in the 2D builder's saved CSV. All 9 web self-checks pass.
+**Dead ends:**
+- A 0.4 m photo-map depth margin still left stripes on steep ground; 2 m cleared them, which then needed buildings biased in front of the photo.
+- The first attempt at an inline shell heredoc for the merge edit failed to parse; the edit was run from a script file instead.
+- Options leaking between datasets was found by accident: a test build silently used "borehole ground levels" from the dataset opened before it.
+**Open:** mouse-dragging the slice handle, hand-drawing a boundary, and cloud "Save changes" were not exercised. Live 3D pages are admin-only, so the check was on localhost. The embedded 3D page keeps its own inner tabs, so there are two tab rows on tabs 5 and 6. Home-page links still open the standalone `builder3d.html`.
+
+---
+
 ### 2026-11-11 22:40 — Presentation page for the talk
 **Goal:** "an HTML page ... on how I made this geological map visualizer ... with Claude Motion incorporated", 15–20 min, English, focus on how it is built, 3D held back.
 **Changed:** `videos/presentation/index.html` (13-slide click-driven deck, speaker notes on N, GSAP motion); `videos/presentation/assets/` (local GSAP + fonts, compressed screenshots from `videos/shots/`, `terrain.jpg`, `bh.js` = 1-in-5 of the station index projected onto the terrain mosaic, `qr.svg`). Folder is gitignored, so nothing is deployed. `.claude/launch.json`: `presentation` preview server (port 5520).

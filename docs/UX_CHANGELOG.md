@@ -108,3 +108,7 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-11-11 — The 3D builder now uses the 0.5 m LiDAR ground by itself wherever there are AGS boreholes (once the tiles are uploaded); elsewhere it still uses the 5 m model, and you can still load your own .tif tiles.
 - 2026-11-11 — The 3D block now shows existing buildings as plain white blocks on the site and up to 100 m around it, standing on the real ground level.
 - 2026-11-11 — The 3D block shows existing buildings only on the block itself again (no buildings around it). They are cut away with the ground when you slice a section.
+- 2026-11-11 — The 2D builder now has six tabs in workflow order. The new tabs "5 · 3D Terrain Block" and "6 · 3D Cross-Section" show the 3D model of the project you have open, with no separate page to open (admin only for now).
+- 2026-11-11 — 3D block: soil colours no longer show through the terrain or through a section cut; buildings on the site edge are sliced flush with the block; a building cut by a section looks solid.
+- 2026-11-11 — 3D block: boreholes are hidden by default (tick "Show boreholes" to see them), and they are cut away with the block.
+- 2026-11-11 — 3D block: the photo map no longer flickers in stripes over the terrain. Opening another dataset no longer keeps the previous dataset's 3D options.

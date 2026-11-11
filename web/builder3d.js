@@ -14,7 +14,7 @@
 // ================================================================
 
 import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, polyArea, defaultBase, pointInPoly,
-         ringsToShapes, sliceFromPose } from './block3d.js';
+         ringsToShapes, sliceFromPose, clipToPoly } from './block3d.js';
 import { projectCSVToState, stateToProjectCSV } from './project_csv.js';
 import { EXAMPLES } from './examples.js';
 import { sectionRegions, toDXF, layerName } from './cad_export.js';
@@ -28,11 +28,14 @@ const $ = id => document.getElementById(id);
 const LANDSD_3D = 'https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json';
 const THREE_LIBS = 'https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/libs/';
 const HANDOFF_KEY = 'geovis_3d_handoff';
+// ?embed=1: shown inside the 2D builder's "3D" tabs (an iframe). The 2D builder owns the dataset
+// and the saving; this page gets the project through window.geo3d and reports its tab back.
+const EMBED = new URLSearchParams(location.search).has('embed');
 // Lands Dept "Building" layer on the CSDI portal: outlines + BaseHeight / TopHeight (mPD).
 // No key; sends CORS headers for the Vercel origin and for localhost.
 const BLD_URL = 'https://portal.csdi.gov.hk/server/rest/services/common/landsd_rcd_1637211194312_35158/FeatureServer/0/query';
 // White-model palette (site-model-viewer-style skill): sage ground, chalk buildings.
-const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', edge:'#40554e' };   // contour = #40523b for the shader
+const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', buildingCut:'#d9d9cf', edge:'#40554e' };   // contour = #40523b for the shader
 const CONTOUR_M = 2;
 
 // ---- state -----------------------------------------------------------------
@@ -105,28 +108,30 @@ function openProject(csv, id, from){
 
 // ---- options <-> saved block3d -------------------------------------------------------
 function applyOptions(b){
-  if (b.top) document.querySelector(`input[name=top][value=${b.top==='bh'?'bh':'dtm'}]`).checked=true;
+  // A dataset with no saved value gets the default, not whatever the last dataset left behind.
+  document.querySelector(`input[name=top][value=${b.top==='bh'?'bh':'dtm'}]`).checked=true;
   $('base').value = Number.isFinite(b.base) ? b.base : '';
-  if (b.detail) $('detail').value=String(b.detail);
+  $('detail').value=String(b.detail || 120);
   $('use-tp').checked = !!b.useTP;
-  if (b.vex) $('vex').value=b.vex;
-  if (b.meshOn!=null) $('mesh-on').checked=!!b.meshOn;
-  if (b.terrOn!=null) $('terr-on').checked=!!b.terrOn;
-  if (b.bldOn!=null) $('bld-on').checked=!!b.bldOn;
-  if (b.meshFlat!=null) $('mesh-flat').checked=!!b.meshFlat;
-  if (b.meshOp!=null) $('mesh-op').value=b.meshOp;
+  $('vex').value=b.vex || 1;
+  $('mesh-on').checked=!!b.meshOn;
+  $('terr-on').checked=b.terrOn ?? true;
+  $('bld-on').checked=b.bldOn ?? true;
+  $('holes-on').checked=!!b.holesOn;
+  $('mesh-flat').checked=b.meshFlat ?? true;
+  $('mesh-op').value=b.meshOp ?? 1;
   $('mesh-dz').value = Number.isFinite(b.meshDz) ? b.meshDz : 0;
   meshLevelled = Number.isFinite(b.meshDz);
   const s=b.slice||{};
   $('sl-on').checked=!!s.on; $('sl-flip').checked=!!s.flip;
-  if (s.az!=null) $('sl-az').value=s.az;
-  if (s.off!=null) $('sl-off').value=s.off;
+  $('sl-az').value=s.az ?? 90;
+  $('sl-off').value=s.off ?? 0;
   syncLabels();
 }
 function block3dSettings(){
   const base=$('base').value.trim();
   return { boundary, top:topMode(), base: base===''?null:+base, detail:+$('detail').value,
-    useTP:$('use-tp').checked, vex:vex(), terrOn:$('terr-on').checked, bldOn:$('bld-on').checked, meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
+    useTP:$('use-tp').checked, vex:vex(), terrOn:$('terr-on').checked, bldOn:$('bld-on').checked, holesOn:$('holes-on').checked, meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
     meshDz: meshLevelled ? +$('mesh-dz').value : null,
     slice:{ on:$('sl-on').checked, az:+$('sl-az').value, off:+$('sl-off').value, flip:$('sl-flip').checked } };
 }
@@ -390,6 +395,8 @@ async function ensure3D(){
   });
   return T;
 }
+// Local testing only: lets a test script reach the scene (camera, groups) from the console.
+if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__geo3d=()=>T;
 function disposeGroup(g){
   for (const o of [...g.children]){ g.remove(o); o.geometry?.dispose(); o.material?.dispose?.(); }
 }
@@ -428,7 +435,10 @@ async function showBlock(){
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
     g.computeVertexNormals();
     const m=new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color:new THREE.Color(cssColour(model.colour[model.keys[k]])),
-      side:THREE.DoubleSide, clippingPlanes:[clip], polygonOffset:true, polygonOffsetFactor:-k, polygonOffsetUnits:-k }));
+      // Depth ties only (a pinched-out layer shares its top with the one below): push deeper layers
+      // back by a fixed hair. NOT slope-scaled: a factor pulled steep or edge-on deep layers in front
+      // of the terrain and of the cut face.
+      side:THREE.DoubleSide, clippingPlanes:[clip], polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:k+1 }));
     m.userData.k=k;
     m.visible=!!$('legend').querySelector(`input[data-k="${k}"]`)?.checked;
     blockG.add(m);
@@ -438,7 +448,7 @@ async function showBlock(){
     for (const l of b.layers){
       const h=Math.max(0.05, l.base-l.top);
       const c=new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, h, 8),
-        new THREE.MeshLambertMaterial({ color:new THREE.Color(cssColour(classColour(l))) }));
+        new THREE.MeshLambertMaterial({ color:new THREE.Color(cssColour(classColour(l))), clippingPlanes:[clip] }));
       c.position.set(...P(b.x, b.y, b.gl-(l.top+l.base)/2));
       holeG.add(c);
     }
@@ -454,7 +464,7 @@ async function showBlock(){
   tg.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3)); tg.setIndex([...tris]);
   tg.computeVertexNormals();
   const skinMat=new THREE.MeshLambertMaterial({ color:LOOK.terrain, side:THREE.DoubleSide, flatShading:true,
-    clippingPlanes:[clip], polygonOffset:true, polygonOffsetFactor:-(nS+1), polygonOffsetUnits:-(nS+1) });
+    clippingPlanes:[clip] });   // 3 cm above the top layer is enough: the orthographic depth buffer is linear
   // Contours are drawn by the surface's own shader (darken the pixels within ~1 px of
   // every CONTOUR_M of level). Separate line geometry lost the depth fight against the
   // polygon-offset skin on steep ground; this cannot, and the lines stay 1 px wide at any zoom.
@@ -494,8 +504,8 @@ function cssColour(c){ _cx.fillStyle='#000'; _cx.fillStyle=c; return _cx.fillSty
 
 // ---- white building blocks ---------------------------------------------------------------
 // Outlines + roof levels from the Lands Dept building map, pushed up as plain chalk
-// blocks (an architect's card model). Only buildings whose centre is inside the
-// boundary: there is no ground outside it for the others to stand on.
+// blocks (an architect's card model). Each outline is trimmed to the boundary, so a
+// building on the edge is sliced flush with the block's side and nothing stands outside it.
 let bldKey=null;                       // what the current blocks were built for
 async function setBuildings(){
   if (!T || !model || !boundary) return;
@@ -520,32 +530,45 @@ async function setBuildings(){
     for (const f of feats){
       const top=f.attributes.TopHeight;
       if (!Number.isFinite(top) || !f.geometry?.rings) continue;
-      for (const { outer, holes } of ringsToShapes(f.geometry.rings)){
-        const ce=outer.reduce((s,p)=>s+p[0],0)/outer.length, cn=outer.reduce((s,p)=>s+p[1],0)/outer.length;
-        if (!pointInPoly(ce, cn, boundary)) continue;
-        // foot: the lowest ground under the outline (or the surveyed base if lower), sunk 0.3 m so no gap shows on a slope
-        const ground=outer.map(p=>model.at(p[0],p[1])[0]);
-        const base=Math.min(...ground, Number.isFinite(f.attributes.BaseHeight) ? f.attributes.BaseHeight : Infinity)-0.3;
-        if (top-base<1) continue;
-        const v2=r=>r.map(p=>new THREE.Vector2(p[0],p[1]));
-        const s0=pos.length/3;
-        for (const p of [outer, ...holes].flat()) pos.push(...P(p[0],p[1],top));                // roof
-        for (const t of THREE.ShapeUtils.triangulateShape(v2(outer), holes.map(v2))) idx.push(s0+t[0], s0+t[1], s0+t[2]);
-        for (const r of [outer, ...holes]) for (let i=0;i<r.length;i++){                       // walls (own corners -> crisp edges)
-          const a=r[i], b=r[(i+1)%r.length], s=pos.length/3;
-          pos.push(...P(a[0],a[1],top), ...P(b[0],b[1],top), ...P(b[0],b[1],base), ...P(a[0],a[1],base));
-          idx.push(s,s+1,s+2, s,s+2,s+3);
+      for (const shape of ringsToShapes(f.geometry.rings)){
+        // wind every outline anticlockwise and every courtyard clockwise, so all faces point outwards
+        const wind=(r,s)=>Math.sign(polyArea(r))===s ? r : [...r].reverse();
+        const holes=shape.holes.flatMap(h=>clipToPoly(h, boundary)).map(h=>wind(h,-1));
+        for (const outer of clipToPoly(shape.outer, boundary).map(o=>wind(o,1))){
+          // foot: the lowest ground under the outline (or the surveyed base if lower), sunk 0.3 m so no gap shows on a slope
+          const ground=outer.map(p=>model.at(p[0],p[1])[0]);
+          const base=Math.min(...ground, Number.isFinite(f.attributes.BaseHeight) ? f.attributes.BaseHeight : Infinity)-0.3;
+          if (top-base<1) continue;
+          const mine=holes.filter(h=>pointInPoly(h[0][0], h[0][1], outer));   // a concave boundary gives several pieces
+          const v2=r=>r.map(p=>new THREE.Vector2(p[0],p[1]));
+          const s0=pos.length/3;
+          for (const p of [outer, ...mine].flat()) pos.push(...P(p[0],p[1],top));                // roof
+          const all=[outer, ...mine].flat();
+          for (const t of THREE.ShapeUtils.triangulateShape(v2(outer), mine.map(v2))){
+            const up=polyArea(t.map(i=>all[i]))>0;                                               // anticlockwise from above = facing up
+            idx.push(s0+t[0], s0+t[up?1:2], s0+t[up?2:1]);
+          }
+          for (const r of [outer, ...mine]) for (let i=0;i<r.length;i++){                       // walls (own corners -> crisp edges)
+            const a=r[i], b=r[(i+1)%r.length], s=pos.length/3;
+            pos.push(...P(a[0],a[1],top), ...P(b[0],b[1],top), ...P(b[0],b[1],base), ...P(a[0],a[1],base));
+            idx.push(s,s+2,s+1, s,s+3,s+2);
+          }
+          n++;
         }
-        n++;
       }
     }
     if (n){
       const g=new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
       g.computeVertexNormals();
-      const m=new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color:LOOK.building, side:THREE.DoubleSide, flatShading:true, clippingPlanes:[clip] }));
+      const m=new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color:LOOK.building, flatShading:true, clippingPlanes:[clip],
+        polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:40 }));   // see biasBuildings()
       m.castShadow=true; m.receiveShadow=true;
       bldG.add(m);
+      // Inside faces in one flat tone: a building sliced by the section cut reads as solid, not as a hollow box.
+      bldG.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:LOOK.buildingCut, side:THREE.BackSide, clippingPlanes:[clip],
+        polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:40 })));
+      biasBuildings();
       bldG.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25),
         new THREE.LineBasicMaterial({ color:LOOK.edge, transparent:true, opacity:0.55, clippingPlanes:[clip] })));
     }
@@ -594,6 +617,13 @@ class KTX2ImagePlugin {
     return this.parser.loadTextureImage(i, src, this.ktx);
   }
 }
+const photoUnits=()=>-Math.round(PHOTO_BIAS/((T.camera.far-T.camera.near)/2**24));
+// Buildings normally lose depth ties (a trimmed wall is flush with the block's side below ground:
+// the soil wins). Under the photo map they must instead stay in front of the photo's margin.
+function biasBuildings(){
+  const photo=$('mesh-on').checked;
+  for (const o of T.bldG.children) if (o.material.polygonOffset){ o.material.polygonOffsetUnits=photo ? photoUnits()*1.5 : 40; }
+}
 function styleMesh(root){
   const op=+$('mesh-op').value;
   root.traverse(o=>{
@@ -605,8 +635,13 @@ function styleMesh(root){
       o.material=new T.THREE.MeshBasicMaterial({ map:old.map, alphaTest:old.alphaTest, side:old.side });
       old.dispose();
     }
+    // The photo's triangles are metres wide, the LiDAR ground under it is 0.5 m: laid flat it dips
+    // under the terrain in stripes. Let it win depth ties within ~PHOTO_BIAS m (a fixed amount, not
+    // slope-scaled; the orthographic depth buffer is linear, 2^24 steps from near to far).
+    const units=photoUnits();
     for (const m of [].concat(o.material)){
-      m.clippingPlanes=[T.clip]; m.transparent=op<1; m.opacity=op; m.depthWrite=op>=1; m.needsUpdate=true;
+      m.clippingPlanes=[T.clip]; m.transparent=op<1; m.opacity=op; m.depthWrite=op>=1;
+      m.polygonOffset=true; m.polygonOffsetFactor=0; m.polygonOffsetUnits=units; m.needsUpdate=true;
     }
   });
 }
@@ -616,7 +651,7 @@ function styleMesh(root){
 // block top instead of fighting it). Outside, anything more than TREE_H above that
 // ground is lowered: fully within CLEAR m of the boundary, fading out over TAPER m.
 // Originals are kept, so switching it off or re-levelling starts from the real mesh.
-const TREE_H=2, CLEAR=10, TAPER=20;   // m — calibration knobs (same idea as Infographic-Production)
+const TREE_H=2, CLEAR=10, TAPER=20, PHOTO_BIAS=2;   // m — calibration knobs (same idea as Infographic-Production)
 function distToPoly(x, y, poly){
   let best=Infinity;
   for (let i=0;i<poly.length;i++){
@@ -685,6 +720,7 @@ function setTilesFrame(){
 async function setMesh(){
   if (!T || !O) return;
   const on=$('mesh-on').checked;
+  biasBuildings();
   if (!on){ if (T.tiles) T.tiles.group.visible=false; return; }
   try {
     const tiles=await ensureTiles();
@@ -861,6 +897,7 @@ async function saveCloud(){
 
 // ---- tabs + wiring -------------------------------------------------------------------------------------------------
 function showTab(name){
+  if (EMBED) parent.postMessage({ geo3d:'tab', tab:name }, location.origin);
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
   document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('active', p.dataset.pane===name));
   if (name==='map' && map) setTimeout(()=>map.invalidateSize(), 0);
@@ -905,7 +942,7 @@ $('save-cloud').addEventListener('click', saveCloud);
 (async function boot(){
   if (!window.GeoAdmin.isAdmin()) return;
   syncLabels();
-  try {
+  if (!EMBED) try {
     const c=await import('./cloud.js');
     if (c.isConfigured()){
       cloud=c;
@@ -914,6 +951,35 @@ $('save-cloud').addEventListener('click', saveCloud);
     }
   } catch {}
   await initMap();
+  if (EMBED){
+    const TABS={ map:'Site boundary map', block:'3D block', section:'3D section & export' };
+    document.querySelectorAll('.tab').forEach(t=>{ t.textContent=TABS[t.dataset.tab]; });
+    document.querySelectorAll('.panel h3').forEach(h=>{ h.textContent=h.textContent.replace(/^\d+ · /, ''); });   // the step numbers belong to the 2D builder's tabs here
+    window.geo3d={
+      // Open the 2D builder's current project and go straight to a block: no boundary saved yet
+      // means "box around the boreholes", so the 3D tab is never an empty page.
+      async open(csv, id, tab){
+        try { openProject(csv, id, 'the project from the 2D builder'); }
+        catch {
+          // nothing to build from (no boreholes entered yet): say so instead of failing silently
+          proj=null; boundary=null; model=block=null; runs=[]; clearScene();
+          try { drawMap(false); updateBoundaryInfo(); } catch {}
+          note('build-note','No boreholes yet. Load or enter boreholes in tabs 1 and 2 first, then come back to this tab.','err');
+          showTab('map'); return;
+        }
+        if (!boundary && usedHoles().length) fitBoundary();
+        if (boundary) await build();
+        this.show(tab);
+      },
+      show(tab){
+        if (tab==='section' && model && !$('sl-on').checked){ $('sl-on').checked=true; updateSlice(); }   // the section tab needs a cut
+        if (model || tab!=='block') showTab(tab); else showTab('map');
+      },
+      settings: ()=>proj ? block3dSettings() : null,
+    };
+    parent.postMessage({ geo3d:'ready' }, location.origin);
+    return;
+  }
   await fillDatasets();
   if ($('ds-select').value) await loadSelected();
 })();

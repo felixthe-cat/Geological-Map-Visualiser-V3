@@ -1,7 +1,7 @@
 // Self-check for the 3D block geometry. Run: node web/test_block3d.mjs
 import assert from 'node:assert';
 import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, clipToRect, triangulate,
-         polyArea, pointInPoly, ringsToShapes, sliceFromPose } from './block3d.js';
+         polyArea, pointInPoly, ringsToShapes, sliceFromPose, clipToConvex, isConvex, clipToPoly } from './block3d.js';
 import { sectionRegions } from './cad_export.js';
 
 const near=(a,b,t=1e-6)=>Math.abs(a-b)<=t;
@@ -73,6 +73,20 @@ for (const az of [0,37,90,179]) for (const off of [-12.5,0,30]){
   assert.ok(a.az===az && near(a.off,off) && !a.wrapped);
   const b=sliceFromPose(poly, -s.normal[0], -s.normal[1], me, mn);           // handle turned right round
   assert.ok(b.az===az && near(b.off,off) && b.wrapped);
+}
+
+// --- trimming a building outline to the site boundary ---
+{
+  const sq=(x,y,w)=>[[x,y],[x+w,y],[x+w,y+w],[x,y+w]];
+  const win=sq(0,0,10);
+  assert.ok(near(Math.abs(polyArea(clipToConvex(sq(8,8,4), win))), 4));              // corner overlap 2×2
+  assert.ok(near(Math.abs(polyArea(clipToConvex(sq(8,8,4), [...win].reverse()))), 4)); // window wound the other way
+  assert.equal(clipToConvex(sq(20,20,2), win).length, 0);                             // fully outside
+  assert.ok(near(Math.abs(polyArea(clipToConvex(sq(2,2,3), win))), 9));               // fully inside: untouched
+  const Lwin=[[0,0],[10,0],[10,4],[4,4],[4,10],[0,10]];                               // concave L
+  assert.ok(isConvex(win) && !isConvex(Lwin));
+  const parts=clipToPoly(sq(2,2,6), Lwin);                                            // 6×6 square minus the 4×4 notch corner
+  assert.ok(near(parts.reduce((a,p)=>a+Math.abs(polyArea(p)),0), 36-16));
 }
 
 console.log('test_block3d: all checks passed');

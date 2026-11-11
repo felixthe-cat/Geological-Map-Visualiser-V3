@@ -121,6 +121,44 @@ export function clipToRect(poly, x0, y0, x1, y1){
   return out;
 }
 
+/** Sutherland–Hodgman against any CONVEX window polygon (either winding). */
+export function clipToConvex(poly, win){
+  const s=Math.sign(polyArea(win)) || 1;
+  let out=poly;
+  for (let k=0;k<win.length && out.length;k++){
+    const a=win[k], b=win[(k+1)%win.length];
+    const side=p=>s*((b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]));   // >= 0 : inside this edge
+    const src=out; out=[];
+    for (let i=0;i<src.length;i++){
+      const p=src[(i+src.length-1)%src.length], q=src[i], dp=side(p), dq=side(q);
+      const cut=()=>{ const t=dp/(dp-dq); return [p[0]+t*(q[0]-p[0]), p[1]+t*(q[1]-p[1])]; };
+      if (dq>=0){ if (dp<0) out.push(cut()); out.push(q); }
+      else if (dp>=0) out.push(cut());
+    }
+  }
+  return out.length>=3 ? out : [];
+}
+export function isConvex(poly){
+  let sign=0;
+  for (let i=0;i<poly.length;i++){
+    const a=poly[i], b=poly[(i+1)%poly.length], c=poly[(i+2)%poly.length];
+    const z=Math.sign((b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0]));
+    if (z && sign && z!==sign) return false;
+    if (z) sign=z;
+  }
+  return true;
+}
+/**
+ * The part(s) of `poly` inside `window`, as a list of polygons. A convex window gives
+ * one exact piece. ponytail: a concave window is cut into triangles and clipped against
+ * each, so the result is exact but comes back in several pieces (seams between them);
+ * swap in a real polygon clipper if those seams ever matter.
+ */
+export function clipToPoly(poly, win){
+  if (isConvex(win)){ const c=clipToConvex(poly, win); return c.length ? [c] : []; }
+  return triangulate(win).map(t=>clipToConvex(poly, t.map(i=>win[i]))).filter(c=>c.length);
+}
+
 /**
  * Ear clipping. Returns index triples into `pts`.
  * ponytail: O(n³) worst case — fine for the few-vertex pieces a cell clip

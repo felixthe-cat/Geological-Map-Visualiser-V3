@@ -338,3 +338,20 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 **Options considered:** (1) claude.ai Slides artifact — hosted, but needs internet at the venue and gives less control over motion; (2) HyperFrames slideshow — strong motion, but adds a toolchain to a deck that only needs click-through; (3) one plain HTML file with local GSAP and fonts — more hand-written code, but needs no network.
 **Chosen + why:** (3). It runs from a laptop with Wi-Fi off, the motion is fully controlled, and it reuses the site's own look. It lives in gitignored `videos/presentation/`, so the auto-push hook never publishes it.
 **Reversible?** Cheap. The content could be moved into a Slides artifact later.
+
+### ADR-17: Fixed depth offsets in the 3D block, never slope-scaled
+**Context:** deep soil layers showed through the terrain on steep slopes and through the section cut face. The layer meshes used `polygonOffsetFactor:-k`, which scales with on-screen slope, so steep or edge-on deep surfaces were pulled in front of everything.
+**Options considered:**
+- *Keep slope-scaled offsets, tune the numbers.* Drawback: any factor fails at some slope; edge-on at a cut the pull is unbounded.
+- *Drop interior layer surfaces, draw only the outer shell.* Drawback: hiding an upper layer in the legend would leave a hole instead of showing the layer below.
+- *Fixed offsets only (factor 0, small units), true geometry does the rest.* Drawback: relies on the orthographic camera's linear depth buffer; a perspective camera would need this revisited.
+**Chosen + why:** fixed offsets. One change removed the terrain bleed and both cut-face bugs. The same rule is used for buildings and the photo map.
+**Reversible?** Cheap.
+
+### ADR-18: 3D builder merged into the 2D builder as an iframe
+**Context:** the user wants one page with the workflow as tabs: site map, borehole logs, 2D section, rock contour, 3D block, 3D section.
+**Options considered:**
+- *Move the 3D code and markup into `builder.html` / `builder.js`.* Drawback: two ~1,000–2,200-line scripts with clashing element ids (`map`, `legend`, `.tab`), a large rewrite with real regression risk the day after a full 3D test sweep.
+- *Embed `builder3d.html?embed=1` in an iframe under tabs 5 and 6, same origin, talking through `window.geo3d` and `postMessage`.* Drawback: the 3D page keeps its own inner tab row and side panel, so the page is nested rather than fully unified.
+**Chosen + why:** iframe. The tested 3D page runs unchanged, the 2D builder stays the single owner of the dataset and saving, and the standalone page still works.
+**Reversible?** Cheap — the embed hooks are ~40 lines on each side.

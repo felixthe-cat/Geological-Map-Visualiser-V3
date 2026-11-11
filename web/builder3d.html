@@ -80,7 +80,13 @@
     .legend .sw,label .sw{width:14px;height:14px;border-radius:3px;border:1px solid #3d3529;flex:0 0 auto}
     .val{font-variant-numeric:tabular-nums;color:var(--forest-d);font-weight:600}
     #locked{max-width:520px;margin:60px auto;text-align:center}
+      /* inside the 2D builder's 3D tabs: no page chrome, no dataset picker, no own save */
+    .embed header,.embed .solo{display:none}
+    .embed body{background:transparent}
+    .embed .wrap{padding:0;max-width:none}
+    .embed .solo+h3{margin-top:0}
   </style>
+  <script>if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
 </head>
 <body>
   <header>
@@ -107,6 +113,7 @@
   <div class="wrap" id="app" style="display:none">
     <!-- ── CONTROLS ── -->
     <div class="panel">
+      <div class="solo">
       <h3>1 · Dataset</h3>
       <select id="ds-select"></select>
       <div class="row">
@@ -115,6 +122,7 @@
           <span class="hint" style="cursor:pointer;text-decoration:underline">or open a project CSV…</span></label>
       </div>
       <div id="ds-note" class="status" style="display:none"></div>
+      </div>
 
       <h3>2 · Site boundary</h3>
       <div class="hint">Draw the area the block should fill on the Site Map tab.</div>
@@ -163,7 +171,7 @@
         <input type="number" id="mesh-dz" step="0.1" value="0" style="width:110px">
         <button class="ghost" id="mesh-level" title="Line the photo map up with the ground levels again">Auto-level</button>
       </div>
-      <label class="inline"><input type="checkbox" id="holes-on" checked> Show boreholes</label>
+      <label class="inline"><input type="checkbox" id="holes-on"> Show boreholes</label>
 
       <h3>4 · Slice</h3>
       <label class="inline"><input type="checkbox" id="sl-on"> Cut the block</label>
@@ -175,12 +183,14 @@
       <label class="inline"><input type="checkbox" id="sl-flip"> Keep the other side</label>
       <div class="row"><button class="ghost" id="sl-look">Face the cut</button></div>
 
+      <div class="solo">
       <h3>Save</h3>
       <div class="row">
         <button class="ghost" id="save-cloud" disabled title="Open one of your saved datasets to save back to it">Save changes</button>
         <button class="ghost" id="save-file">Download project CSV</button>
       </div>
       <div id="save-note" class="status" style="display:none"></div>
+      </div>
     </div>
 
     <!-- ── OUTPUT ── -->
