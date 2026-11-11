@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 19:40 — Handover note for session c079ecc2
+**Goal:** leave the next session able to continue without this conversation.
+**Changed:** `handovers/2026-11-11_c079ecc2_lidar-hosting-3d-merge.md` (new), `HANDOVER.md` (this session's row only), learning log outside the repo.
+**Worked:** note lists what is live and what was only tested on localhost.
+**Dead ends:** none.
+**Open:** see the note's "Open questions" list.
+
+---
+
 ### 2026-11-11 19:00 — Solid cut faces, one 3D tab, roads and bridges, "How It's Done" page
 **Goal:** remove the inner tab row and put the 3D section under the 3D block; add a "How It's Done" page; add roads and bridges as white models trimmed to the block; show a solid white face where a section cuts a building.
 **Changed:**
