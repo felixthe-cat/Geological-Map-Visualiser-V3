@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 13:00 — LiDAR uploaded to Supabase Storage
+**Goal:** "The key is in .env.local now, please upload".
+**Changed:** no repo files. Supabase Storage bucket `lidar` (public) now holds 1,680 `.hkdt` sheets + `index.json`, uploaded by `tools/lidar_upload.mjs` with `SUPABASE_SERVICE_ROLE_KEY` from `.env.local`.
+**Worked:** the uploader reported 1,681 files / 0.778 GB, 0 failures. A SQL check on `storage.objects` gives `lidar` 1,681 files, 0.778 GB (free tier 1 GB). Public `index.json` and `38_45.hkdt` return 200 with `Access-Control-Allow-Origin: *`. A hillside build with the default (Supabase) source fetched both and reported "Ground: 0.5 m LiDAR (CEDD 2020)".
+**Dead ends:** the build could not be tested on the live Vercel page: `/builder3d` is behind the admin gate, and the admin password was not entered. It was tested instead on the same code served from localhost, which reads the same public Supabase URL.
+**Open:** egress is unmeasured. Each 3D build downloads ~0.8 MB per sheet, against 5 GB/month free egress (~6,000 sheet loads).
+
+---
+
 ### 2026-11-11 12:30 — Buildings only inside the block (reverts the 100 m ring)
 **Goal:** "It should only show the buildings that are within that block of terrain. When we cut sections through the terrain, the building should disappear alongside the terrain itself."
 **Changed:** `web/builder3d.js` restored to its 228de76 state: `setBuildings` draws only buildings whose centre is inside the boundary; `CONTEXT_M`, `contextGround` and `prefetchDtm(pad)` removed. `web/builder3d.html`: label "Existing buildings (white blocks)", and its tooltip says they are cut away with the ground. `docs/DECISIONS.md`: ADR-16 supersedes ADR-15.
