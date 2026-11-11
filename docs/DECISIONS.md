@@ -323,3 +323,12 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 - Ring size: *fixed 100 m* vs *scaled to site size*. Scaled is more general but harder to predict; nobody has asked for it.
 **Chosen + why:** fixed 100 m ring on a see-through sheet. Buildings read as standing on the ground, and the geology stays visible.
 **Reversible?** Cheap: `CONTEXT_M` and the sheet opacity are single values in `web/builder3d.js`.
+
+### ADR-16: Buildings only inside the block (supersedes ADR-15)
+**Context:** the user reviewed the 100 m ring of context buildings and said buildings outside the terrain block are not intended. They must go with the ground when a section is cut.
+**Options considered:**
+- *Keep the 100 m ring.* Drawback: the user rejected it, because buildings float beside the block.
+- *Buildings whose centre is inside the boundary, drawn whole.* Drawback: an edge building can overhang the block slightly.
+- *Buildings trimmed exactly to the boundary.* Drawback: needs polygon clipping code for a few metres of overhang.
+**Chosen + why:** centre-inside, drawn whole. This was the existing code, and it matches the request. Trim at the edge only if the overhang is reported.
+**Reversible?** Cheap.

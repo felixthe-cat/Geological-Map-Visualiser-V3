@@ -218,9 +218,9 @@ function fitBoundary(){
 }
 
 // ---- DTM sampling over the boundary ------------------------------------------------------------
-async function prefetchDtm(pad=0){
+async function prefetchDtm(){
   const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]);
-  const corners=[[Math.min(...xs)-pad,Math.min(...ys)-pad],[Math.max(...xs)+pad,Math.max(...ys)+pad]].map(([e,n])=>{ const [la,ln]=toLL(e,n); return tileCoord(ln,la); });
+  const corners=[[Math.min(...xs),Math.min(...ys)],[Math.max(...xs),Math.max(...ys)]].map(([e,n])=>{ const [la,ln]=toLL(e,n); return tileCoord(ln,la); });
   const r0=Math.min(corners[0].row,corners[1].row), r1=Math.max(corners[0].row,corners[1].row);
   const c0=Math.min(corners[0].col,corners[1].col), c1=Math.max(corners[0].col,corners[1].col);
   // ponytail: a site spanning more than 6×6 tiles (~7 km) is not a site; refuse rather than fetch hundreds
@@ -494,10 +494,8 @@ function cssColour(c){ _cx.fillStyle='#000'; _cx.fillStyle=c; return _cx.fillSty
 
 // ---- white building blocks ---------------------------------------------------------------
 // Outlines + roof levels from the Lands Dept building map, pushed up as plain chalk
-// blocks (an architect's card model). Inside the boundary they stand on the block's
-// ground; in a CONTEXT_M ring around it they stand on the LiDAR / 5 m ground, over a
-// faint see-through ground plate (opaque ground would hide the block's coloured sides).
-const CONTEXT_M = 100;
+// blocks (an architect's card model). Only buildings whose centre is inside the
+// boundary: there is no ground outside it for the others to stand on.
 let bldKey=null;                       // what the current blocks were built for
 async function setBuildings(){
   if (!T || !model || !boundary) return;
@@ -508,13 +506,11 @@ async function setBuildings(){
   bldKey=key;
   try {
     const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]);
-    const box=[Math.min(...xs)-CONTEXT_M, Math.min(...ys)-CONTEXT_M, Math.max(...xs)+CONTEXT_M, Math.max(...ys)+CONTEXT_M];
     const q=new URLSearchParams({ where:'1=1', geometryType:'esriGeometryEnvelope', inSR:2326, outSR:2326,
-      geometry:box.join(','), spatialRel:'esriSpatialRelIntersects', outFields:'BaseHeight,TopHeight', f:'json' });
+      geometry:[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)].join(','),
+      spatialRel:'esriSpatialRelIntersects', outFields:'BaseHeight,TopHeight', f:'json' });
     // A slow or blocked government server must not hang the page: give up after 20 s.
-    const [res]=await Promise.all([fetch(BLD_URL+'?'+q, { signal:AbortSignal.timeout(20000) }),
-      prefetchDtm(CONTEXT_M).catch(()=>false)]);             // 5 m ground for the ring too
-    // ponytail: the ring's LiDAR is only what the boundary's own sheets cover; the rest uses the 5 m model
+    const res=await fetch(BLD_URL+'?'+q, { signal:AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error('HTTP '+res.status);
     const feats=(await res.json()).features||[];
     if (bldKey!==key) return;                              // boundary changed while waiting
@@ -526,11 +522,9 @@ async function setBuildings(){
       if (!Number.isFinite(top) || !f.geometry?.rings) continue;
       for (const { outer, holes } of ringsToShapes(f.geometry.rings)){
         const ce=outer.reduce((s,p)=>s+p[0],0)/outer.length, cn=outer.reduce((s,p)=>s+p[1],0)/outer.length;
-        if (ce<box[0] || ce>box[2] || cn<box[1] || cn>box[3]) continue;
+        if (!pointInPoly(ce, cn, boundary)) continue;
         // foot: the lowest ground under the outline (or the surveyed base if lower), sunk 0.3 m so no gap shows on a slope
-        const inside=pointInPoly(ce, cn, boundary);
-        const ground=outer.map(p=>inside ? model.at(p[0],p[1])[0] : dtmAt(p[0],p[1]));
-        if (ground.some(z=>z==null)) continue;                 // no ground model there: leave it out
+        const ground=outer.map(p=>model.at(p[0],p[1])[0]);
         const base=Math.min(...ground, Number.isFinite(f.attributes.BaseHeight) ? f.attributes.BaseHeight : Infinity)-0.3;
         if (top-base<1) continue;
         const v2=r=>r.map(p=>new THREE.Vector2(p[0],p[1]));
@@ -555,37 +549,12 @@ async function setBuildings(){
       bldG.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25),
         new THREE.LineBasicMaterial({ color:LOOK.edge, transparent:true, opacity:0.55, clippingPlanes:[clip] })));
     }
-    bldG.add(contextGround(box));
-    note('view-note', n ? `${n} building(s) drawn from the Lands Dept building map (outline + roof level), up to ${CONTEXT_M} m around the site.`
-                        : `No mapped buildings within ${CONTEXT_M} m of this boundary.`, 'ok');
+    note('view-note', n ? `${n} building(s) drawn from the Lands Dept building map (outline + roof level).`
+                        : 'No mapped buildings inside this boundary.', 'ok');
   } catch(err){
     bldKey=null;                                             // let the next toggle retry
     console.error(err); note('view-note','✗ Could not load the building outlines: '+(err?.message||err),'err');
   }
-}
-
-// The ground in the ring around the block, as a faint see-through sheet (cells whose
-// centre is inside the boundary are left out: the block's own skin is there).
-function contextGround(box){
-  const { THREE, clip }=T;
-  const cell=Math.max(2, Math.max(box[2]-box[0], box[3]-box[1])/120);   // ponytail: ≤ ~120×120 cells, enough for a backdrop
-  const nx=Math.ceil((box[2]-box[0])/cell), ny=Math.ceil((box[3]-box[1])/cell);
-  const zs=[];
-  for (let j=0;j<=ny;j++) for (let i=0;i<=nx;i++) zs.push(dtmAt(box[0]+i*cell, box[1]+j*cell));
-  const pos=[], idx=[], at=(i,j)=>j*(nx+1)+i;
-  for (let j=0;j<=ny;j++) for (let i=0;i<=nx;i++) pos.push(...P(box[0]+i*cell, box[1]+j*cell, zs[at(i,j)] ?? 0));
-  for (let j=0;j<ny;j++) for (let i=0;i<nx;i++){
-    const q=[at(i,j), at(i+1,j), at(i+1,j+1), at(i,j+1)];
-    if (q.some(k=>zs[k]==null) || pointInPoly(box[0]+(i+0.5)*cell, box[1]+(j+0.5)*cell, boundary)) continue;
-    idx.push(q[0],q[1],q[2], q[0],q[2],q[3]);
-  }
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
-  g.computeVertexNormals();
-  const m=new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color:LOOK.terrain, transparent:true, opacity:0.35,
-    depthWrite:false, side:THREE.DoubleSide, clippingPlanes:[clip] }));
-  m.receiveShadow=true;
-  return m;
 }
 
 // ---- Lands Dept 3D photo-mesh ----------------------------------------------------------------------------

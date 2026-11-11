@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 12:30 — Buildings only inside the block (reverts the 100 m ring)
+**Goal:** "It should only show the buildings that are within that block of terrain. When we cut sections through the terrain, the building should disappear alongside the terrain itself."
+**Changed:** `web/builder3d.js` restored to its 228de76 state: `setBuildings` draws only buildings whose centre is inside the boundary; `CONTEXT_M`, `contextGround` and `prefetchDtm(pad)` removed. `web/builder3d.html`: label "Existing buildings (white blocks)", and its tooltip says they are cut away with the ground. `docs/DECISIONS.md`: ADR-16 supersedes ADR-15.
+**Worked:** local test with a boundary 110 m around the hillside holes (passed in as a 2D-builder handoff): 13 buildings, all on the block. With the slice on and flipped, the large building disappears with its half of the ground. This works because building materials share the block's clipping plane. All 9 web self-checks pass.
+**Dead ends:** the 100 m context ring (fa9da20). The user saw buildings floating outside the block as unintended.
+**Open:** a building straddling the boundary is drawn whole, so it can overhang the block edge by a few metres.
+
+---
+
 ### 2026-11-11 11:10 — Deploy + check of the white context buildings
 **Goal:** "include the existing buildings onto the 3D model … plain white texture like architectural models".
 **Changed:** no code beyond commit fa9da20 (`web/builder3d.js` `setBuildings` / `contextGround` / `prefetchDtm(pad)`, `web/builder3d.html` label). `docs/DECISIONS.md`: ADR-15.
