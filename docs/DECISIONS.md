@@ -332,3 +332,9 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 - *Buildings trimmed exactly to the boundary.* Drawback: needs polygon clipping code for a few metres of overhang.
 **Chosen + why:** centre-inside, drawn whole. This was the existing code, and it matches the request. Trim at the edge only if the overhang is reported.
 **Reversible?** Cheap.
+
+### ADR-17: The talk deck is a hand-built offline HTML page, not a slides product
+**Context:** The user wanted an HTML presentation with coded motion for a 15–20 min talk, with a feature video embedded.
+**Options considered:** (1) claude.ai Slides artifact — hosted, but needs internet at the venue and gives less control over motion; (2) HyperFrames slideshow — strong motion, but adds a toolchain to a deck that only needs click-through; (3) one plain HTML file with local GSAP and fonts — more hand-written code, but needs no network.
+**Chosen + why:** (3). It runs from a laptop with Wi-Fi off, the motion is fully controlled, and it reuses the site's own look. It lives in gitignored `videos/presentation/`, so the auto-push hook never publishes it.
+**Reversible?** Cheap. The content could be moved into a Slides artifact later.

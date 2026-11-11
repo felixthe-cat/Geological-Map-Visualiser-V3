@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 22:40 — Presentation page for the talk
+**Goal:** "an HTML page ... on how I made this geological map visualizer ... with Claude Motion incorporated", 15–20 min, English, focus on how it is built, 3D held back.
+**Changed:** `videos/presentation/index.html` (13-slide click-driven deck, speaker notes on N, GSAP motion); `videos/presentation/assets/` (local GSAP + fonts, compressed screenshots from `videos/shots/`, `terrain.jpg`, `bh.js` = 1-in-5 of the station index projected onto the terrain mosaic, `qr.svg`). Folder is gitignored, so nothing is deployed. `.claude/launch.json`: `presentation` preview server (port 5520).
+**Worked:** every slide stepped through in the browser pane at 1600×900; only console error is the expected 404 for the not-yet-made `assets/features.mp4`. Figures re-checked live: WFS `numberMatched` 331,223; `GI_AGS.zip` 637 MB (Last-Modified 3 Nov 2026); CSDI CSW 1,163 records; 35,326 of 80,000 indexed stations have AGS.
+**Dead ends:** "Claude Motion" is a claude.ai Team/Enterprise template, not available from Claude Code, so motion is hand-coded. First layout centred the 1920×1080 stage with CSS grid, which mis-placed it once scaled; fixed with absolute centring + translate.
+**Open:** feature video (HyperFrames) waits for storyboard approval. Index still holds only the first 80,000 of 331,223 stations (user chose not to fix). Log loading still depends on the Hugging Face helper.
+
+---
+
 ### 2026-11-11 13:00 — LiDAR uploaded to Supabase Storage
 **Goal:** "The key is in .env.local now, please upload".
 **Changed:** no repo files. Supabase Storage bucket `lidar` (public) now holds 1,680 `.hkdt` sheets + `index.json`, uploaded by `tools/lidar_upload.mjs` with `SUPABASE_SERVICE_ROLE_KEY` from `.env.local`.
