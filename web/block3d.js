@@ -17,7 +17,7 @@
 // ================================================================
 
 import { idwDelta } from './terrain.js';
-import { classKey, classLabel, classColour } from './strata.js';
+import { classKey, classLabel, classColour, isMaterial } from './strata.js';
 
 // ---- model -----------------------------------------------------------------
 
@@ -31,6 +31,7 @@ export function blockHoles(boreholes){
 export function stratOrder(holes){
   const sum={}, cnt={}, label={}, colour={};
   for (const bh of holes) for (const l of bh.layers){
+    if (!isMaterial(l)) continue;                            // a drilling note, not a layer of ground
     const k=classKey(l);
     sum[k]=(sum[k]||0)+l.top; cnt[k]=(cnt[k]||0)+1;
     label[k]=classLabel(l); colour[k]=classColour(l);
@@ -69,7 +70,16 @@ export function makeModel(holes, opts={}){
   const base = Number.isFinite(opts.base) ? opts.base : defaultBase(holes);
   const H=holes.map(b=>holeHorizons(b, keys));
   const gl=holes.map(b=>({ e:b.x, n:b.y, delta:b.gl }));
-  const th=keys.map((_,k)=>holes.map((b,i)=>({ e:b.x, n:b.y, delta:Math.max(0, H[i][k]-H[i][k+1]) })));
+  // A hole only says something about the layers it drilled right through. Below where it stopped the
+  // ground is unknown, not absent (same rule as the 2D section, see interpolateHorizons). The layer it
+  // stopped in is proved at least as thick as logged, so it counts there if that beats its neighbours.
+  const last=holes.map(b=>Math.max(-1, ...b.layers.filter(isMaterial).map(l=>keys.indexOf(classKey(l)))));
+  const th=keys.map((_,k)=>{
+    const all=holes.map((b,i)=>({ e:b.x, n:b.y, delta:Math.max(0, H[i][k]-H[i][k+1]), i }));
+    const through=all.filter(p=>k<last[p.i]);
+    if (!through.length) return all;                           // nobody drilled through it: best guess from all
+    return [...through, ...all.filter(p=>k===last[p.i] && p.delta>idwDelta(through, p.e, p.n, power))];
+  });
   function at(x, y){
     const out=new Float64Array(nS+1);
     let g = top==='dtm' && dtmAt ? dtmAt(x,y) : null;

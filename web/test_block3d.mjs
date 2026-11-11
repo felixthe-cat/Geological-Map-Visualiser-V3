@@ -100,3 +100,14 @@ for (const az of [0,37,90,179]) for (const off of [-12.5,0,30]){
 }
 
 console.log('test_block3d: all checks passed');
+
+// --- 3D: a shallow hole does not pinch out the layers below its toe ---
+{
+  const L=(surface,top,base)=>({ surface, top, base });
+  const deepHole=(id,x)=>({ id, x, y:0, gl:10, layers:[L('Fill',0,4), L('Alluvium',4,10), L('Rock',10,30)] });
+  const pit={ id:'TP', x:50, y:0, gl:10, layers:[L('Fill',0,2)] };
+  const m=makeModel([deepHole('A',0), pit, deepHole('B',100)], { base:-20 });
+  const h=m.at(50,0);
+  assert.ok(near(h[1], 6) && near(h[2], 0));          // fill base and alluvium base as in the deep holes, not at the pit toe (8)
+}
+console.log('test_block3d: early-stop rule ok');

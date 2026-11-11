@@ -142,8 +142,24 @@ export function interpolateSeries(xs, ys, xq, method='linear', extrap='hold'){
  * @param extrap       'hold' (default) or 'linear' — see interpolateSeries()
  * @returns curves[k][q] = elevation of horizon k at xq[q]
  */
-export function interpolateHorizons(xs, horizons, xq, method='linear', topOverride=null, extrap='hold'){
+export function interpolateHorizons(xs, horizons, xq, method='linear', topOverride=null, extrap='hold', last=null){
   const nH = horizons[0].length;
+  // `last[i]` = index of the deepest layer borehole i reached. A borehole only says something about
+  // the layers it drilled right through (index < last): below where it stopped, the ground is unknown,
+  // NOT absent. Without this a shallow trial pit pinched every deeper layer up to its toe.
+  // The layer it stopped in is proved to be at least as thick as logged, so it still counts there
+  // if that is more than its neighbours suggest.
+  const thickness = L => {
+    const all = horizons.map(h=>Math.max(0, h[L]-h[L+1]));
+    if (!last) return interpolateSeries(xs, all, xq, method, extrap);
+    let use = xs.map((_,i)=>i).filter(i=>L<last[i]);
+    if (!use.length) return interpolateSeries(xs, all, xq, method, extrap);     // nobody drilled through it: best guess from all
+    const fit = idx => interpolateSeries(idx.map(i=>xs[i]), idx.map(i=>all[i]), xq, method, extrap);
+    const at = (idx, x) => interpolateSeries(idx.map(i=>xs[i]), idx.map(i=>all[i]), [x], method, extrap)[0];
+    const more = xs.map((_,i)=>i).filter(i=>L===last[i] && all[i]>at(use, xs[i]));
+    if (more.length) use = [...use, ...more].sort((a,b)=>xs[a]-xs[b]);
+    return fit(use);
+  };
   const top = topOverride || interpolateSeries(xs, horizons.map(h=>h[0]), xq, method, extrap);
   const curves = [top];
   const running = top.slice();
@@ -151,7 +167,7 @@ export function interpolateHorizons(xs, horizons, xq, method='linear', topOverri
     // Thicknesses are extrapolated too, but clamped at 0 below — a trend
     // continued far enough always eventually drives a thickness negative, and
     // a band that pinches out is the right answer there, not an inverted one.
-    const th = interpolateSeries(xs, horizons.map(h=>Math.max(0, h[k-1]-h[k])), xq, method, extrap);
+    const th = thickness(k-1);
     for (let q=0;q<xq.length;q++) running[q] -= Math.max(0, th[q]);
     curves.push(running.slice());
   }

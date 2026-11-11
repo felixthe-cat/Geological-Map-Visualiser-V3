@@ -364,3 +364,20 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 - *Highways Dept structure outlines + deck level from the Lands Dept 5 m model; Lands Dept centre lines widened by road type.* Works live for any site. Drawback: deck level is good to a few metres, road width is a guess, no piers.
 **Chosen + why:** the third. No new hosting, works everywhere at once, and the checks showed the 5 m model does hold the decks (about 16 m above LiDAR on nine flyovers). The assumptions are stated in the checkbox tooltip and on the "How It's Done" page.
 **Reversible?** Cheap — `setInfra` is self-contained; a better source can replace `deckLevel` or `ROAD_W` alone.
+
+### ADR-20: A borehole only speaks for the layers it drilled through
+**Context:** on a real section, every short borehole or trial pit pinched all deeper layers up to its toe. The model read "not logged" as "zero thickness".
+**Options considered:**
+- *Keep it; tell users to tick "Boreholes only".* Drawback: short boreholes do the same thing, and the result looks like real geology.
+- *Drop any hole shorter than some depth.* Drawback: throws away its real information on the upper layers.
+- *Per layer, use only the holes that passed right through it; let the hole that stopped inside it count only if it proves more thickness than its neighbours suggest.* Drawback: a layer nobody drilled through falls back to the old behaviour.
+**Chosen + why:** the third. It is standard engineering reading of a log (end of hole is not base of layer) and it is the same rule in the 2D section and the 3D block.
+**Reversible?** Cheap — one optional argument in `interpolateHorizons` and one block in `makeModel`.
+
+### ADR-21: Proposed structure is a single box with vertical-sided earthworks
+**Context:** the user wants to place a structure and see the geology and the excavation or filling it needs.
+**Options considered:**
+- *Free polygon footprints, several structures, side slopes.* Drawback: far more interface and a batter model, before anyone has used the simple case.
+- *One rotatable box; dig and fill straight below the footprint, by layer.* Drawback: over-simple for tender quantities.
+**Chosen + why:** the box, as asked ("for now, a cuboid"). The assumption is printed under the volumes.
+**Reversible?** Cheap — `web/structure.js` is self-contained; `earthworks` can gain a batter argument.

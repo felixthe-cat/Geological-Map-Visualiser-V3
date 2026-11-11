@@ -4,6 +4,25 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-12 06:30 — Whole-site audit finished: section labels, "stopped early" rule, landing page
+**Goal:** audit the whole website from the landing page through every tab and export, fix what is wrong, and record before/after pictures.
+**Changed:**
+- `web/strata.js`: `isMaterial` (drilling notes such as "No Recovery" are not layers). Used in `web/builder.js` `syncDerived` and `web/block3d.js` `stratOrder`.
+- `web/section_geom.js` `interpolateHorizons(..., last)` and `web/block3d.js` `makeModel`: a borehole only counts for layers it drilled through; the layer it stopped in counts if thicker than its neighbours suggest. Tests added to `test_section_geom.mjs` and `test_block3d.mjs`.
+- `web/builder.js`: borehole names under the 2D section drop into up to 6 rows with leader lines; legend moved clear of the B end; rock-contour interval picks itself until the user chooses.
+- `web/builder.html`: 10 m contour option.
+- `web/index.html`, `web/style.css`: one builder link, accurate hero and card text, third card, honest footer, 17 unused style rules removed (13.0 KB to 8.4 KB).
+- `web/how.html`: proposed structure, GLB export, the "stopped early" rule and dig/fill limits added.
+- `docs/qa/SITE_AUDIT.md` + `docs/qa/img2/`: the audit report. `docs/DECISIONS.md`: ADR-20, ADR-21.
+**Worked:** real site, 171 boreholes: section export readable, false V-pinches at 5 short holes gone, contour interval auto 5 m, 3D block with 43 buildings / 45 roads / 9 bridge pieces, structure on cut and section, 13-entry legend without overlap. All 10 self-checks pass.
+**Dead ends:**
+- A first CSS clean-up by regular expression left six dead blocks (rules after comments); they were cut by hand.
+- Browser-pane screenshots went stale while the pane was hidden; toggling the viewport size forced a repaint.
+- An overlay used to preview exported PNGs stopped repainting; the on-page SVG was inspected instead.
+**Open:** mouse-drag interactions, phone-width builder layout and account saving were not exercised. Live 3D tab is admin-only. "Unclassified" AGS layers and the single site-wide layer order are left as they are.
+
+---
+
 ### 2026-11-12 — Proposed structure, 3D exports, site-map coordinate fix (audit part-way)
 **Goal:** let the user place a rotatable box (proposed structure) and see its geology and dig/fill; export the 3D block; start a whole-site audit.
 **Changed:**

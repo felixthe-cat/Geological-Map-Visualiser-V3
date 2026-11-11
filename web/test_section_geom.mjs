@@ -183,3 +183,19 @@ console.log('ok — section projection + interpolation checks pass (incl. tied s
   assert(on.stations.every((s,i,a)=>!i || a[i-1].dist<=s.dist), 'still ordered along the line');
   console.log('nearer-hole-wins ok');
 }
+
+// --- a hole that stopped early says nothing about deeper layers ---
+{
+  const { interpolateHorizons } = await import('./section_geom.js');
+  // three stations, two layers over rock. Middle one is a 2 m trial pit that never left layer 0.
+  const xs=[0,50,100], H=[[10,6,0,-20],[10,8,8,8],[10,6,0,-20]];           // horizons: ground, base L0, base L1, base
+  const old=interpolateHorizons(xs, H, [50]);                              // without the rule: everything pinches to the pit toe
+  assert.ok(Math.abs(old[1][0]-8)<1e-9 && Math.abs(old[2][0]-8)<1e-9);
+  const neu=interpolateHorizons(xs, H, [50], 'linear', null, 'hold', [2,0,2]);
+  assert.ok(Math.abs(neu[1][0]-6)<1e-9);                                   // layer 0 base follows the full-depth holes
+  assert.ok(Math.abs(neu[2][0]-0)<1e-9);                                   // layer 1 is NOT pinched out at the pit
+  // a pit that proves MORE of layer 0 than its neighbours still counts
+  const deep=interpolateHorizons(xs, [[10,6,0,-20],[10,3,3,3],[10,6,0,-20]], [50], 'linear', null, 'hold', [2,0,2]);
+  assert.ok(Math.abs(deep[1][0]-3)<1e-9);
+  console.log('test_section_geom: early-stop rule ok');
+}

@@ -7,7 +7,7 @@
 import { sectionStations, interpolateHorizons, boxToPts, ptsToBox, resizeFromCorner, cutPolygon } from './section_geom.js';
 import { tileCoord, sampleElevation, tilesForLine, correctedProfile, idwDelta, TILE_LOD } from './terrain.js';
 import { stateToProjectCSV, projectCSVToState } from './project_csv.js';
-import { colourFor, classKey, classLabel, classColour } from './strata.js';
+import { colourFor, classKey, classLabel, classColour, isMaterial } from './strata.js';
 import { dtmTileGetter, prefetchDtmTiles } from './dtm_tiles.js';
 
 
@@ -31,6 +31,7 @@ function syncDerived(){
     BH[bh.id] = { x:bh.x, y:bh.y, gl:bh.gl,
       layers: bh.layers.map(l=>({surface:l.surface, top:l.top, base:l.base, grade:l.grade||''})) };
     for (const l of bh.layers){
+      if (!isMaterial(l)) continue;                // "No Recovery" etc.: on the log, not a layer to join between boreholes
       const k = classKey(l);
       sumTop[k] = (sumTop[k]||0) + l.top;
       cntTop[k] = (cntTop[k]||0) + 1;
@@ -793,7 +794,7 @@ function renderSection(stations, vex, lineLen, A, B){
   // query-point spacing below can be chosen — and so a terrain top surface can
   // be sampled — before the elevation axis (which the terrain surface can
   // extend) is finalised.
-  const legendW=205, mL=56, mR=20+legendW;
+  const legendW=205, mL=56, mR=34+legendW;       // 34: room for the B marker and the last borehole's log before the legend
   const avail=(box.clientWidth ? box.clientWidth : 900) - 24;
   const plotW=Math.max(480, avail - mL - mR);
 
@@ -906,13 +907,24 @@ function renderSection(stations, vex, lineLen, A, B){
   // reflects only these, so it updates live as the section line is dragged and
   // boreholes (and their soil/rock types) enter or leave the section. (task 12)
   const present = new Set();
-  for (const id of ids) for (const l of BH[id].layers) present.add(classKey(l));
+  for (const id of ids) for (const l of BH[id].layers) if (isMaterial(l)) present.add(classKey(l));
   const activeStrat = STRAT.filter(s=>present.has(s));
 
   // Elevation axis + canvas sizing now that eRange (possibly widened by the
   // terrain surface above) is known.
-  const mT=56, mB=showNames?66:44;
+  const mT=56;
   const xPxPerM=plotW/plotSpan, yPxPerM=xPxPerM*vex, plotH=eRange*yPxPerM;
+  // Borehole names under the axis. On a busy section they would print on top of each other, so each
+  // name drops to the first row ("lane") where it clears the name before it; a thin leader ties it to its tick.
+  const LANES=6, lane=[], laneEnd=[];
+  const order=ids.map((_,i)=>i).sort((a,b)=>dist[a]-dist[b]);
+  if (showNames) for (const i of order){
+    const x=(dist[i]-dMin)*xPxPerM, w=Math.max(String(ids[i]).length*6.2, showOffset && perp[i]>0.05 ? 40 : 0)+8;
+    let k=0; while (k<LANES-1 && laneEnd[k]!==undefined && x-w/2<laneEnd[k]) k++;
+    laneEnd[k]=x+w/2; lane[i]=k;
+  }
+  const laneH=showOffset ? 24 : 14, nLanes=Math.max(1, laneEnd.length);
+  const mB=showNames ? 40+nLanes*laneH+(showOffset?26:14) : 44;
   const W=mL+plotW+mR, H=mT+plotH+mB;
   const svg=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,'font-family':'Outfit,sans-serif'});
   svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#fffdf8'}));
@@ -944,9 +956,11 @@ function renderSection(stations, vex, lineLen, A, B){
     svg.appendChild(el('line',{x1:x,y1:yAxis,x2:x,y2:yAxis+4,stroke:'#6b6250'}));
     svg.appendChild(el('text',{x:x,y:yAxis+15,'font-size':9.5,'text-anchor':'middle',fill:'#6b6250'},d.toFixed(0)));
   }
-  svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'));
+  svg.appendChild(el('text',{x:mL+plotW/2,y:H-4,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#6b6250'},'Distance along section (m)'+(showNames && showOffset ? '   ·   figure under each borehole = its distance off the section line' : '')));
 
-  const curves = interpolateHorizons(dist, horizons, xq, method, topOverride, extrap);
+  // deepest layer each borehole reached: it tells us nothing about the layers below that
+  const lastLayer = ids.map(id=>Math.max(-1, ...BH[id].layers.filter(isMaterial).map(l=>STRAT.indexOf(classKey(l)))));
+  const curves = interpolateHorizons(dist, horizons, xq, method, topOverride, extrap, lastLayer);
   secLastGeom = { xq, curves };                     // for the DXF export
   for (let k=0;k<STRAT.length;k++){
     const c=STRAT_COLOUR[STRAT[k]] || colourFor(STRAT[k]);
@@ -974,11 +988,14 @@ function renderSection(stations, vex, lineLen, A, B){
       svg.appendChild(el('rect',rectAttrs));
     }
     if (showNames){                                                // task 6: toggle borehole names
+      const ly=yAxis+30+(lane[i]||0)*laneH;
       svg.appendChild(el('line',{x1:x,y1:yAxis,x2:x,y2:yAxis+6,stroke:'#6b6250'}));
-      svg.appendChild(el('text',{x:x,y:yAxis+30,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#1e3c12'},id));
+      if (lane[i]) svg.appendChild(el('line',{x1:x,y1:yAxis+19,x2:x,y2:ly-10,stroke:'#b9ae97','stroke-width':.7}));
+      svg.appendChild(el('text',{x:x,y:ly,'font-size':10,'font-weight':600,'text-anchor':'middle',fill:'#1e3c12',
+        stroke:'#fffdf8','stroke-width':3,'paint-order':'stroke'},id));
       if (showOffset && perp[i]>0.05){                              // offset from the section line
-        svg.appendChild(el('text',{x:x,y:yAxis+43,'font-size':9,'text-anchor':'middle',fill:OFFSET_COLOUR[sev]},
-          `${perp[i].toFixed(1)} m off-line`));
+        svg.appendChild(el('text',{x:x,y:ly+11,'font-size':9,'text-anchor':'middle',fill:OFFSET_COLOUR[sev],
+          stroke:'#fffdf8','stroke-width':3,'paint-order':'stroke'},`${perp[i].toFixed(1)} m`));
       }
     }
   });
@@ -1099,7 +1116,7 @@ function renderSection(stations, vex, lineLen, A, B){
 
   // legend (by decomposition grade / material), in the right-hand gutter —
   // only the classes present in the current section (updates live on drag)
-  const lx=W-mR+8;
+  const lx=W-mR+22;
   svg.appendChild(el('rect',{x:lx-6,y:mT-6,width:legendW-6,height:Math.max(1,activeStrat.length)*16+22,
     fill:'#fffdf8',opacity:.92,stroke:'#c8bda8','stroke-width':.8,rx:6}));
   svg.appendChild(el('text',{x:lx,y:mT+8,'font-size':10,'font-weight':700,fill:'#1e3c12'},'Decomposition grade'));
@@ -1550,7 +1567,14 @@ async function renderContour(){
   }
   await ensureMapLibs();
 
-  const interval=+ctrOpt('ctr-int').value;
+  // Until the user picks an interval, choose one that gives a readable plan: the smallest step
+  // with no more than ~15 contour levels across the range of rock levels found.
+  const ctrIntSel=ctrOpt('ctr-int');
+  if (!ctrIntSel.dataset.chosen){
+    const zs=points.map(p=>p.z), range=Math.max(...zs)-Math.min(...zs);
+    ctrIntSel.value=String([0.5,1,2,5,10].find(v=>range/v<=15) || 10);
+  }
+  const interval=+ctrIntSel.value;
   const grid=gridInterp(points, { method:ctrOpt('ctr-method').value, n:90 });
   const levels=contourLevels(grid, interval);
   const contours=contourLines(grid, levels);
@@ -1909,6 +1933,7 @@ document.getElementById('lp-base').addEventListener('change', e=>{
 document.getElementById('lp-names').addEventListener('change', drawLogPlanMarkers);
 
 // rock contour plan (task 8)
+document.getElementById('ctr-int').addEventListener('change', e=>{ e.target.dataset.chosen='1'; });   // the user's choice now stands
 ['ctr-grade','ctr-method','ctr-int','ctr-labels','ctr-bh','ctr-bh-only','ctr-boundary'].forEach(id=>
   document.getElementById(id).addEventListener('change', renderContour));
 document.getElementById('ctr-base').addEventListener('change', e=>{

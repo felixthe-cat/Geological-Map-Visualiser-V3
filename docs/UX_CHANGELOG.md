@@ -119,3 +119,7 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-11-12 — 3D tab: you can add a proposed structure (a box with size, rotation, founding level and height). It shows on the map, the 3D block and the section, with dig and fill volumes by layer.
 - 2026-11-12 — 3D tab: new buttons to download the 3D view as a picture and the 3D block as a model file (GLB).
 - 2026-11-12 — Site map: typing HK1980 eastings and northings now sets the search area (before, only latitude/longitude worked).
+- 2026-11-12 — 2D cross-section: borehole names no longer print on top of each other on a busy section, and the legend no longer covers the B end.
+- 2026-11-12 — Sections and the 3D block: a short borehole or trial pit no longer pinches the deeper layers up to its toe, and "No Recovery" is no longer drawn as a soil layer.
+- 2026-11-12 — Rock contour: the contour interval now picks a readable value by itself; a 10 m option was added.
+- 2026-11-12 — Home page: one "Open the builder" link, clearer description, and a link to "How it's done".

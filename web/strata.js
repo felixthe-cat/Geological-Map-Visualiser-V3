@@ -29,6 +29,13 @@ export const GRADE_LABEL = { VI:'Grade VI · Residual Soil', V:'Grade V · Compl
 export const GRADE_COLOUR = { VI:'#a9743a', V:'#d8a24a', IV:'#c07d2e', III:'#9a6a2c',
   II:'#8a8f98', I:'#5b6068' };
 export function gradeRoman(grade){ const m=/^(VI|IV|III|II|V|I)\b/.exec((grade||'').trim()); return m?m[1]:''; }
+// Some log rows record what the driller did or failed to get, not what the ground is
+// ("No Recovery", "Wash Boring", "Core Loss"). They stay on the borehole log, but they are not
+// joined up between boreholes as if they were a soil layer: the stretch is taken by the next real
+// layer in the sequence.
+export function isMaterial(l){
+  return !!gradeRoman(l.grade) || !/^\s*(no recovery|wash boring|core loss|no sample|no core|not logged|not recorded)\b/i.test(l.surface||'');
+}
 export function classKey(l){ const r=gradeRoman(l.grade); return r ? ('G'+r) : (l.surface||''); }
 export function classLabel(l){ const r=gradeRoman(l.grade); return r ? GRADE_LABEL[r] : (l.surface||'(unnamed)'); }
 export function classColour(l){ const r=gradeRoman(l.grade); return r ? GRADE_COLOUR[r] : colourFor(l.surface); }

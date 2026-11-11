@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GeoVisualise 3D — Interactive Geological Mapping</title>
+  <title>GeoVisualise — Hong Kong ground models in your browser</title>
   <meta name="description" content="Free, open-source tool for Hong Kong geotechnical data: borehole logs, cross-sections, rockhead contours and 3D geological models from CEDD AGS open data.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ac845' stroke-width='2'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
@@ -52,8 +52,7 @@
     <!-- Centered navigation: links | logo | links -->
     <nav class="hero-nav">
       <div class="hero-nav-inner">
-        <a href="builder.html" class="nav-link">2D Builder</a>
-        <a href="builder3d.html" class="nav-link locked3d" data-lock3d aria-disabled="true">3D Builder<span class="coming-soon">Coming soon</span></a>
+        <a href="builder.html" class="nav-link">Open the builder</a>
         <a href="how.html" class="nav-link">How It's Done</a>
         <a href="https://github.com/felixthe-cat/Geological-Map-Visualiser-V3" class="nav-link" target="_blank" rel="noopener">GitHub</a>
         <!-- both only rendered once cloud accounts are configured (web/supabase_config.js);
@@ -81,23 +80,22 @@
         <span class="hero-line2">Map Visualiser</span>
       </div>
       <p class="hero-subtitle">
-        Reconstruct sub-surface geological profiles from borehole records using implicit structural modelling. Upload an AGS or CSV file and explore in 3D.
+        Turn Hong Kong borehole records into logs, cross-sections, rockhead contours and a 3D block of the ground. Pick a site on the map and work through it, tab by tab.
       </p>
       <div class="hero-actions">
-        <a href="builder.html" class="hero-cta">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="18" rx="1"></rect>
-            <path d="M14 7h7M14 12h7M14 17h7"></path>
-          </svg>
-          2D Log &amp; Cross-Section Builder
-        </a>
-        <a href="builder3d.html" class="hero-cta hero-cta-primary locked3d" data-lock3d aria-disabled="true">
+        <a href="builder.html" class="hero-cta hero-cta-primary">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
           </svg>
-          3D Geological Map Visualiser<span class="coming-soon">Coming soon</span>
+          Open the builder
+        </a>
+        <a href="how.html" class="hero-cta">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16.5v.01"></path>
+          </svg>
+          How it's done
         </a>
       </div>
     </div>
@@ -111,22 +109,27 @@
   <section id="about" class="about-section">
     <div class="about-inner">
       <span class="section-chip">Free · Open-source · Hong Kong CEDD open data</span>
-      <h2 class="about-title">From borehole records to an interactive geological model — in your browser.</h2>
+      <h2 class="about-title">From borehole records to a ground model, in your browser.</h2>
       <p class="about-lead">
-        Geological Map Visualiser turns Hong Kong ground-investigation data (AGS or CSV) into
-        publication-ready borehole logs, 2D cross-sections and full 3D geological models —
-        a free alternative to Leapfrog and RockWorks.
+        GeoVisualise reads Hong Kong's public ground-investigation records and turns them into
+        borehole logs, 2D cross-sections, rockhead contours and a 3D block of the ground under the
+        real terrain, buildings and roads. It is free and open-source, and it runs in your browser.
       </p>
       <div class="about-cards">
         <a href="builder.html" class="about-card">
-          <h3>2D Log &amp; Cross-Section Builder</h3>
-          <p>Enter boreholes layer-by-layer with a live log preview, then generate interpolated cross-sections. Runs instantly in your browser.</p>
-          <span class="about-card-cta">Open 2D Builder →</span>
+          <h3>1 to 4 · Site map, logs, section, rock contour</h3>
+          <p>Draw a box on the map to find boreholes, check each log, cut a cross-section along any line, and contour the top of rock. Export drawings as PNG, and sections as DXF for SLOPE/W or PLAXIS.</p>
+          <span class="about-card-cta">Open the builder →</span>
         </a>
-        <a href="builder3d.html" class="about-card locked3d" data-lock3d aria-disabled="true">
-          <h3>3D Geological Map Visualiser</h3>
-          <p>The same boreholes as a 3D block under the real terrain and buildings — drag a cut through it to see the ground, and export the section to GeoStudio or PLAXIS.</p>
-          <span class="about-card-cta">Open 3D Builder →<span class="coming-soon">Coming soon</span></span>
+        <a href="builder.html" class="about-card">
+          <h3>5 · 3D terrain block and section</h3>
+          <p>The same boreholes as a 3D block under the real ground, with buildings, roads and bridges in white. Slice it anywhere, place a proposed structure to see dig and fill volumes, and export the result.</p>
+          <span class="about-card-cta">Open the builder →<span class="coming-soon" data-lock3d>Coming soon</span></span>
+        </a>
+        <a href="how.html" class="about-card">
+          <h3>How it's done</h3>
+          <p>Where the data comes from, how the layers are worked out between boreholes, what you can do with the results, and where the model stops being reliable.</p>
+          <span class="about-card-cta">Read the method →</span>
         </a>
       </div>
     </div>
@@ -144,9 +147,9 @@
           <polyline points="2 17 12 22 22 17"></polyline>
           <polyline points="2 12 12 17 22 12"></polyline>
         </svg>
-        GeoVisualise 3D
+        GeoVisualise
       </div>
-      <p>Copyright &copy; 2026. All rights reserved.</p>
+      <p>Open-source. Data &copy; Government of the Hong Kong SAR (CEDD, Lands Department, Highways Department). Concept models only, not for construction.</p>
     </div>
   </footer>
 
@@ -163,7 +166,7 @@
         document.querySelectorAll('[data-lock3d]').forEach(el => {
           el.classList.remove('locked3d');
           el.removeAttribute('aria-disabled');
-          el.querySelectorAll('.coming-soon').forEach(b => b.remove());
+          if (el.classList.contains('coming-soon')) el.remove(); else el.querySelectorAll('.coming-soon').forEach(b => b.remove());
         });
       }
       const btn = document.getElementById('admin-btn');

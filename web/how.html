@@ -320,6 +320,9 @@
         <tr><td><b>Section DXF</b></td><td>AutoCAD, MicroStation, or any drafting package</td><td>Open it as a drawing: x is the distance along the section (m), y is the level (mPD).</td></tr>
         <tr><td><b>Section and plan PNG</b></td><td>Reports, tender submissions, presentations</td><td>Ready-made figures.</td></tr>
         <tr><td><b>Rockhead contour plan</b></td><td>Pile founding-level estimates, excavation planning</td><td>Read the rock level under each foundation; spot where rock dips.</td></tr>
+        <tr><td><b>Proposed structure</b> (a box you place, turn and found at any level)</td><td>Early excavation and foundation planning</td>
+          <td>Shows the dig and fill volumes, how much comes out of each layer, and what ground the base sits on. It is drawn on the 3D block, on the section and in the DXF.</td></tr>
+        <tr><td><b>3D model file (GLB)</b> and 3D view picture</td><td>Blender, Windows 3D Viewer, any glTF viewer; reports</td><td>The whole block with buildings, roads and the structure, true scale in metres.</td></tr>
         <tr><td><b>3D block view</b></td><td>Design reviews and client meetings</td><td>Show how the ground, buildings, roads and bridges sit together.</td></tr>
         <tr><td><b>Project CSV</b></td><td>Your own records, or back into this site</td><td>One file restores the whole project, including the 3D settings.</td></tr>
       </table>
@@ -344,6 +347,7 @@
       <ul>
         <li><b>Layers come in one order everywhere.</b> A material that appears twice in a borehole (for example fill, then colluvium, then fill again) cannot be shown as two separate bodies.</li>
         <li><b>Layer thickness changes smoothly</b> between boreholes. The method knows distance only. It knows nothing about faults, buried stream channels, dykes, or how the rock was formed.</li>
+        <li><b>A borehole only speaks for the layers it drilled through.</b> Below where it stopped, the ground is treated as unknown, not as absent. Drilling notes such as "No Recovery" are kept on the log but are not joined up as a soil layer.</li>
         <li><b>Boreholes are vertical</b> and their recorded position and ground level are correct.</li>
         <li><b>The ground has not changed</b> since it was surveyed. A borehole drilled before a site was cut or filled will not match today's ground.</li>
         <li><b>Grade III is the top of rock.</b> Corestones (hard boulders left in weathered rock) can be logged as rock and give a false, shallow rockhead.</li>
@@ -359,6 +363,7 @@
         <tr><td>Roads on the ground</td><td>Real centre line, <b>assumed width</b> by road type. Not the real kerb lines. Tunnels are not drawn.</td></tr>
         <tr><td>Bridges and flyovers</td><td>Real outline, <b>estimated deck level</b> (good to a few metres), assumed 1.5 m thick. No piers, abutments or ramps' real gradients.</td></tr>
         <tr><td>Section projection</td><td>A borehole 80 m off the line is drawn as if it were on the line. Check the printed offsets.</td></tr>
+        <tr><td>Dig and fill volumes</td><td>Vertical sides straight below the footprint. No side slopes, working space, bulking or temporary works. A first estimate only.</td></tr>
         <tr><td>Beyond the boreholes</td><td>Outside the outermost boreholes the layers are extended, not measured. Treat the edges of a block with extra caution.</td></tr>
       </table>
       </div>
