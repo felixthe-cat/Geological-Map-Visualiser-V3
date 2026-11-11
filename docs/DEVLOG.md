@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 23:50 — Feature video for the talk (HyperFrames)
+**Goal:** "Yes, build video" — the approved storyboard: site map → example data → log → section → contours → export, no 3D, no music.
+**Changed:** `videos/shots/record_app.py` drives the live builder and records it with Chrome's screencast (sharp JPEG frames) plus an event log of every mouse move, click, chapter and the on-screen box of each panel. `videos/shots/gen_demo.py` bakes that log into `videos/feature-video/compositions/demo.html` (camera punch-ins, oversized cursor, chapter chips, labels). `videos/feature-video/` = HyperFrames project: `title.html`, `demo.html`, `endcard.html`, `index.html` (122.8 s). All gitignored.
+**Worked:** `hyperframes check` passes (0 errors). Snapshots reviewed across all beats. The cursor, labels, hover readout, extrapolation option and contours all read clearly.
+**Dead ends:** Playwright's own video is low bitrate, so CDP screencast was used instead. The example picker is hidden on the Site Map tab, so the log tab must open first. Guessing camera framing from frames failed once the page scrolled; logging `getBoundingClientRect` at each step fixed it. A logged rect taken before a control was scrolled into view falls back to the next click's position.
+**Open:** delivery render was still running when this entry was written; the MP4 has not yet been copied into `videos/presentation/assets/features.mp4` or checked in the deck. Film is silent on purpose (`film_silent` warning).
+
+---
+
 ### 2026-11-11 16:30 — 3D display bugs, full 3D test sweep, 3D merged into the 2D builder tabs
 **Goal:** fix soil colours showing through the terrain and through section cuts, trim edge buildings, hide boreholes by default, test every 3D feature with screenshots, and make the 3D builder tabs 5 and 6 of the 2D builder.
 **Changed:**
