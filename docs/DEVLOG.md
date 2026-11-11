@@ -4,6 +4,17 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 — Keep LiDAR out of Vercel deploys
+**Goal:** deploy the hosted-LiDAR change without uploading the 21 GB download folder.
+**Changed:**
+- `.vercelignore` (new): excludes `LIDAR Survey Files` and `web/lidar_local`.
+- `docs/DECISIONS.md`: ADR-14 (0.5 m within 200 m of AGS holes, Supabase Storage). `docs/UX_CHANGELOG.md`: one line.
+**Worked:** `vercel --prod --yes` succeeded after the ignore file; live `builder3d.js` contains `fetchHostedLidar`, live `/builder3d` shows the new hint.
+**Dead ends:** first deploy failed opening a `.tif` in `LIDAR Survey Files` — the CLI does not use `.gitignore`; nothing was uploaded.
+**Open:** tile upload still waits for `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`; live LiDAR fetch unverified until then.
+
+---
+
 ### 2026-11-11 — Hosted 0.5 m LiDAR for AGS areas (pack + auto-fetch)
 **Goal:** host the user's 2,689 downloaded CEDD LiDAR tiles (21 GB) inside the free tiers, at 0.5 m, only where AGS boreholes exist.
 **Changed:**

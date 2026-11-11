@@ -302,3 +302,13 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 - *Stay on the Esri-hosted LandsD 5 m DTM tiles (current).* Already live and tested. Drawback: 2 m contours are smoother than reality; small cut slopes and platforms are lost.
 **Chosen + why:** stay on 5 m for now and add the file loader once the user has downloaded one tile to test against. The terrain enters through one function (`dtmAt`), so the swap is small.
 **Reversible?** Cheap.
+
+### ADR-14: Host 0.5 m LiDAR only within 200 m of AGS boreholes, on Supabase Storage (supersedes ADR-13's "not yet")
+**Context:** the user downloaded 2,689 CEDD LiDAR tiles (21 GB) and asked to keep 0.5 m inside the free tiers, only where AGS data allows geology to be built.
+**Options considered:**
+- *All Hong Kong at 1 m.* 0.55 GB, fits. Drawback: loses the 0.5 m detail the user wants.
+- *Every AGS sheet at 0.5 m.* ~1.2 GB. Drawback: over every 1 GB free tier.
+- *AGS sheets at 0.5 m, blanked beyond 200 m of any AGS hole (5 m model there).* 0.78 GB. Drawback: sites more than 200 m from AGS holes get the coarse ground.
+- Hosts: *Vercel Blob* — 2,000 uploads/month on Hobby and a 30-day lockout if any cap is hit; *Supabase Storage* — 1 GB, no upload cap, storage unused, project already kept awake by the daily ping.
+**Chosen + why:** 200 m crop on Supabase. Keeps 0.5 m where sections are built, with ~20% headroom.
+**Reversible?** Cheap — re-run `tools/lidar_pack.mjs` with another radius/step and re-upload.
