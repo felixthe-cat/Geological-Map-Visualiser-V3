@@ -1,7 +1,7 @@
 // Self-check for the 3D block geometry. Run: node web/test_block3d.mjs
 import assert from 'node:assert';
 import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, clipToRect, triangulate,
-         polyArea, pointInPoly, ringsToShapes, sliceFromPose, clipToConvex, isConvex, clipToPoly } from './block3d.js';
+         polyArea, pointInPoly, ringsToShapes, sliceFromPose, clipToConvex, isConvex, clipToPoly, ribbon } from './block3d.js';
 import { sectionRegions } from './cad_export.js';
 
 const near=(a,b,t=1e-6)=>Math.abs(a-b)<=t;
@@ -87,6 +87,16 @@ for (const az of [0,37,90,179]) for (const off of [-12.5,0,30]){
   assert.ok(isConvex(win) && !isConvex(Lwin));
   const parts=clipToPoly(sq(2,2,6), Lwin);                                            // 6×6 square minus the 4×4 notch corner
   assert.ok(near(parts.reduce((a,p)=>a+Math.abs(polyArea(p)),0), 36-16));
+}
+
+// --- a road centre line widened into a strip ---
+{
+  const q=ribbon([[0,0],[10,0],[10,0],[10,10]], 4, 5);                    // L-shaped line with a repeated point
+  assert.equal(q.length, 4);                                              // 2 steps per 10 m leg
+  assert.ok(q.every(r=>polyArea(r)>0));                                   // every quad anticlockwise
+  assert.ok(near(q[0][0][1], -2) && near(q[0][3][1], 2));                 // 4 m wide: 2 m each side of the line
+  const len=q.reduce((a,r)=>a+polyArea(r),0);
+  assert.ok(len>70 && len<=80.001);                                       // ~ 20 m x 4 m; the mitred corner trims a little
 }
 
 console.log('test_block3d: all checks passed');

@@ -121,6 +121,30 @@ export function clipToRect(poly, x0, y0, x1, y1){
   return out;
 }
 
+/**
+ * A road drawn as a strip: the centre line `path` is resampled every `step` m and offset
+ * half the width to each side (corners mitred by averaging the two directions).
+ * Returns one anticlockwise quad per step: [[right0, right1, left1, left0], …].
+ */
+export function ribbon(path, width, step=3){
+  const pts=[path[0]];
+  for (let i=1;i<path.length;i++){
+    const a=path[i-1], b=path[i], d=Math.hypot(b[0]-a[0], b[1]-a[1]);
+    if (d<1e-6) continue;                                    // repeated point
+    const n=Math.ceil(d/step);
+    for (let k=1;k<=n;k++) pts.push([a[0]+(b[0]-a[0])*k/n, a[1]+(b[1]-a[1])*k/n]);
+  }
+  const L=[], R=[];
+  for (let i=0;i<pts.length;i++){
+    const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
+    const d=Math.hypot(b[0]-a[0], b[1]-a[1]) || 1, nx=-(b[1]-a[1])/d, ny=(b[0]-a[0])/d;   // unit normal, to the left of travel
+    L.push([pts[i][0]+nx*width/2, pts[i][1]+ny*width/2]); R.push([pts[i][0]-nx*width/2, pts[i][1]-ny*width/2]);
+  }
+  const quads=[];
+  for (let i=1;i<pts.length;i++) quads.push([R[i-1], R[i], L[i], L[i-1]]);
+  return quads;
+}
+
 /** Sutherland–Hodgman against any CONVEX window polygon (either winding). */
 export function clipToConvex(poly, win){
   const s=Math.sign(polyArea(win)) || 1;

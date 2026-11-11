@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-12 00:00 — Feature video delivered into the deck (supersedes the "Open" line of the 23:50 entry)
+**Goal:** finish the video and put it in the presentation.
+**Changed:** `videos/feature-video/renders/features.mp4` rendered (1920×1080, 30 fps, 122.8 s, 49 MB), copied to `videos/presentation/assets/features.mp4`. `videos/presentation/index.html`: video box resized to 16:9 (1422×800) so it has no side bars.
+**Worked:** render exit 0. In the deck (localhost:5520, slide 9) the file loads (`videoWidth` 1920, duration 122.8 s), "next" plays it, "next" again pauses it, and the screenshot shows it filling the box.
+**Dead ends:** none new.
+**Open:** not yet rehearsed on the real projector or with Wi-Fi off. Both folders are gitignored, so nothing is backed up in git.
+
+---
+
 ### 2026-11-11 23:50 — Feature video for the talk (HyperFrames)
 **Goal:** "Yes, build video" — the approved storyboard: site map → example data → log → section → contours → export, no 3D, no music.
 **Changed:** `videos/shots/record_app.py` drives the live builder and records it with Chrome's screencast (sharp JPEG frames) plus an event log of every mouse move, click, chapter and the on-screen box of each panel. `videos/shots/gen_demo.py` bakes that log into `videos/feature-video/compositions/demo.html` (camera punch-ins, oversized cursor, chapter chips, labels). `videos/feature-video/` = HyperFrames project: `title.html`, `demo.html`, `endcard.html`, `index.html` (122.8 s). All gitignored.

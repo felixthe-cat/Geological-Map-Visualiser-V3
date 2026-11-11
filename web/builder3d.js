@@ -14,7 +14,7 @@
 // ================================================================
 
 import { blockHoles, makeModel, buildBlock, sliceRuns, sliceLine, polyArea, defaultBase, pointInPoly,
-         ringsToShapes, sliceFromPose, clipToPoly } from './block3d.js';
+         ringsToShapes, sliceFromPose, clipToPoly, ribbon } from './block3d.js';
 import { projectCSVToState, stateToProjectCSV } from './project_csv.js';
 import { EXAMPLES } from './examples.js';
 import { sectionRegions, toDXF, layerName } from './cad_export.js';
@@ -33,6 +33,13 @@ const HANDOFF_KEY = 'geovis_3d_handoff';
 const EMBED = new URLSearchParams(location.search).has('embed');
 // Lands Dept "Building" layer on the CSDI portal: outlines + BaseHeight / TopHeight (mPD).
 // No key; sends CORS headers for the Vercel origin and for localhost.
+// Highways Dept structure outlines (bridges / flyovers, footbridges) and Lands Dept road centre
+// lines, same portal. None carries a level or a width: see setInfra().
+const CSDI = 'https://portal.csdi.gov.hk/server/rest/services/common/';
+const STRUCT_URLS = ['hyd_rcd_1632360050986_38630', 'hyd_rcd_1632360512481_74705'].map(s=>CSDI+s+'/FeatureServer/0/query');
+const ROAD_URL = CSDI+'landsd_rcd_1637310758814_80061/FeatureServer/0/query';
+// Typical carriageway widths (m) by Lands Dept street type: an assumption, the data has centre lines only.
+const ROAD_W = { 'Highway':14, 'Main Road':11, 'Secondary Road':7.3, 'Restricted Road':5, 'Track':3 };   // 'Tunnel' is underground: not drawn
 const BLD_URL = 'https://portal.csdi.gov.hk/server/rest/services/common/landsd_rcd_1637211194312_35158/FeatureServer/0/query';
 // White-model palette (site-model-viewer-style skill): sage ground, chalk buildings.
 const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', edge:'#40554e' };   // contour = #40523b for the shader
@@ -117,6 +124,7 @@ function applyOptions(b){
   $('mesh-on').checked=!!b.meshOn;
   $('terr-on').checked=b.terrOn ?? true;
   $('bld-on').checked=b.bldOn ?? true;
+  $('infra-on').checked=b.infraOn ?? true;
   $('holes-on').checked=!!b.holesOn;
   $('mesh-flat').checked=b.meshFlat ?? true;
   $('mesh-op').value=b.meshOp ?? 1;
@@ -131,7 +139,7 @@ function applyOptions(b){
 function block3dSettings(){
   const base=$('base').value.trim();
   return { boundary, top:topMode(), base: base===''?null:+base, detail:+$('detail').value,
-    useTP:$('use-tp').checked, vex:vex(), terrOn:$('terr-on').checked, bldOn:$('bld-on').checked, holesOn:$('holes-on').checked, meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
+    useTP:$('use-tp').checked, vex:vex(), terrOn:$('terr-on').checked, bldOn:$('bld-on').checked, infraOn:$('infra-on').checked, holesOn:$('holes-on').checked, meshOn:$('mesh-on').checked, meshFlat:$('mesh-flat').checked, meshOp:+$('mesh-op').value,
     meshDz: meshLevelled ? +$('mesh-dz').value : null,
     slice:{ on:$('sl-on').checked, az:+$('sl-az').value, off:+$('sl-off').value, flip:$('sl-flip').checked } };
 }
@@ -276,11 +284,14 @@ async function fetchHostedLidar(){
   }));
 }
 const allLidar=()=>[...lidar, ...[...hosted.values()].filter(Boolean)];   // the user's own files win
-function dtmAt(e,n){
-  for (const g of allLidar()){ const z=sampleGrid(g, e, n); if (z!=null) return z; }   // outside the tiles: fall back to 5 m
+function dtm5At(e,n){
   const [lat,lng]=toLL(e,n);
   const z=sampleElevation(dtmTileGetter, lng, lat);
   return Number.isFinite(z) && z>-50 ? z : null;     // no-data cells come back as huge negatives
+}
+function dtmAt(e,n){
+  for (const g of allLidar()){ const z=sampleGrid(g, e, n); if (z!=null) return z; }   // outside the tiles: fall back to 5 m
+  return dtm5At(e,n);
 }
 
 // ---- build -------------------------------------------------------------------------------------------
@@ -356,8 +367,8 @@ async function ensure3D(){
   sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias=-0.00012; sun.shadow.normalBias=0.12;
   scene.add(sun);
   const world=new THREE.Group(); scene.add(world);
-  const blockG=new THREE.Group(), capG=new THREE.Group(), holeG=new THREE.Group(), terrG=new THREE.Group(), bldG=new THREE.Group();
-  world.add(blockG, capG, holeG, terrG, bldG);
+  const blockG=new THREE.Group(), capG=new THREE.Group(), holeG=new THREE.Group(), terrG=new THREE.Group(), bldG=new THREE.Group(), infraG=new THREE.Group();
+  world.add(blockG, capG, holeG, terrG, bldG, infraG);
   const clip=new THREE.Plane(new THREE.Vector3(1,0,0), 0);
   // Slice handle: an arrow to push the cut along, a ring to turn it. Both drive the
   // same invisible object; onHandle() turns its pose back into the two sliders.
@@ -375,7 +386,7 @@ async function ensure3D(){
     const helper=tc.getHelper(); helper.visible=false; tc.enabled=false; scene.add(helper);
     return tc;
   });
-  T={ THREE, renderer, scene, camera, controls, sun, world, blockG, capG, holeG, terrG, bldG, clip, handle, gizmos,
+  T={ THREE, renderer, scene, camera, controls, sun, world, blockG, capG, holeG, terrG, bldG, infraG, clip, handle, gizmos,
       half:100, span:100, topY:0, dragging:false, flip0:false, tiles:null };
   const resize=()=>{
     const w=el.clientWidth, h=el.clientHeight; if (!w || !h) return;
@@ -400,7 +411,7 @@ if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__geo3d=()=>T;
 function disposeGroup(g){
   for (const o of [...g.children]){ g.remove(o); o.geometry?.dispose(); o.material?.dispose?.(); }
 }
-function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG]) disposeGroup(g); bldKey=null; prisms=[]; } }
+function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG, T.infraG]) disposeGroup(g); bldKey=infraKey=null; prisms=[]; decks=[]; } }
 
 const P = (e,n,z) => [e-O.e, z-O.z, -(n-O.n)];      // HK1980 + mPD -> scene
 
@@ -497,6 +508,7 @@ async function showBlock(){
   updateSlice();
   setMesh();
   setBuildings();
+  setInfra();
 }
 // "hsl(…)" palette entries and hex both go through a canvas so THREE.Color gets plain hex
 const _cx=document.createElement('canvas').getContext('2d');
@@ -507,7 +519,25 @@ function cssColour(c){ _cx.fillStyle='#000'; _cx.fillStyle=c; return _cx.fillSty
 // blocks (an architect's card model). Each outline is trimmed to the boundary, so a
 // building on the edge is sliced flush with the block's side and nothing stands outside it.
 let bldKey=null;                       // what the current blocks were built for
-let prisms=[];                         // [{ rings:[outline, ...courtyards], base, top }] of the drawn buildings (and bridges)
+let prisms=[];                         // [{ rings:[outline, ...courtyards], base(e,n), top(e,n) }] of the drawn buildings
+// One solid: a roof over the outline (courtyards cut out) and walls down to the base. `top` and
+// `base` give the level at a point, so a sloping bridge deck is built by the same code as a flat roof.
+// Outlines must be anticlockwise and courtyards clockwise: every face then points outwards.
+function addPrism(pos, idx, rings, top, base){
+  const { THREE }=T, all=rings.flat(), v2=r=>r.map(p=>new THREE.Vector2(p[0],p[1]));
+  const s0=pos.length/3;
+  for (const p of all) pos.push(...P(p[0],p[1],top(p[0],p[1])));
+  for (const t of THREE.ShapeUtils.triangulateShape(v2(rings[0]), rings.slice(1).map(v2))){
+    const up=polyArea(t.map(i=>all[i]))>0;                                               // anticlockwise from above = facing up
+    idx.push(s0+t[0], s0+t[up?1:2], s0+t[up?2:1]);
+  }
+  for (const r of rings) for (let i=0;i<r.length;i++){                                     // walls (own corners -> crisp edges)
+    const a=r[i], b=r[(i+1)%r.length], s=pos.length/3;
+    pos.push(...P(a[0],a[1],top(a[0],a[1])), ...P(b[0],b[1],top(b[0],b[1])), ...P(b[0],b[1],base(b[0],b[1])), ...P(a[0],a[1],base(a[0],a[1])));
+    idx.push(s,s+2,s+1, s,s+3,s+2);
+  }
+}
+const wind=(r,s)=>Math.sign(polyArea(r))===s ? r : [...r].reverse();
 async function setBuildings(){
   if (!T || !model || !boundary) return;
   const on=$('bld-on').checked;
@@ -533,8 +563,6 @@ async function setBuildings(){
       const top=f.attributes.TopHeight;
       if (!Number.isFinite(top) || !f.geometry?.rings) continue;
       for (const shape of ringsToShapes(f.geometry.rings)){
-        // wind every outline anticlockwise and every courtyard clockwise, so all faces point outwards
-        const wind=(r,s)=>Math.sign(polyArea(r))===s ? r : [...r].reverse();
         const holes=shape.holes.flatMap(h=>clipToPoly(h, boundary)).map(h=>wind(h,-1));
         for (const outer of clipToPoly(shape.outer, boundary).map(o=>wind(o,1))){
           // foot: the lowest ground under the outline (or the surveyed base if lower), sunk 0.3 m so no gap shows on a slope
@@ -542,20 +570,8 @@ async function setBuildings(){
           const base=Math.min(...ground, Number.isFinite(f.attributes.BaseHeight) ? f.attributes.BaseHeight : Infinity)-0.3;
           if (top-base<1) continue;
           const mine=holes.filter(h=>pointInPoly(h[0][0], h[0][1], outer));   // a concave boundary gives several pieces
-          const v2=r=>r.map(p=>new THREE.Vector2(p[0],p[1]));
-          const s0=pos.length/3;
-          for (const p of [outer, ...mine].flat()) pos.push(...P(p[0],p[1],top));                // roof
-          const all=[outer, ...mine].flat();
-          for (const t of THREE.ShapeUtils.triangulateShape(v2(outer), mine.map(v2))){
-            const up=polyArea(t.map(i=>all[i]))>0;                                               // anticlockwise from above = facing up
-            idx.push(s0+t[0], s0+t[up?1:2], s0+t[up?2:1]);
-          }
-          for (const r of [outer, ...mine]) for (let i=0;i<r.length;i++){                       // walls (own corners -> crisp edges)
-            const a=r[i], b=r[(i+1)%r.length], s=pos.length/3;
-            pos.push(...P(a[0],a[1],top), ...P(b[0],b[1],top), ...P(b[0],b[1],base), ...P(a[0],a[1],base));
-            idx.push(s,s+2,s+1, s,s+3,s+2);
-          }
-          prisms.push({ rings:[outer, ...mine], base, top });
+          addPrism(pos, idx, [outer, ...mine], ()=>top, ()=>base);
+          prisms.push({ rings:[outer, ...mine], base:()=>base, top:()=>top });
           n++;
         }
       }
@@ -573,12 +589,130 @@ async function setBuildings(){
         new THREE.LineBasicMaterial({ color:LOOK.edge, transparent:true, opacity:0.55, clippingPlanes:[clip] })));
     }
     prismCaps();
-    note('view-note', n ? `${n} building(s) drawn from the Lands Dept building map (outline + roof level).`
-                        : 'No mapped buildings inside this boundary.', 'ok');
+    viewNote('bld', n ? `${n} building(s) drawn from the Lands Dept building map (outline + roof level).`
+                      : 'No mapped buildings inside this boundary.');
   } catch(err){
     bldKey=null;                                             // let the next toggle retry
-    console.error(err); note('view-note','✗ Could not load the building outlines: '+(err?.message||err),'err');
+    console.error(err); viewNote('bld', '✗ Could not load the building outlines: '+(err?.message||err), true);
   }
+}
+
+// ---- roads and bridges -------------------------------------------------------------------
+// Bridges, flyovers and footbridges: Highways Dept outlines. They carry no level, so the deck
+// comes from the Lands Dept 5 m ground model, which (unlike the bare-earth LiDAR) includes
+// elevated roads. Roads on the ground: Lands Dept centre lines widened to ROAD_W and laid on
+// the block's ground. Everything is trimmed to the boundary, like the buildings.
+const DECK_T=1.5, DECK_MIN=2, ROAD_UP=0.12;   // m: deck thickness; lower than this above ground it is drawn on the ground; road lift
+let infraKey=null, decks=[];                   // decks: prisms of the drawn bridges, for the cut faces
+async function esriQuery(url, box, outFields){
+  const q=new URLSearchParams({ where:'1=1', geometryType:'esriGeometryEnvelope', inSR:2326, outSR:2326, geometry:box.join(','),
+    spatialRel:'esriSpatialRelIntersects', outFields, f:'json' });
+  const res=await fetch(url+'?'+q, { signal:AbortSignal.timeout(20000) });   // a slow government server must not hang the page
+  if (!res.ok) throw new Error('HTTP '+res.status);
+  return (await res.json()).features || [];
+}
+// Deck level under a structure outline. The 5 m model is coarse and blends deck with ground at
+// the deck's edges, so each point takes the upper-quartile level of the samples within 12 m of it.
+// ponytail: good to a few metres (the 5 m model is +/-5 m); a surveyed deck level would replace this.
+function deckLevel(outer){
+  const xs=outer.map(p=>p[0]), ys=outer.map(p=>p[1]), S=[];
+  const add=(e,n)=>{ const z=dtm5At(e,n); if (z!=null) S.push([e,n,z]); };
+  for (const p of outer) add(p[0],p[1]);
+  for (let e=Math.min(...xs); e<=Math.max(...xs); e+=5) for (let n=Math.min(...ys); n<=Math.max(...ys); n+=5) if (pointInPoly(e,n,outer)) add(e,n);
+  return (e,n)=>{
+    let near=S.filter(s=>Math.hypot(s[0]-e, s[1]-n)<=12);
+    if (!near.length) near=S;
+    if (!near.length) return null;
+    const z=near.map(s=>s[2]).sort((a,b)=>a-b);
+    return z[Math.floor(0.75*(z.length-1))];
+  };
+}
+async function setInfra(){
+  if (!T || !model || !boundary) return;
+  const on=$('infra-on').checked;
+  T.infraG.visible=on;
+  const key=JSON.stringify(boundary)+model.base+topMode();
+  if (!on || infraKey===key) return;
+  infraKey=key;
+  try {
+    const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]);
+    const box=[Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    const [structs, fbs, roads]=await Promise.all([
+      esriQuery(STRUCT_URLS[0], box, 'STR_NO'), esriQuery(STRUCT_URLS[1], box, 'STR_NO'), esriQuery(ROAD_URL, box, 'STREETTYPE'),
+      prefetchDtm().catch(()=>false) ]);                       // the 5 m model, even when the block follows borehole levels
+    if (infraKey!==key) return;                                // boundary changed while waiting
+    const { THREE, infraG, clip }=T;
+    disposeGroup(infraG); decks=[];
+    const ground=(e,n)=>model.at(e,n)[0];
+    // -- bridges
+    const pos=[], idx=[], footprints=[]; let nB=0;
+    for (const f of [...structs, ...fbs]){
+      if (!f.geometry?.rings) continue;
+      for (const shape of ringsToShapes(f.geometry.rings)){
+        footprints.push(shape.outer);
+        const deck=deckLevel(shape.outer);
+        const holes=shape.holes.flatMap(h=>clipToPoly(h, boundary)).map(h=>wind(h,-1));
+        for (const outer of clipToPoly(shape.outer, boundary).map(o=>wind(o,1))){
+          // raised well clear of the ground: a slab at deck level. Otherwise a slab sitting on the ground.
+          const top=(e,n)=>{ const g=ground(e,n), d=deck(e,n); return d!=null && d-g>=DECK_MIN ? d : g+0.3; };
+          const base=(e,n)=>{ const g=ground(e,n), d=deck(e,n); return d!=null && d-g>=DECK_MIN ? d-DECK_T : g-0.3; };
+          const mine=holes.filter(h=>pointInPoly(h[0][0], h[0][1], outer));
+          addPrism(pos, idx, [outer, ...mine], top, base);
+          decks.push({ rings:[outer, ...mine], top, base });
+          nB++;
+        }
+      }
+    }
+    const lit=()=>new THREE.MeshLambertMaterial({ color:LOOK.building, flatShading:true, side:THREE.DoubleSide, clippingPlanes:[clip] });
+    if (nB){
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+      g.computeVertexNormals();
+      const m=new THREE.Mesh(g, lit()); m.castShadow=true; m.receiveShadow=true;
+      infraG.add(m, new THREE.LineSegments(new THREE.EdgesGeometry(g, 25),
+        new THREE.LineBasicMaterial({ color:LOOK.edge, transparent:true, opacity:0.55, clippingPlanes:[clip] })));
+    }
+    // -- roads on the ground (a stretch that runs over a bridge is the bridge's, not the ground's)
+    const rp=[], ri=[]; let nR=0;
+    for (const f of roads){
+      const w=ROAD_W[f.attributes.STREETTYPE];
+      if (!w || !f.geometry?.paths) continue;
+      let any=false;
+      for (const path of f.geometry.paths) for (const quad of ribbon(path, w)){
+        const ce=(quad[0][0]+quad[2][0])/2, cn=(quad[0][1]+quad[2][1])/2;
+        if (footprints.some(o=>pointInPoly(ce, cn, o))) continue;
+        for (const piece of clipToPoly(quad, boundary)){
+          const s0=rp.length/3;
+          for (const p of piece) rp.push(...P(p[0], p[1], ground(p[0],p[1])+ROAD_UP));
+          for (let i=1;i+1<piece.length;i++) ri.push(s0, s0+i, s0+i+1);          // convex piece: a fan
+          any=true;
+        }
+      }
+      if (any) nR++;
+    }
+    if (ri.length){
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); g.setIndex(ri);
+      g.computeVertexNormals();
+      // a flat strip across 0.5 m LiDAR ground dips under it here and there: let the road win depth ties within ~0.6 m
+      const mat=lit(); mat.polygonOffset=true; mat.polygonOffsetFactor=0; mat.polygonOffsetUnits=photoUnits()*0.3;
+      const m=new THREE.Mesh(g, mat); m.receiveShadow=true;
+      infraG.add(m);
+    }
+    prismCaps();
+    viewNote('infra', nR||nB ? `${nR} road(s) and ${nB} bridge / footbridge piece(s) drawn (Lands Dept centre lines at typical widths; Highways Dept structure outlines, deck level from the 5 m ground model).`
+                             : 'No mapped roads or bridges inside this boundary.');
+  } catch(err){
+    infraKey=null;                                             // let the next toggle retry
+    console.error(err); viewNote('infra', '✗ Could not load the roads and bridges: '+(err?.message||err), true);
+  }
+}
+// The buildings and the roads each report under the 3D view: show both lines, not whichever came last.
+const viewNotes={};
+function viewNote(key, msg, bad){
+  viewNotes[key]={ msg, bad };
+  const all=Object.values(viewNotes);
+  note('view-note', all.map(v=>v.msg).join(' '), all.some(v=>v.bad) ? 'err' : 'ok');
 }
 
 // A building is an empty shell. Where the section cut passes through one, close it with a
@@ -588,10 +722,10 @@ function prismCaps(){
   if (!T) return;
   const { THREE, capG }=T;
   for (const o of [...capG.children]) if (o.userData.prism){ capG.remove(o); o.geometry.dispose(); o.material.dispose(); }
-  if (!slice || !$('sl-on').checked || !$('bld-on').checked) return;
+  if (!slice || !$('sl-on').checked) return;
   const L=2*slice.half, ux=(slice.B.e-slice.A.e)/L, uy=(slice.B.n-slice.A.n)/L;
   const pos=[], idx=[], edge=[];
-  for (const { rings, base, top } of prisms){
+  for (const { rings, base, top } of [...($('bld-on').checked ? prisms : []), ...($('infra-on').checked ? decks : [])]){
     const ts=[];
     for (const r of rings) for (let i=0;i<r.length;i++){
       const a=r[i], b=r[(i+1)%r.length];
@@ -603,7 +737,8 @@ function prismCaps(){
     ts.sort((p,q)=>p-q);
     for (let i=0;i+1<ts.length;i+=2){
       if (ts[i+1]-ts[i]<0.01) continue;
-      const q=[[ts[i],top],[ts[i+1],top],[ts[i+1],base],[ts[i],base]].map(([t,z])=>P(slice.A.e+ux*t, slice.A.n+uy*t, z));
+      const at=t=>[slice.A.e+ux*t, slice.A.n+uy*t], a=at(ts[i]), b=at(ts[i+1]);
+      const q=[[a,top],[b,top],[b,base],[a,base]].map(([p,z])=>P(p[0], p[1], z(p[0],p[1])));
       const s0=pos.length/3;
       pos.push(...q.flat()); idx.push(s0,s0+1,s0+2, s0,s0+2,s0+3);
       for (let k=0;k<4;k++) edge.push(...q[k], ...q[(k+1)%4]);
@@ -970,6 +1105,7 @@ $('vex').addEventListener('input', ()=>{
 $('mesh-on').addEventListener('change', setMesh);
 $('terr-on').addEventListener('change', e=>{ if (T) T.terrG.visible=e.target.checked; });
 $('bld-on').addEventListener('change', async ()=>{ await setBuildings(); prismCaps(); });
+$('infra-on').addEventListener('change', async ()=>{ await setInfra(); prismCaps(); });
 $('mesh-flat').addEventListener('change', ()=>{ if (T?.tiles) T.tiles.forEachLoadedModel(s=>flattenTile(s)); });
 $('mesh-op').addEventListener('input', ()=>{ syncLabels(); if (T?.tiles) T.tiles.forEachLoadedModel(s=>styleMesh(s)); });
 $('mesh-dz').addEventListener('change', ()=>{ meshLevelled=true; setTilesFrame(); });
