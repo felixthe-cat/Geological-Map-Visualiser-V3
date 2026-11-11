@@ -29,13 +29,13 @@ const LANDSD_3D = 'https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json';
 const THREE_LIBS = 'https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/libs/';
 const HANDOFF_KEY = 'geovis_3d_handoff';
 // ?embed=1: shown inside the 2D builder's "3D" tabs (an iframe). The 2D builder owns the dataset
-// and the saving; this page gets the project through window.geo3d and reports its tab back.
+// and the saving; this page gets the project through window.geo3d and reports its height back.
 const EMBED = new URLSearchParams(location.search).has('embed');
 // Lands Dept "Building" layer on the CSDI portal: outlines + BaseHeight / TopHeight (mPD).
 // No key; sends CORS headers for the Vercel origin and for localhost.
 const BLD_URL = 'https://portal.csdi.gov.hk/server/rest/services/common/landsd_rcd_1637211194312_35158/FeatureServer/0/query';
 // White-model palette (site-model-viewer-style skill): sage ground, chalk buildings.
-const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', buildingCut:'#d9d9cf', edge:'#40554e' };   // contour = #40523b for the shader
+const LOOK = { terrain:'#7f9f73', contour:'vec3(0.25,0.32,0.23)', building:'#f1f1ea', edge:'#40554e' };   // contour = #40523b for the shader
 const CONTOUR_M = 2;
 
 // ---- state -----------------------------------------------------------------
@@ -400,7 +400,7 @@ if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__geo3d=()=>T;
 function disposeGroup(g){
   for (const o of [...g.children]){ g.remove(o); o.geometry?.dispose(); o.material?.dispose?.(); }
 }
-function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG]) disposeGroup(g); bldKey=null; } }
+function clearScene(){ if (T){ for (const g of [T.blockG, T.capG, T.holeG, T.terrG, T.bldG]) disposeGroup(g); bldKey=null; prisms=[]; } }
 
 const P = (e,n,z) => [e-O.e, z-O.z, -(n-O.n)];      // HK1980 + mPD -> scene
 
@@ -507,6 +507,7 @@ function cssColour(c){ _cx.fillStyle='#000'; _cx.fillStyle=c; return _cx.fillSty
 // blocks (an architect's card model). Each outline is trimmed to the boundary, so a
 // building on the edge is sliced flush with the block's side and nothing stands outside it.
 let bldKey=null;                       // what the current blocks were built for
+let prisms=[];                         // [{ rings:[outline, ...courtyards], base, top }] of the drawn buildings (and bridges)
 async function setBuildings(){
   if (!T || !model || !boundary) return;
   const on=$('bld-on').checked;
@@ -526,6 +527,7 @@ async function setBuildings(){
     if (bldKey!==key) return;                              // boundary changed while waiting
     const { THREE, bldG, clip }=T;
     disposeGroup(bldG);
+    prisms=[];
     const pos=[], idx=[]; let n=0;
     for (const f of feats){
       const top=f.attributes.TopHeight;
@@ -553,6 +555,7 @@ async function setBuildings(){
             pos.push(...P(a[0],a[1],top), ...P(b[0],b[1],top), ...P(b[0],b[1],base), ...P(a[0],a[1],base));
             idx.push(s,s+2,s+1, s,s+3,s+2);
           }
+          prisms.push({ rings:[outer, ...mine], base, top });
           n++;
         }
       }
@@ -565,19 +568,57 @@ async function setBuildings(){
         polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:40 }));   // see biasBuildings()
       m.castShadow=true; m.receiveShadow=true;
       bldG.add(m);
-      // Inside faces in one flat tone: a building sliced by the section cut reads as solid, not as a hollow box.
-      bldG.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:LOOK.buildingCut, side:THREE.BackSide, clippingPlanes:[clip],
-        polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:40 })));
       biasBuildings();
       bldG.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25),
         new THREE.LineBasicMaterial({ color:LOOK.edge, transparent:true, opacity:0.55, clippingPlanes:[clip] })));
     }
+    prismCaps();
     note('view-note', n ? `${n} building(s) drawn from the Lands Dept building map (outline + roof level).`
                         : 'No mapped buildings inside this boundary.', 'ok');
   } catch(err){
     bldKey=null;                                             // let the next toggle retry
     console.error(err); note('view-note','✗ Could not load the building outlines: '+(err?.message||err),'err');
   }
+}
+
+// A building is an empty shell. Where the section cut passes through one, close it with a
+// solid white face: the cut line crosses the outline at an even number of points, and each
+// pair in turn bounds a stretch that is inside the building (courtyards included, even-odd).
+function prismCaps(){
+  if (!T) return;
+  const { THREE, capG }=T;
+  for (const o of [...capG.children]) if (o.userData.prism){ capG.remove(o); o.geometry.dispose(); o.material.dispose(); }
+  if (!slice || !$('sl-on').checked || !$('bld-on').checked) return;
+  const L=2*slice.half, ux=(slice.B.e-slice.A.e)/L, uy=(slice.B.n-slice.A.n)/L;
+  const pos=[], idx=[], edge=[];
+  for (const { rings, base, top } of prisms){
+    const ts=[];
+    for (const r of rings) for (let i=0;i<r.length;i++){
+      const a=r[i], b=r[(i+1)%r.length];
+      const da=(a[0]-slice.A.e)*uy-(a[1]-slice.A.n)*ux, db=(b[0]-slice.A.e)*uy-(b[1]-slice.A.n)*ux;   // signed distance from the cut line
+      if ((da>0)===(db>0)) continue;
+      const f=da/(da-db), x=a[0]+f*(b[0]-a[0]), y=a[1]+f*(b[1]-a[1]);
+      ts.push((x-slice.A.e)*ux+(y-slice.A.n)*uy);
+    }
+    ts.sort((p,q)=>p-q);
+    for (let i=0;i+1<ts.length;i+=2){
+      if (ts[i+1]-ts[i]<0.01) continue;
+      const q=[[ts[i],top],[ts[i+1],top],[ts[i+1],base],[ts[i],base]].map(([t,z])=>P(slice.A.e+ux*t, slice.A.n+uy*t, z));
+      const s0=pos.length/3;
+      pos.push(...q.flat()); idx.push(s0,s0+1,s0+2, s0,s0+2,s0+3);
+      for (let k=0;k<4;k++) edge.push(...q[k], ...q[(k+1)%4]);
+    }
+  }
+  if (!pos.length) return;
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+  // below ground the face is flush with the geology's own cut face: pushed back a hair, so the soil wins there
+  const m=new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:LOOK.building, side:THREE.DoubleSide,
+    polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:40 }));
+  const l=new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(edge, 3)),
+    new THREE.LineBasicMaterial({ color:LOOK.edge }));
+  m.userData.prism=l.userData.prism=true;
+  capG.add(m, l);
 }
 
 // ---- Lands Dept 3D photo-mesh ----------------------------------------------------------------------------
@@ -802,6 +843,7 @@ function updateSlice(){
       capG.add(edge);
     }
   }
+  prismCaps();
   renderSection();
 }
 
@@ -897,7 +939,13 @@ async function saveCloud(){
 
 // ---- tabs + wiring -------------------------------------------------------------------------------------------------
 function showTab(name){
-  if (EMBED) parent.postMessage({ geo3d:'tab', tab:name }, location.origin);
+  if (EMBED){                                  // every pane is on show: just bring the one asked for into view
+    if (name==='map' && map) setTimeout(()=>map.invalidateSize(), 0);
+    if (name==='block' && !model && proj && boundary) build();
+    const el=document.querySelector(`.tabpane[data-pane="${name}"]`), y=el.getBoundingClientRect().top;
+    parent.postMessage({ geo3d:'scroll', y }, location.origin);
+    return;
+  }
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
   document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('active', p.dataset.pane===name));
   if (name==='map' && map) setTimeout(()=>map.invalidateSize(), 0);
@@ -921,7 +969,7 @@ $('vex').addEventListener('input', ()=>{
 });
 $('mesh-on').addEventListener('change', setMesh);
 $('terr-on').addEventListener('change', e=>{ if (T) T.terrG.visible=e.target.checked; });
-$('bld-on').addEventListener('change', setBuildings);
+$('bld-on').addEventListener('change', async ()=>{ await setBuildings(); prismCaps(); });
 $('mesh-flat').addEventListener('change', ()=>{ if (T?.tiles) T.tiles.forEachLoadedModel(s=>flattenTile(s)); });
 $('mesh-op').addEventListener('input', ()=>{ syncLabels(); if (T?.tiles) T.tiles.forEachLoadedModel(s=>styleMesh(s)); });
 $('mesh-dz').addEventListener('change', ()=>{ meshLevelled=true; setTilesFrame(); });
@@ -952,31 +1000,29 @@ $('save-cloud').addEventListener('click', saveCloud);
   } catch {}
   await initMap();
   if (EMBED){
-    const TABS={ map:'Site boundary map', block:'3D block', section:'3D section & export' };
-    document.querySelectorAll('.tab').forEach(t=>{ t.textContent=TABS[t.dataset.tab]; });
     document.querySelectorAll('.panel h3').forEach(h=>{ h.textContent=h.textContent.replace(/^\d+ · /, ''); });   // the step numbers belong to the 2D builder's tabs here
     window.geo3d={
       // Open the 2D builder's current project and go straight to a block: no boundary saved yet
       // means "box around the boreholes", so the 3D tab is never an empty page.
-      async open(csv, id, tab){
+      async open(csv, id){
         try { openProject(csv, id, 'the project from the 2D builder'); }
         catch {
           // nothing to build from (no boreholes entered yet): say so instead of failing silently
           proj=null; boundary=null; model=block=null; runs=[]; clearScene();
           try { drawMap(false); updateBoundaryInfo(); } catch {}
           note('build-note','No boreholes yet. Load or enter boreholes in tabs 1 and 2 first, then come back to this tab.','err');
-          showTab('map'); return;
+          this.tellHeight(); return;
         }
         if (!boundary && usedHoles().length) fitBoundary();
         if (boundary) await build();
-        this.show(tab);
-      },
-      show(tab){
-        if (tab==='section' && model && !$('sl-on').checked){ $('sl-on').checked=true; updateSlice(); }   // the section tab needs a cut
-        if (model || tab!=='block') showTab(tab); else showTab('map');
+        this.tellHeight();
       },
       settings: ()=>proj ? block3dSettings() : null,
     };
+    // the frame is sized to this page, so there is one scrollbar (the 2D builder's), not two
+    const tellHeight=()=>parent.postMessage({ geo3d:'height', h:document.body.scrollHeight }, location.origin);
+    new ResizeObserver(tellHeight).observe(document.body);
+    window.geo3d.tellHeight=tellHeight;        // the observer's first call can be skipped while the frame is settling: also said after each open
     parent.postMessage({ geo3d:'ready' }, location.origin);
     return;
   }

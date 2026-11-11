@@ -16,7 +16,7 @@ import { dtmTileGetter, prefetchDtmTiles } from './dtm_tiles.js';
 let state = { boreholes: [], activeIdx: 0, mode: 'depth', sitePlan: null };
 let block3d = null;                          // builder3d.html settings, carried through saves untouched
 let sent3d = null;                           // borehole rows last sent to the 3D tabs' page (null: it does not hold this project)
-let pending3d = null;                        // 3D tab asked for before that page finished loading
+let pending3d = false;                       // the 3D tab was opened before its page finished loading
 // Derived (consumed by renderers)
 let BH = {}; let STRAT = [];                 // STRAT = ordered class keys (grade or surface)
 let STRAT_LABEL = {}, STRAT_COLOUR = {};     // class key -> legend label / colour
@@ -1442,26 +1442,23 @@ function projectExtras(){
   return { section: sectionSettings(), excluded:[...secExcluded], annots: secAnnots, block3d };
 }
 
-// ---- 3D tabs (5 · 3D Terrain Block, 6 · 3D Cross-Section) ------------------------------
+// ---- 3D tab (5 · 3D Terrain Block & Section) ------------------------------------------
 // builder3d.html?embed=1 runs in an iframe (same origin). It is handed the current project
-// when a 3D tab opens, and again only if the boreholes have changed since: changing a 3D
+// when the tab opens, and again only if the boreholes have changed since: changing a 3D
 // option must not rebuild the block or reset the view.
-function open3d(tab){
-  const f=document.getElementById('frame3d'), inner = tab==='section3d' ? 'section' : 'block';
-  const g=f.contentWindow.geo3d;
-  if (!g){ pending3d=tab; if (!f.getAttribute('src')) f.src='builder3d.html?embed=1'; return; }
+function open3d(){
+  const f=document.getElementById('frame3d'), g=f.contentWindow.geo3d;
+  if (!g){ pending3d=true; if (!f.getAttribute('src')) f.src='builder3d.html?embed=1'; return; }
   const csv=stateToProjectCSV(state, sectionLine, projectExtras());
   const rows=csv.slice(csv.indexOf('\n'));   // everything after the #GEOVIS settings line
-  if (rows!==sent3d){ sent3d=rows; g.open(csv, dsOpenId || null, inner); }
-  else g.show(inner);
+  if (rows!==sent3d){ sent3d=rows; g.open(csv, dsOpenId || null); }
 }
 window.addEventListener('message', e=>{
   if (e.origin!==location.origin || !e.data?.geo3d) return;
-  if (e.data.geo3d==='ready' && pending3d){ const t=pending3d; pending3d=null; open3d(t); }
-  if (e.data.geo3d==='tab' && currentTab().endsWith('3d')){   // the 3D page changed its own tab: keep ours in step
-    const want = e.data.tab==='section' ? 'section3d' : 'block3d';
-    document.querySelectorAll('.tab').forEach(x=>{ if (x.dataset.pane==='view3d') x.classList.toggle('active', x.dataset.tab===want); });
-  }
+  const f=document.getElementById('frame3d');
+  if (e.data.geo3d==='ready' && pending3d){ pending3d=false; open3d(); }
+  if (e.data.geo3d==='height') f.style.height=Math.ceil(e.data.h)+'px';        // the frame is as tall as its page: one scrollbar
+  if (e.data.geo3d==='scroll') window.scrollTo({ top:scrollY+f.getBoundingClientRect().top+e.data.y-12, behavior:'smooth' });
 });
 
 // ---- site-plan image export (task 6) --------------------------------------
@@ -1820,7 +1817,7 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   t.classList.add('active');
   document.querySelector(`.tabpane[data-pane="${t.dataset.pane || t.dataset.tab}"]`).classList.add('active');
   applyTabLayout(t.dataset.tab);
-  if (t.dataset.pane==='view3d') open3d(t.dataset.tab);
+  if (t.dataset.pane==='view3d') open3d();
   if (t.dataset.tab==='section') renderSectionFromUI();
   if (t.dataset.tab==='log'){ renderLogLive(); renderLogPlan(); }
   if (t.dataset.tab==='map') openSiteMap();

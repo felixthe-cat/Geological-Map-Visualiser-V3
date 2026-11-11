@@ -85,6 +85,14 @@
     .embed body{background:transparent}
     .embed .wrap{padding:0;max-width:none}
     .embed .solo+h3{margin-top:0}
+    /* one page, no inner tabs: the 3D block, then its section + export, then the boundary map */
+    .embed .tabs{display:none}
+    .embed .tabpane{display:block;margin-bottom:18px}
+    .embed .out{display:flex;flex-direction:column}
+    .embed [data-pane=block]{order:1} .embed [data-pane=section]{order:2} .embed [data-pane=map]{order:3}
+    /* fixed heights: the frame grows to fit this page, so nothing here may depend on the frame's height */
+    .embed #view3d{height:640px} .embed #map{height:420px}
+    .stage{display:none} .embed .stage{display:block;margin:0 0 8px}
   </style>
   <script>if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
 </head>
@@ -125,7 +133,7 @@
       </div>
 
       <h3>2 · Site boundary</h3>
-      <div class="hint">Draw the area the block should fill on the Site Map tab.</div>
+      <div class="hint">Draw the area the block should fill on the site map.</div>
       <div class="row">
         <button id="bd-draw">Draw boundary</button>
         <button class="ghost" id="bd-fit">Box around boreholes</button>
@@ -194,13 +202,14 @@
     </div>
 
     <!-- ── OUTPUT ── -->
-    <div class="panel">
+    <div class="panel out">
       <div class="tabs">
         <button class="tab active" data-tab="map">1 · Site Map</button>
         <button class="tab" data-tab="block">2 · 3D Block</button>
         <button class="tab" data-tab="section">3 · Section &amp; Export</button>
       </div>
       <div class="tabpane active" data-pane="map">
+        <h3 class="stage">Site boundary map</h3>
         <div id="map"></div>
         <div class="hint" style="margin-top:6px">Green dots: boreholes in the dataset. Orange: site boundary. Red: slice line (A → B).</div>
       </div>
@@ -213,7 +222,8 @@
         <div id="view-note" class="status" style="display:none"></div>
       </div>
       <div class="tabpane" data-pane="section">
-        <div id="sec-empty" class="hint">Turn on “Cut the block” (step 4) to get a section.</div>
+        <h3 class="stage">3D cross-section &amp; export</h3>
+        <div id="sec-empty" class="hint">Turn on “Cut the block” to get a section.</div>
         <svg id="sec-svg" style="display:none" xmlns="http://www.w3.org/2000/svg"></svg>
         <div class="row">
           <button id="exp-dxf" disabled>Download DXF (GeoStudio / PLAXIS 2D)</button>
