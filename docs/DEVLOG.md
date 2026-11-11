@@ -4,6 +4,21 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 — Hosted 0.5 m LiDAR for AGS areas (pack + auto-fetch)
+**Goal:** host the user's 2,689 downloaded CEDD LiDAR tiles (21 GB) inside the free tiers, at 0.5 m, only where AGS boreholes exist.
+**Changed:**
+- `web/lidar_tile.js`: `.hkdt` packed format (`packGrid` / `unpackGrid`): 5 cm rounding, plane-predictor differences, gzip; `sheetName()` on the 750 × 600 m sheet grid; float-noise tolerance for 4 CEDD tiles (14NE15A–D).
+- `tools/lidar_ags_sheets.mjs` (new): all 331k CSDI stations ∩ `web/data/ags_repnos.json` → 189,814 AGS holes on 1,969 sheets.
+- `tools/lidar_pack.mjs` (new): packs only those sheets, blanks cells > 200 m from every AGS hole, `SHARD=k/n` for parallel runs.
+- `tools/lidar_upload.mjs` (new): creates the public `lidar` bucket and uploads (needs `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`).
+- `web/builder3d.js/.html`: on Build, fetches `index.json` + the sheets the boundary touches from Supabase Storage; own `.tif` files still win; `?lidar=<folder>` for local tests.
+- `.gitignore`: `LIDAR Survey Files/` (the Stop hook runs `git add -A`) and `web/lidar_local`.
+**Worked:** 1,680 sheets packed, 0.778 GB. Local preview (hillside example, box around boreholes) fetched index (22 KB) + one sheet (0.84 MB): "Ground: 0.5 m LiDAR (CEDD 2020)", no console errors. 9 self-checks pass.
+**Dead ends:** whole HK at 0.5 m = 1.7 GB (too big); all AGS sheets uncropped ≈ 1.2 GB; `web/data/boreholes.csv` is only a sample (1,837 of 23,827 AGS reports), so the full CSDI layer was used.
+**Open:** upload not done (needs the service_role key). 290 AGS sheets (4,345 holes, many likely marine) have no downloaded tile — list in `LIDAR Survey Files/missing_ags_sheets.csv`.
+
+---
+
 ### 2026-11-11 00:02 — Admin gate: new password, local password file
 **Goal:** change the admin password and keep the plain password in a local file that git never sees.
 **Changed:**

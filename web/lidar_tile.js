@@ -71,3 +71,72 @@ export function sampleGrid(g, e, n){
   const tx=fx-c0, ty=fy-r0;
   return (a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty;
 }
+
+// ---- packed tiles for the web (".hkdt") ------------------------------------------------------------
+// The 2,689 CEDD tiles are 21 GB as downloaded; the free storage tiers are 1 GB. tools/lidar_pack.mjs
+// packs each one: optional 2×2 averaging (0.5 m → 1 m), levels rounded to a step `q` (the survey
+// itself is good to about ±0.1 m), each cell stored as its difference from the "plane" guess
+// left+up−upleft, then gzip. Terrain is smooth, so most differences are 0 or ±1 and gzip squeezes
+// them hard (~0.2 MB per tile at 1 m / 5 cm).
+//
+// Layout before gzip, little-endian:
+//   0  "HKD1"   4  int32 w   8  int32 h   12 float32 cell size   16 float32 q
+//   20 float64 x0 (west edge)   28 float64 y0 (north edge)
+//   36 uint8 mask[w*h] (1 = no data)   then int16 differences, one per cell; -32768 = escape,
+//      followed by the cell's full value as int32 (two int16 words, low then high).
+
+// Sheets sit on a fixed grid: 750 m × 600 m steps from E 800000 / N 800000.
+export const SHEET = { e0:800000, n0:800000, w:750, h:600 };
+/** File name of the packed sheet holding (e,n), e.g. "49_36.hkdt". */
+export const sheetName = (e,n) =>
+  `${Math.floor((e-SHEET.e0)/SHEET.w)}_${Math.floor((n-SHEET.n0)/SHEET.h)}.hkdt`;
+/** Same name from a parsed grid; null when the grid is not on the sheet lattice. */
+export function gridSheetName(g){
+  const [e0, n0]=gridBounds(g);
+  const c=(e0-SHEET.e0)/SHEET.w, r=(n0-SHEET.n0)/SHEET.h;
+  // some CEDD tiles carry float noise in their corner (828500.0000000938): allow a centimetre
+  return Math.abs(c-Math.round(c))*SHEET.w<0.01 && Math.abs(r-Math.round(r))*SHEET.h<0.01 ? `${Math.round(c)}_${Math.round(r)}.hkdt` : null;
+}
+
+/** Parsed grid → packed bytes (not yet gzipped). step 1 keeps 0.5 m, 2 averages to 1 m. */
+export function packGrid(g, { step=1, q=0.05 }={}){
+  const w=Math.floor(g.w/step), h=Math.floor(g.h/step), n=w*h;
+  const v=new Int32Array(n), mask=new Uint8Array(n);
+  for (let r=0;r<h;r++) for (let c=0;c<w;c++){
+    let s=0, k=0;
+    for (let i=0;i<step;i++) for (let j=0;j<step;j++){ const z=g.data[(r*step+i)*g.w+c*step+j]; if (z!==g.nodata){ s+=z; k++; } }
+    if (k) v[r*w+c]=Math.round(s/k/q); else mask[r*w+c]=1;
+  }
+  const words=[];
+  for (let i=0;i<n;i++){
+    const c=i%w, L=c?v[i-1]:0, U=i>=w?v[i-w]:0;
+    if (mask[i]){ v[i]=c&&i>=w ? L+U-v[i-w-1] : c ? L : U; words.push(0); continue; }  // no-data: store the guess itself
+    const d=v[i]-(c&&i>=w ? L+U-v[i-w-1] : c ? L : U);
+    if (d>-32768 && d<32768) words.push(d); else words.push(-32768, (v[i]<<16)>>16, v[i]>>16);
+  }
+  const out=new Uint8Array(36+n+2*words.length), dv=new DataView(out.buffer);
+  out.set([72,75,68,49]);                                     // "HKD1"
+  dv.setInt32(4,w,true); dv.setInt32(8,h,true); dv.setFloat32(12,g.dx*step,true); dv.setFloat32(16,q,true);
+  dv.setFloat64(20,g.x0,true); dv.setFloat64(28,g.y0,true);
+  out.set(mask,36);
+  words.forEach((x,i)=>dv.setInt16(36+n+2*i,x,true));
+  return out;
+}
+
+/** Packed bytes (gzipped or not) → grid in the same shape parseDtmTiff returns. */
+export async function unpackGrid(buf){
+  let b=new Uint8Array(buf);
+  if (b[0]===0x1f && b[1]===0x8b)                             // gzip magic: unzip (the host may already have)
+    b=new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  const dv=new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (String.fromCharCode(...b.subarray(0,4))!=='HKD1') throw new Error('Not a packed LiDAR tile.');
+  const w=dv.getInt32(4,true), h=dv.getInt32(8,true), cell=dv.getFloat32(12,true), q=dv.getFloat32(16,true), n=w*h;
+  const v=new Int32Array(n), data=new Float32Array(n), nodata=-9999;
+  for (let i=0, p=36+n; i<n; i++){
+    const c=i%w, L=c?v[i-1]:0, U=i>=w?v[i-w]:0, guess=c&&i>=w ? L+U-v[i-w-1] : c ? L : U;
+    const d=dv.getInt16(p,true); p+=2;
+    if (d===-32768){ v[i]=(dv.getUint16(p,true))|(dv.getInt16(p+2,true)<<16); p+=4; } else v[i]=guess+d;
+    data[i]=b[36+i] ? nodata : v[i]*q;
+  }
+  return { w, h, dx:cell, dy:cell, x0:dv.getFloat64(20,true), y0:dv.getFloat64(28,true), nodata, data };
+}

@@ -21,7 +21,8 @@ import { sectionRegions, toDXF, layerName } from './cad_export.js';
 import { sampleElevation, tileCoord } from './terrain.js';
 import { fetchDtmTile, dtmTileGetter } from './dtm_tiles.js';
 import { classColour } from './strata.js';
-import { parseDtmTiff, sampleGrid, gridBounds } from './lidar_tile.js';
+import { parseDtmTiff, sampleGrid, gridBounds, unpackGrid, sheetName, SHEET } from './lidar_tile.js';
+import { SUPABASE_URL } from './supabase_config.js';
 
 const $ = id => document.getElementById(id);
 const LANDSD_3D = 'https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json';
@@ -247,8 +248,31 @@ async function loadLidar(files){
   note('lidar-note', (ok ? `✓ ${lidar.length} LiDAR tile(s) loaded.${cover}` : '')+(bad.length ? ' ✗ '+bad.join(' · ') : ''), bad.length && !ok ? 'err' : 'ok');
   if (ok && model) build();                                   // already built: redo it on the finer ground
 }
+// The same LiDAR, packed by tools/lidar_pack.mjs and hosted, fetched by sheet for the boundary.
+// ponytail: one public folder + index.json; a missing index (not uploaded yet) just means "no hosted LiDAR".
+// ?lidar=<folder or URL> points at another copy (local testing before an upload).
+const LIDAR_BASE=new URLSearchParams(location.search).get('lidar') || `${SUPABASE_URL}/storage/v1/object/public/lidar`;
+let lidarIndex;                                               // Promise<Set of sheet names>
+const hosted=new Map();                                       // sheet name -> grid (or null when it failed)
+async function fetchHostedLidar(){
+  lidarIndex ??= fetch(`${LIDAR_BASE}/index.json`).then(r=>r.ok ? r.json() : { sheets:[] })
+    .then(j=>new Set(j.sheets)).catch(()=>new Set());          // offline / not hosted: carry on without it
+  const have=await lidarIndex;
+  const xs=boundary.map(p=>p[0]), ys=boundary.map(p=>p[1]), want=new Set();
+  for (let e=Math.min(...xs); e<Math.max(...xs)+SHEET.w; e+=SHEET.w)
+    for (let n=Math.min(...ys); n<Math.max(...ys)+SHEET.h; n+=SHEET.h){
+      const name=sheetName(Math.min(e,Math.max(...xs)), Math.min(n,Math.max(...ys)));
+      if (have.has(name) && !hosted.has(name)) want.add(name);
+    }
+  if (want.size>36) return;                                   // same ~7 km cap as the 5 m model
+  await Promise.all([...want].map(async name=>{
+    try { hosted.set(name, await unpackGrid(await (await fetch(`${LIDAR_BASE}/${name}`)).arrayBuffer())); }
+    catch(err){ console.warn('[lidar]', name, err); hosted.set(name, null); }   // one bad sheet: 5 m model there
+  }));
+}
+const allLidar=()=>[...lidar, ...[...hosted.values()].filter(Boolean)];   // the user's own files win
 function dtmAt(e,n){
-  for (const g of lidar){ const z=sampleGrid(g, e, n); if (z!=null) return z; }   // outside the tiles: fall back to 5 m
+  for (const g of allLidar()){ const z=sampleGrid(g, e, n); if (z!=null) return z; }   // outside the tiles: fall back to 5 m
   const [lat,lng]=toLL(e,n);
   const z=sampleElevation(dtmTileGetter, lng, lat);
   return Number.isFinite(z) && z>-50 ? z : null;     // no-data cells come back as huge negatives
@@ -265,12 +289,14 @@ async function build(){
     let top=topMode(), msg='';
     if (top==='dtm'){
       note('build-note','Fetching the Lands Dept ground model…');
-      if (!await prefetchDtm() && !lidar.length){ top='bh'; msg=' Ground model unavailable here — used borehole ground levels instead.'; }
-      else if (lidar.length){
-        const hit=boundary.filter(p=>lidar.some(g=>sampleGrid(g, p[0], p[1])!=null)).length;
-        msg = hit===boundary.length ? ' Ground: 0.5 m LiDAR.'
-            : hit ? ' Ground: 0.5 m LiDAR where your tiles reach, the 5 m model elsewhere.'
-            : ' Your LiDAR tiles do not reach this boundary — used the 5 m model.';
+      const [ok5]=await Promise.all([prefetchDtm(), fetchHostedLidar()]);
+      const L=allLidar(), cell=Math.min(...L.map(g=>g.dx));
+      if (!ok5 && !L.length){ top='bh'; msg=' Ground model unavailable here — used borehole ground levels instead.'; }
+      else if (L.length){
+        const hit=boundary.filter(p=>L.some(g=>sampleGrid(g, p[0], p[1])!=null)).length;
+        msg = hit===boundary.length ? ` Ground: ${cell} m LiDAR (CEDD 2020).`
+            : hit ? ` Ground: ${cell} m LiDAR where it reaches, the 5 m model elsewhere.`
+            : lidar.length ? ' Your LiDAR tiles do not reach this boundary — used the 5 m model.' : '';
       }
     }
     note('build-note','Building the block…');

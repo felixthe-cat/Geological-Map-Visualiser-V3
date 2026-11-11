@@ -3,7 +3,8 @@
 //   node web/test_lidar_tile.mjs "C:/…/11NW10D(e836n821,e837n822).tif"
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { parseDtmTiff, sampleGrid, gridBounds } from './lidar_tile.js';
+import { gzipSync } from 'node:zlib';
+import { parseDtmTiff, sampleGrid, gridBounds, packGrid, unpackGrid, sheetName, gridSheetName } from './lidar_tile.js';
 
 const near=(a,b,t=1e-6)=>Math.abs(a-b)<=t;
 
@@ -57,6 +58,26 @@ for (const opt of [{}, { le:false }, { strips:true }, { strips:true, le:false }]
 }
 assert.throws(()=>parseDtmTiff(new ArrayBuffer(64)), /Not a TIFF/);
 
+// Packed web tiles: round trip within q/2, no-data kept, a 900 m cliff survives (escape path), 2×2 averaging
+{
+  const w=8, h=6, data=new Float32Array(w*h);
+  for (let i=0;i<w*h;i++) data[i]=50+0.37*(i%w)+0.11*Math.floor(i/w);
+  data[3]=-9999; data[20]=950.0; data[21]=-20;               // no-data, cliff up, cliff down
+  const g={ w, h, dx:0.5, dy:0.5, x0:836750, y0:822200, nodata:-9999, data };
+  for (const zip of [false, true]){
+    const raw=packGrid(g, { step:1, q:0.01 }), u=await unpackGrid(zip ? gzipSync(raw) : raw);
+    assert.deepStrictEqual([u.w,u.h,u.dx,u.x0,u.y0], [8,6,0.5,836750,822200]);
+    for (let i=0;i<w*h;i++) i===3 ? assert.strictEqual(u.data[i], u.nodata) : assert.ok(near(u.data[i], data[i], 0.0051), `cell ${i}`);
+  }
+  const u2=await unpackGrid(packGrid(g, { step:2, q:0.01 }));  // 1 m: each cell = mean of its 2×2 (no-data skipped)
+  assert.deepStrictEqual([u2.w,u2.h,u2.dx], [4,3,1]);
+  assert.ok(near(u2.data[1], (data[2]+data[10]+data[11])/3, 0.0051));
+  assert.strictEqual(sheetName(836751, 821601), '49_36.hkdt');
+  assert.strictEqual(gridSheetName({ ...g, w:1500, h:1200 }), '49_36.hkdt');
+  assert.strictEqual(gridSheetName(g), null);
+  assert.strictEqual(gridSheetName({ ...g, w:1500, h:1200, x0:836750.0000000938 }), '49_36.hkdt');   // CEDD float noise                  // 4 m × 3 m test grid is not a whole sheet
+}
+
 // A real tile, when a path is given
 const real=process.argv[2];
 if (real){
@@ -66,5 +87,9 @@ if (real){
   assert.ok(g.w>0 && g.dx===0.5 && lo>-100 && hi<1000, 'levels should look like mPD');
   console.log(`real tile: ${g.w}×${g.h} cells of ${g.dx} m, E ${gridBounds(g)[0]}–${gridBounds(g)[2]}, N ${gridBounds(g)[1]}–${gridBounds(g)[3]}, `+
     `levels ${lo.toFixed(2)} to ${hi.toFixed(2)} mPD, ${bad} no-data cell(s)`);
+  const packed=gzipSync(packGrid(g, { step:1, q:0.05 })), u=await unpackGrid(packed);
+  let worst=0; for (let i=0;i<g.data.length;i++) if (g.data[i]!==g.nodata) worst=Math.max(worst, Math.abs(u.data[i]-g.data[i]));
+  assert.ok(worst<=0.0251, 'packed 0.5 m tile off by '+worst);
+  console.log(`  packed at 0.5 m / 5 cm: ${(packed.length/1e6).toFixed(2)} MB, worst error ${worst.toFixed(3)} m, sheet ${gridSheetName(g)}`);
 }
 console.log('test_lidar_tile: all checks passed');

@@ -52,3 +52,7 @@ videos/
 
 # Local admin password for the website gate (never commit)
 admin_password.local.txt
+
+# CEDD LiDAR downloads (21 GB) and the packed tiles made from them: never commit
+LIDAR Survey Files/
+web/lidar_local
