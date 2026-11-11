@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 11:10 — Deploy + check of the white context buildings
+**Goal:** "include the existing buildings onto the 3D model … plain white texture like architectural models".
+**Changed:** no code beyond commit fa9da20 (`web/builder3d.js` `setBuildings` / `contextGround` / `prefetchDtm(pad)`, `web/builder3d.html` label). `docs/DECISIONS.md`: ADR-15.
+**Worked:** Vercel production deploy; live `builder3d.js` contains `contextGround` and live `/builder3d` shows the new label. Local hillside build: 13 buildings, block sides still visible through the ground sheet.
+**Dead ends:** the first local re-test still showed "No mapped buildings inside this boundary": the browser served the cached old `builder3d.js`. Fixed by re-fetching it with `cache:'reload'` before reloading. The only console error left is the 400 from the not-yet-uploaded `lidar/index.json`, which the page already handles.
+**Open:** LiDAR upload still waits for `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. Ring LiDAR only covers the boundary's own sheets; the rest of the ring uses the 5 m model. The ring is a fixed 100 m.
+
+---
+
 ### 2026-11-11 — Existing buildings around the 3D block
 **Goal:** show existing buildings as plain white blocks in the 3D model.
 **Found:** white blocks already existed, but only for buildings whose centre is inside the boundary. "Box around boreholes" hugs the holes, so the hillside example showed none (19 buildings lie within 100 m).

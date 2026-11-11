@@ -312,3 +312,14 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 - Hosts: *Vercel Blob* — 2,000 uploads/month on Hobby and a 30-day lockout if any cap is hit; *Supabase Storage* — 1 GB, no upload cap, storage unused, project already kept awake by the daily ping.
 **Chosen + why:** 200 m crop on Supabase. Keeps 0.5 m where sections are built, with ~20% headroom.
 **Reversible?** Cheap — re-run `tools/lidar_pack.mjs` with another radius/step and re-upload.
+
+### ADR-15: Context buildings in a fixed 100 m ring over a see-through ground sheet
+**Context:** white existing-building blocks were only drawn inside the boundary, so tight "Box around boreholes" sites showed none. The user wants an architectural-model look.
+**Options considered:**
+- *Inside the boundary only (as before).* Drawback: most sites show no buildings.
+- *Ring buildings with no ground under them.* Drawback: on slopes they look like they float.
+- *Ring buildings on an opaque ground sheet.* Drawback: it hides the block's coloured geology sides from almost every angle.
+- *Ring buildings on a see-through ground sheet (opacity 0.35, no depth write).* Drawback: the ring ground reads faintly.
+- Ring size: *fixed 100 m* vs *scaled to site size*. Scaled is more general but harder to predict; nobody has asked for it.
+**Chosen + why:** fixed 100 m ring on a see-through sheet. Buildings read as standing on the ground, and the geology stays visible.
+**Reversible?** Cheap: `CONTEXT_M` and the sheet opacity are single values in `web/builder3d.js`.
