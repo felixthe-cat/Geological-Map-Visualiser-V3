@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoVisualise — How It's Done</title>
+  <meta name="description" content="Where GeoVisualise gets its Hong Kong borehole, terrain, building and road data, how the cross-sections and the 3D ground model are worked out, what you can do with them, and their limits.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ac845' stroke-width='2'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E">
+  <style>
+    :root{
+      --cream:#f0e9dc; --card:#fffdf8; --card2:#f7f2e8; --border:#c8bda8;
+      --ink:#1a1a0f; --forest:#2f5a1e; --forest-d:#1e3c12; --gold:#8a6508; --muted:#6b6250;
+      --fill:#63c2a6; --coll:#b98a4b; --soil:#e0a84a; --rock:#8a5a2b; --sage:#7f9f73;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--cream);color:var(--ink);
+      font-family:'Outfit','Segoe UI',system-ui,sans-serif;font-size:15px;line-height:1.6}
+    a{color:var(--forest)}
+    header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 20px;
+      background:var(--forest-d);color:#f0e9dc}
+    header .logo{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:.02em}
+    header .spacer{flex:1}
+    header a{color:#d8e6c4;text-decoration:none;font-size:13px;white-space:nowrap}
+    main{max-width:980px;margin:0 auto;padding:20px 16px 60px}
+    h1{font-size:30px;line-height:1.2;margin:18px 0 6px;color:var(--forest-d)}
+    .lede{font-size:17px;color:#3d3529;margin:0 0 18px;max-width:760px}
+    nav.toc{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 22px}
+    nav.toc a{padding:5px 11px;border:1px solid var(--border);border-radius:999px;background:var(--card);
+      text-decoration:none;font-size:13px;color:var(--forest-d)}
+    section{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:0 0 16px}
+    h2{font-size:20px;margin:0 0 4px;color:var(--forest-d)}
+    h2 small{display:block;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:2px}
+    h3{font-size:15px;margin:18px 0 4px;color:var(--forest-d)}
+    p{margin:8px 0}
+    ul,ol{margin:6px 0;padding-left:22px}
+    li{margin:4px 0}
+    .answer{font-weight:600;color:#2b2618}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+    th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--border)}
+    th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+    .scroll{overflow-x:auto}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:10px 0}
+    .card{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+    .card b{color:var(--forest-d)}
+    figure{margin:14px 0 4px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 10px 8px}
+    figure svg{display:block;width:100%;height:auto}
+    figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+    .note{background:#fbf3dc;border:1px solid #e3cf8e;border-radius:10px;padding:10px 14px;margin:12px 0;font-size:14px}
+    .steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+    .steps li{counter-increment:s;position:relative;padding:6px 0 6px 40px}
+    .steps li::before{content:counter(s);position:absolute;left:0;top:6px;width:26px;height:26px;border-radius:50%;
+      background:var(--forest);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center}
+    code{background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:0 4px;font-size:13px}
+    footer{font-size:12px;color:var(--muted);text-align:center;margin-top:20px}
+
+    /* ---- animations: each loops every 9 s; text labels are plain SVG text ---- */
+    .lbl{font:600 11px 'Segoe UI',system-ui,sans-serif;fill:#3d3529}
+    .sm{font:400 10px 'Segoe UI',system-ui,sans-serif;fill:#6b6250}
+    @keyframes drop   {0%,4%{transform:translateY(-150px);opacity:0} 14%,100%{transform:none;opacity:1}}
+    @keyframes draw   {0%,22%{stroke-dashoffset:1} 48%,100%{stroke-dashoffset:0}}
+    @keyframes fadein {0%,48%{opacity:0} 66%,100%{opacity:1}}
+    @keyframes probe  {0%,62%{opacity:0;transform:translateX(0)} 68%{opacity:1;transform:translateX(0)} 92%{opacity:1;transform:translateX(250px)} 100%{opacity:0;transform:translateX(250px)}}
+    .a1 .hole{animation:drop 9s ease-out infinite}
+    .a1 .hole:nth-of-type(2){animation-delay:.25s} .a1 .hole:nth-of-type(3){animation-delay:.5s} .a1 .hole:nth-of-type(4){animation-delay:.75s}
+    .a1 .join{stroke-dasharray:1;animation:draw 9s ease-in-out infinite}
+    .a1 .band{animation:fadein 9s ease-in-out infinite}
+    .a1 .probe{animation:probe 9s linear infinite}
+
+    @keyframes ground {0%,6%{stroke-dashoffset:1} 26%,100%{stroke-dashoffset:0}}
+    @keyframes hang1  {0%,28%{opacity:0;transform:translateY(-14px)} 40%,100%{opacity:1;transform:none}}
+    @keyframes hang2  {0%,42%{opacity:0;transform:translateY(-14px)} 54%,100%{opacity:1;transform:none}}
+    @keyframes hang3  {0%,56%{opacity:0;transform:translateY(-14px)} 68%,100%{opacity:1;transform:none}}
+    @keyframes pop    {0%,72%{opacity:0} 82%,100%{opacity:1}}
+    .a2 .gl{stroke-dasharray:1;animation:ground 9s ease-in-out infinite}
+    .a2 .l1{animation:hang1 9s ease-out infinite} .a2 .l2{animation:hang2 9s ease-out infinite} .a2 .l3{animation:hang3 9s ease-out infinite}
+    .a2 .tag{animation:pop 9s ease-out infinite}
+
+    @keyframes sweep  {0%,8%{transform:translateX(0)} 44%,100%{transform:translateX(170px)}}
+    @keyframes gone   {0%,8%{clip-path:inset(0 0 0 0)} 44%,100%{clip-path:inset(0 0 0 52%)}}
+    @keyframes sect   {0%,48%{opacity:0;transform:translateX(-30px)} 64%,100%{opacity:1;transform:none}}
+    @keyframes out    {0%,70%{opacity:0;transform:translateY(8px)} 82%,100%{opacity:1;transform:none}}
+    .a3 .knife{animation:sweep 9s ease-in-out infinite}
+    .a3 .block{animation:gone 9s ease-in-out infinite}
+    .a3 .sect{animation:sect 9s ease-out infinite}
+    .a3 .out{animation:out 9s ease-out infinite} .a3 .out:nth-of-type(2){animation-delay:.3s} .a3 .out:nth-of-type(3){animation-delay:.6s}
+    @media (prefers-reduced-motion:reduce){ figure svg *{animation:none!important} .a1 .join,.a2 .gl{stroke-dashoffset:0} }
+    @media(max-width:600px){ h1{font-size:24px} section{padding:16px 14px} }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ac845" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>
+      </svg>
+      GeoVisualise — How It's Done
+    </span>
+    <span class="spacer"></span>
+    <a href="index.html">← Home</a>
+    <a href="builder.html">Open the builder</a>
+  </header>
+
+  <main>
+    <h1>How It's Done</h1>
+    <p class="lede">GeoVisualise turns Hong Kong's public ground-investigation records into borehole logs,
+      cross-sections, rockhead contours and a 3D block of the ground. This page explains where the data comes from,
+      how the results are worked out, what you can do with them, and where they stop being reliable.</p>
+    <nav class="toc" aria-label="On this page">
+      <a href="#collect">1 · Data collection</a><a href="#methods">2 · Methods</a><a href="#sources">3 · Data sources</a>
+      <a href="#animated">4 · Step by step</a><a href="#use">5 · What you can do with it</a>
+      <a href="#limits">6 · Assumptions &amp; limits</a><a href="#read">7 · Further reading</a>
+    </nav>
+
+    <!-- 1 -->
+    <section id="collect">
+      <h2><small>Part 1</small>How the data is collected</h2>
+      <p class="answer">Nothing is surveyed by this website. Every input is an open dataset published by the Hong Kong Government, fetched when you ask for it.</p>
+      <div class="grid">
+        <div class="card"><b>Boreholes.</b> Contractors drill boreholes for public works and private developments and log the soil and rock.
+          The Geotechnical Engineering Office (GEO) of CEDD keeps these records and publishes them. The map shows about 330,000 borehole
+          locations; around 190,000 of them come with a full digital log in <b>AGS format</b>.</div>
+        <div class="card"><b>Ground levels.</b> Two terrain models are used. The Lands Department's <b>5 m model</b> covers all of Hong Kong.
+          CEDD's <b>2020 airborne LiDAR survey</b> (a plane scanning the ground with a laser) gives a <b>0.5 m</b> bare-earth model, which
+          this site holds for the ground within 200 m of AGS boreholes.</div>
+        <div class="card"><b>Buildings.</b> The Lands Department's building map gives each building's outline with its base and roof level.</div>
+        <div class="card"><b>Roads and bridges.</b> The Lands Department publishes road centre lines. The Highways Department publishes the
+          outlines of the structures it maintains: bridges, flyovers and footbridges.</div>
+        <div class="card"><b>Photo map.</b> The optional photo-realistic 3D map is the Lands Department's 3D mesh, built from overlapping
+          aerial photographs.</div>
+      </div>
+      <h3>When you pick a site</h3>
+      <ol class="steps">
+        <li>You draw a rectangle on the site map. The site lists the boreholes inside it.</li>
+        <li>For boreholes with AGS data, the site reads just those reports out of the CEDD archive, not the whole archive.</li>
+        <li>Each log is read into layers: top depth, base depth, material, and weathering grade.</li>
+        <li>Ground levels, buildings, roads and bridges for the same area are fetched when you open the section or the 3D tab.</li>
+      </ol>
+    </section>
+
+    <!-- 2 -->
+    <section id="methods">
+      <h2><small>Part 2</small>The engineering methods used</h2>
+      <p class="answer">The site follows normal Hong Kong practice: Geoguide 3 for naming materials, straight-line joining of layers between boreholes, and Grade III as the top of rock.</p>
+
+      <h3>Reading and classifying a borehole log</h3>
+      <ul>
+        <li>Three tables are read from each AGS file: location (<code>LOCA</code> or <code>HOLE</code>), layers (<code>GEOL</code>) and weathering (<code>WETH</code>).</li>
+        <li>Each layer gets a material name (fill, alluvium, colluvium, marine deposit, weathered rock) and, for rock, a
+          <b>decomposition grade I to VI</b> as defined in Geoguide 3. Grade VI is residual soil; Grade I is fresh rock.</li>
+        <li>The grade comes from the most reliable field available: the weathering table first, then the origin code, then the written description.</li>
+      </ul>
+
+      <h3>2D cross-section</h3>
+      <ul>
+        <li>You draw a section line A to B. Boreholes within a <b>distance tolerance</b> (100 m unless you change it) are moved square onto the line.</li>
+        <li>The same layer in neighbouring boreholes is joined. You choose how: straight lines (the classic hand-drawn way), a smooth curve that cannot overshoot, or stepped with no joining at all.</li>
+        <li>The ground line follows the 5 m terrain model, shifted to agree with each borehole's surveyed ground level at the borehole's own position.</li>
+        <li>Each borehole's distance from the line is printed, because a borehole far from the line says less about the ground under it.</li>
+      </ul>
+
+      <h3>Rockhead contours</h3>
+      <ul>
+        <li><b>Rockhead</b> is the top of the first layer at Grade III or better (Grade II if you choose). This is the usual Hong Kong definition of "rock".</li>
+        <li>The rockhead levels are spread across the site by <b>inverse-distance weighting</b>: every point takes a weighted average of the boreholes, with nearer boreholes counting more.</li>
+        <li>Boreholes that never reached rock are marked "rock not encountered". They are not guessed.</li>
+      </ul>
+
+      <h3>3D ground block</h3>
+      <ul>
+        <li>All layers are put in one order, shallowest first, using their average depth across the boreholes.</li>
+        <li>The <b>top of the block is the real ground</b> (LiDAR or the 5 m model), not a surface drawn between borehole tops.</li>
+        <li>For each layer, its <b>thickness</b> is spread across the site by inverse-distance weighting (power 2), then hung below the layer above.</li>
+        <li>A layer missing from a borehole has zero thickness there, so it thins out and disappears between boreholes. It can never turn upside down.</li>
+        <li>The deepest layer runs down to the block's base, 5 m below the deepest borehole unless you set a level.</li>
+        <li>Cutting the block samples the same model along the cut line, so the 3D section and the block always agree.</li>
+      </ul>
+
+      <h3>Buildings, roads and bridges in the 3D view</h3>
+      <ul>
+        <li><b>Buildings</b> are pushed up from their outline to their roof level as plain white blocks.</li>
+        <li><b>Bridges and flyovers</b> use the Highways Department outline. The outline has no height, so the deck level is read from the 5 m terrain model, which includes elevated roads (the LiDAR model does not).</li>
+        <li><b>Roads on the ground</b> use the Lands Department centre line, widened to a typical width for the road type: 14 m highway, 11 m main road, 7.3 m secondary road, 5 m restricted road, 3 m track.</li>
+        <li>Everything is trimmed to your site boundary and is cut away with the ground when you slice a section.</li>
+      </ul>
+      <p>All positions use the <b>Hong Kong 1980 Grid</b> (eastings and northings in metres). All levels are in <b>mPD</b> (metres above Principal Datum).</p>
+    </section>
+
+    <!-- 3 -->
+    <section id="sources">
+      <h2><small>Part 3</small>Where the data is from</h2>
+      <p class="answer">Eight government datasets, all free to use. The links open the official pages.</p>
+      <div class="scroll">
+      <table>
+        <tr><th>What</th><th>Published by</th><th>Used for</th><th>Link</th></tr>
+        <tr><td>Ground investigation and laboratory test records (AGS)</td><td>CEDD, Geotechnical Engineering Office</td><td>Borehole logs: layers, materials, grades</td>
+          <td><a href="https://data.gov.hk/en-data/dataset/hk-cedd-csu-cedd-gi-lt" target="_blank" rel="noopener">data.gov.hk</a></td></tr>
+        <tr><td>Borehole locations</td><td>CEDD, via the CSDI portal</td><td>The dots on the site map</td>
+          <td><a href="https://portal.csdi.gov.hk/geoportal/?lang=en&amp;datasetId=cedd_rcd_1636517845149_16420" target="_blank" rel="noopener">CSDI portal</a></td></tr>
+        <tr><td>Digital Terrain Model, 5 m grid</td><td>Lands Department</td><td>Ground level everywhere; bridge deck levels</td>
+          <td><a href="https://data.gov.hk/en-data/dataset/hk-landsd-openmap-5m-grid-dtm" target="_blank" rel="noopener">data.gov.hk</a></td></tr>
+        <tr><td>2020 territory-wide airborne LiDAR survey, 0.5 m terrain model</td><td>CEDD</td><td>Detailed ground near AGS boreholes</td>
+          <td><a href="https://www.ginfo.cedd.gov.hk/GEOOpenData/eng/LIDAR.aspx" target="_blank" rel="noopener">GEO open data</a></td></tr>
+        <tr><td>Building outlines with base and roof levels</td><td>Lands Department</td><td>White building blocks</td>
+          <td><a href="https://portal.csdi.gov.hk/geoportal/?lang=en&amp;datasetId=landsd_rcd_1637211194312_35158" target="_blank" rel="noopener">CSDI portal</a></td></tr>
+        <tr><td>Highway structures and footbridges (outlines)</td><td>Highways Department</td><td>Bridges, flyovers, footbridges</td>
+          <td><a href="https://portal.csdi.gov.hk/geoportal/?lang=en&amp;datasetId=hyd_rcd_1632360050986_38630" target="_blank" rel="noopener">structures</a> ·
+              <a href="https://portal.csdi.gov.hk/geoportal/?lang=en&amp;datasetId=hyd_rcd_1632360512481_74705" target="_blank" rel="noopener">footbridges</a></td></tr>
+        <tr><td>Road centre lines</td><td>Lands Department</td><td>Roads on the ground</td>
+          <td><a href="https://portal.csdi.gov.hk/geoportal/?lang=en&amp;datasetId=landsd_rcd_1637310758814_80061" target="_blank" rel="noopener">CSDI portal</a></td></tr>
+        <tr><td>3D photo-realistic map</td><td>Lands Department</td><td>Optional photo map around the block</td>
+          <td><a href="https://www.landsd.gov.hk/en/spatial-data/open-data.html" target="_blank" rel="noopener">Lands Dept open data</a></td></tr>
+      </table>
+      </div>
+      <p>Other useful entry points: the <a href="https://ginfo.cedd.gov.hk/" target="_blank" rel="noopener">GEO Information Infrastructure (GInfo)</a> map viewer,
+        the <a href="https://portal.csdi.gov.hk/" target="_blank" rel="noopener">CSDI portal</a> home page, and
+        <a href="https://www.map.gov.hk/gm/" target="_blank" rel="noopener">GeoInfo Map</a>.</p>
+      <p class="sm" style="font-size:13px;color:var(--muted)">The data belongs to the Government of the Hong Kong SAR and is used under its open-data terms. This website is not a government service.</p>
+    </section>
+
+    <!-- 4 -->
+    <section id="animated">
+      <h2><small>Part 4</small>How the results are obtained, step by step</h2>
+      <p class="answer">Three ideas do most of the work: join the same layer between boreholes, hang the layers from the real ground, and slice.</p>
+
+      <h3>A · From boreholes to a cross-section</h3>
+      <figure class="a1" aria-label="Animation: four boreholes appear, their layers are joined, and the bands between them are filled in.">
+        <svg viewBox="0 0 640 250" role="img">
+          <!-- filled bands (appear last) -->
+          <g class="band">
+            <path d="M70 62 L230 50 L400 70 L560 58 L560 84 L400 100 L230 78 L70 92Z" fill="var(--fill)"/>
+            <path d="M70 92 L230 78 L400 100 L560 84 L560 120 L400 142 L230 118 L70 136Z" fill="var(--coll)"/>
+            <path d="M70 136 L230 118 L400 142 L560 120 L560 170 L400 186 L230 160 L70 182Z" fill="var(--soil)"/>
+            <path d="M70 182 L230 160 L400 186 L560 170 L560 226 L70 226Z" fill="var(--rock)"/>
+          </g>
+          <!-- joins -->
+          <g fill="none" stroke="#1a1a0f" stroke-width="1.6">
+            <path class="join" pathLength="1" d="M70 62 L230 50 L400 70 L560 58"/>
+            <path class="join" pathLength="1" d="M70 92 L230 78 L400 100 L560 84"/>
+            <path class="join" pathLength="1" d="M70 136 L230 118 L400 142 L560 120"/>
+            <path class="join" pathLength="1" d="M70 182 L230 160 L400 186 L560 170"/>
+          </g>
+          <!-- boreholes: each is a stack of coloured log segments -->
+          <g class="hole"><rect x="64" y="62" width="12" height="30" fill="var(--fill)"/><rect x="64" y="92" width="12" height="44" fill="var(--coll)"/><rect x="64" y="136" width="12" height="46" fill="var(--soil)"/><rect x="64" y="182" width="12" height="40" fill="var(--rock)"/><rect x="64" y="62" width="12" height="160" fill="none" stroke="#1a1a0f"/><text class="lbl" x="70" y="52" text-anchor="middle">BH1</text></g>
+          <g class="hole"><rect x="224" y="50" width="12" height="28" fill="var(--fill)"/><rect x="224" y="78" width="12" height="40" fill="var(--coll)"/><rect x="224" y="118" width="12" height="42" fill="var(--soil)"/><rect x="224" y="160" width="12" height="50" fill="var(--rock)"/><rect x="224" y="50" width="12" height="160" fill="none" stroke="#1a1a0f"/><text class="lbl" x="230" y="40" text-anchor="middle">BH2</text></g>
+          <g class="hole"><rect x="394" y="70" width="12" height="30" fill="var(--fill)"/><rect x="394" y="100" width="12" height="42" fill="var(--coll)"/><rect x="394" y="142" width="12" height="44" fill="var(--soil)"/><rect x="394" y="186" width="12" height="36" fill="var(--rock)"/><rect x="394" y="70" width="12" height="152" fill="none" stroke="#1a1a0f"/><text class="lbl" x="400" y="60" text-anchor="middle">BH3</text></g>
+          <g class="hole"><rect x="554" y="58" width="12" height="26" fill="var(--fill)"/><rect x="554" y="84" width="12" height="36" fill="var(--coll)"/><rect x="554" y="120" width="12" height="50" fill="var(--soil)"/><rect x="554" y="170" width="12" height="48" fill="var(--rock)"/><rect x="554" y="58" width="12" height="160" fill="none" stroke="#1a1a0f"/><text class="lbl" x="560" y="48" text-anchor="middle">BH4</text></g>
+          <!-- "what is here?" marker sweeping between two boreholes -->
+          <g class="probe"><line x1="150" y1="40" x2="150" y2="226" stroke="#c0262d" stroke-width="1.5" stroke-dasharray="4 3"/><text class="lbl" x="150" y="34" text-anchor="middle" fill="#c0262d">estimated here</text></g>
+          <text class="sm" x="70" y="244" text-anchor="middle">A</text><text class="sm" x="560" y="244" text-anchor="middle">B</text>
+        </svg>
+        <figcaption><b>1.</b> Logged boreholes are placed along the section line. <b>2.</b> The top of each layer is joined from borehole to borehole.
+          <b>3.</b> The bands are filled. Everything between two boreholes (red marker) is an estimate, not a measurement.</figcaption>
+      </figure>
+
+      <h3>B · Building the 3D block: layers hung from the real ground</h3>
+      <figure class="a2" aria-label="Animation: the ground line is drawn from the terrain model, then each layer is hung below it in turn, with one layer thinning to nothing.">
+        <svg viewBox="0 0 640 250" role="img">
+          <path class="l3" d="M40 150 C140 120 220 170 320 150 S520 120 600 150 L600 230 L40 230Z" fill="var(--rock)"/>
+          <path class="l2" d="M40 105 C140 75 220 120 320 95 S520 85 600 110 L600 150 C520 120 420 130 320 150 S140 120 40 150Z" fill="var(--soil)"/>
+          <!-- top layer pinches out at x = 400 -->
+          <path class="l1" d="M40 60 C140 30 220 80 320 70 C350 67 380 62 400 62 C380 80 350 90 320 95 C220 120 140 75 40 105Z" fill="var(--fill)"/>
+          <path class="gl" pathLength="1" d="M40 60 C140 30 220 80 320 70 S520 40 600 62" fill="none" stroke="var(--sage)" stroke-width="5" stroke-linecap="round"/>
+          <!-- boreholes as thin sticks -->
+          <g stroke="#1a1a0f" stroke-width="2"><line x1="110" y1="44" x2="110" y2="205"/><line x1="290" y1="74" x2="290" y2="210"/><line x1="500" y1="48" x2="500" y2="205"/></g>
+          <text class="lbl" x="44" y="22">Ground from LiDAR / 5 m model</text>
+          <g class="tag">
+            <line x1="400" y1="62" x2="430" y2="30" stroke="#c0262d" stroke-width="1.2"/>
+            <text class="lbl" x="604" y="24" text-anchor="end" fill="#c0262d">not found in the next borehole: thins to zero</text>
+          </g>
+          <text class="sm" x="110" y="222" text-anchor="middle">BH</text><text class="sm" x="290" y="226" text-anchor="middle">BH</text><text class="sm" x="500" y="222" text-anchor="middle">BH</text>
+        </svg>
+        <figcaption><b>1.</b> The ground surface comes straight from the terrain survey. <b>2.</b> Each layer's thickness is averaged from the boreholes
+          around it (nearer ones count more) and hung below the layer above. <b>3.</b> A layer that a borehole did not find thins out to nothing there.</figcaption>
+      </figure>
+
+      <h3>C · Slicing the block for design</h3>
+      <figure class="a3" aria-label="Animation: a cutting plane moves across the block, removing one side, the cut face becomes a section, and export options appear.">
+        <svg viewBox="0 0 640 250" role="img">
+          <!-- the block, seen from the side-top: a layered slab with a green top -->
+          <g class="block">
+            <path d="M40 70 L330 70 L370 40 L80 40Z" fill="var(--sage)"/>
+            <rect x="40" y="70" width="290" height="24" fill="var(--fill)"/><rect x="40" y="94" width="290" height="34" fill="var(--coll)"/>
+            <rect x="40" y="128" width="290" height="40" fill="var(--soil)"/><rect x="40" y="168" width="290" height="50" fill="var(--rock)"/>
+            <path d="M330 70 L370 40 L370 188 L330 218Z" fill="#6d4722"/>
+          </g>
+          <!-- the cutting plane -->
+          <g class="knife">
+            <path d="M22 78 L62 48 L62 196 L22 226Z" fill="rgba(192,38,45,.16)" stroke="#c0262d" stroke-width="1.5"/>
+            <text class="lbl" x="42" y="34" text-anchor="middle" fill="#c0262d">cut</text>
+          </g>
+          <!-- the resulting 2D section -->
+          <g class="sect">
+            <rect x="410" y="52" width="200" height="148" fill="#fff" stroke="var(--border)"/>
+            <path d="M420 86 C470 76 520 92 600 80 L600 104 C540 112 480 100 420 110Z" fill="var(--fill)"/>
+            <path d="M420 110 C480 100 540 112 600 104 L600 134 C540 142 480 128 420 140Z" fill="var(--coll)"/>
+            <path d="M420 140 C480 128 540 142 600 134 L600 164 C540 172 480 160 420 168Z" fill="var(--soil)"/>
+            <path d="M420 168 C480 160 540 172 600 164 L600 192 L420 192Z" fill="var(--rock)"/>
+            <text class="lbl" x="510" y="46" text-anchor="middle">2D section at the cut</text>
+          </g>
+          <g><g class="out"><rect x="410" y="210" width="60" height="22" rx="5" fill="var(--forest)"/><text x="440" y="225" text-anchor="middle" style="font:600 11px 'Segoe UI',sans-serif;fill:#fff">DXF</text></g>
+             <g class="out"><rect x="478" y="210" width="60" height="22" rx="5" fill="var(--forest)"/><text x="508" y="225" text-anchor="middle" style="font:600 11px 'Segoe UI',sans-serif;fill:#fff">PNG</text></g>
+             <g class="out"><rect x="546" y="210" width="64" height="22" rx="5" fill="var(--forest)"/><text x="578" y="225" text-anchor="middle" style="font:600 11px 'Segoe UI',sans-serif;fill:#fff">CSV</text></g></g>
+        </svg>
+        <figcaption><b>1.</b> You place a vertical cut anywhere, in any direction. <b>2.</b> The model is sampled along the cut to give a true-scale section.
+          <b>3.</b> The section is exported for your analysis software.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 5 -->
+    <section id="use">
+      <h2><small>Part 5</small>What you can do with the results</h2>
+      <p class="answer">Use them to get a ground model on the table early: before a site visit, at tender, or to plan your own ground investigation.</p>
+      <div class="scroll">
+      <table>
+        <tr><th>Output</th><th>Where it goes next</th><th>How</th></tr>
+        <tr><td><b>Section DXF</b> (true scale, one closed outline per layer)</td><td>GeoStudio <b>SLOPE/W</b> and SEEP/W for slope stability and seepage</td>
+          <td>File › Import › CAD drawing. Each outline becomes a region; assign your material to it.</td></tr>
+        <tr><td><b>Section DXF</b></td><td><b>PLAXIS 2D</b> for excavation, retaining wall and settlement analysis</td>
+          <td>Structures › Import geometry. Each outline becomes a soil polygon.</td></tr>
+        <tr><td><b>Section DXF</b></td><td>AutoCAD, MicroStation, or any drafting package</td><td>Open it as a drawing: x is the distance along the section (m), y is the level (mPD).</td></tr>
+        <tr><td><b>Section and plan PNG</b></td><td>Reports, tender submissions, presentations</td><td>Ready-made figures.</td></tr>
+        <tr><td><b>Rockhead contour plan</b></td><td>Pile founding-level estimates, excavation planning</td><td>Read the rock level under each foundation; spot where rock dips.</td></tr>
+        <tr><td><b>3D block view</b></td><td>Design reviews and client meetings</td><td>Show how the ground, buildings, roads and bridges sit together.</td></tr>
+        <tr><td><b>Project CSV</b></td><td>Your own records, or back into this site</td><td>One file restores the whole project, including the 3D settings.</td></tr>
+      </table>
+      </div>
+      <h3>Typical uses in the design stages</h3>
+      <ul>
+        <li><b>Desk study.</b> See what the ground probably is before spending money on site.</li>
+        <li><b>Planning new boreholes.</b> The 3D block shows where boreholes are far apart or where a layer changes quickly. Drill there.</li>
+        <li><b>Preliminary design.</b> Cut a section through a slope, an excavation or a foundation line and take it into SLOPE/W or PLAXIS as a starting geometry.</li>
+        <li><b>Checking a model by others.</b> Compare a consultant's ground model with the public records.</li>
+        <li><b>Communication.</b> A white-model 3D view is easier for non-engineers to read than a borehole log.</li>
+      </ul>
+      <div class="note"><b>The export gives geometry only.</b> Strength, stiffness, permeability and groundwater are not in the public borehole logs in a usable form.
+        You must choose design parameters and water levels yourself, from testing and from your own judgement.</div>
+    </section>
+
+    <!-- 6 -->
+    <section id="limits">
+      <h2><small>Part 6</small>Assumptions and limitations</h2>
+      <p class="answer">The model is a concept model. It is estimated between boreholes and is not for construction or final design.</p>
+      <h3>Assumptions built into the model</h3>
+      <ul>
+        <li><b>Layers come in one order everywhere.</b> A material that appears twice in a borehole (for example fill, then colluvium, then fill again) cannot be shown as two separate bodies.</li>
+        <li><b>Layer thickness changes smoothly</b> between boreholes. The method knows distance only. It knows nothing about faults, buried stream channels, dykes, or how the rock was formed.</li>
+        <li><b>Boreholes are vertical</b> and their recorded position and ground level are correct.</li>
+        <li><b>The ground has not changed</b> since it was surveyed. A borehole drilled before a site was cut or filled will not match today's ground.</li>
+        <li><b>Grade III is the top of rock.</b> Corestones (hard boulders left in weathered rock) can be logged as rock and give a false, shallow rockhead.</li>
+      </ul>
+      <h3>Limits of the data</h3>
+      <div class="scroll">
+      <table>
+        <tr><th>Item</th><th>Limit</th></tr>
+        <tr><td>Borehole logs</td><td>Logged by many contractors over decades. Naming and quality vary. Some records are missing or wrongly located.</td></tr>
+        <tr><td>5 m terrain model</td><td>Stated accuracy about ±5 m. It includes elevated roads and bridges, so it is not always the ground.</td></tr>
+        <tr><td>0.5 m LiDAR model</td><td>Surveyed in 2020; later earthworks are not shown. Held only within 200 m of AGS boreholes; the 5 m model is used elsewhere.</td></tr>
+        <tr><td>Buildings</td><td>Flat-topped blocks from outline and roof level. No roof shapes, podium steps, basements or foundations.</td></tr>
+        <tr><td>Roads on the ground</td><td>Real centre line, <b>assumed width</b> by road type. Not the real kerb lines. Tunnels are not drawn.</td></tr>
+        <tr><td>Bridges and flyovers</td><td>Real outline, <b>estimated deck level</b> (good to a few metres), assumed 1.5 m thick. No piers, abutments or ramps' real gradients.</td></tr>
+        <tr><td>Section projection</td><td>A borehole 80 m off the line is drawn as if it were on the line. Check the printed offsets.</td></tr>
+        <tr><td>Beyond the boreholes</td><td>Outside the outermost boreholes the layers are extended, not measured. Treat the edges of a block with extra caution.</td></tr>
+      </table>
+      </div>
+      <h3>What the model does not include</h3>
+      <ul>
+        <li>Groundwater levels and pore pressures.</li>
+        <li>Soil and rock strength or stiffness parameters.</li>
+        <li>Rock joints, faults and other structure.</li>
+        <li>Underground utilities, tunnels, basements and existing foundations.</li>
+      </ul>
+      <div class="note"><b>Always confirm with site-specific ground investigation</b> and the judgement of a qualified geotechnical engineer before any design decision.
+        This website is a visualisation aid, not a substitute for either.</div>
+    </section>
+
+    <!-- 7 -->
+    <section id="read">
+      <h2><small>Part 7</small>Further reading</h2>
+      <p class="answer">Official sources on how Hong Kong's ground, terrain and map data are produced.</p>
+      <h3>How ground investigation and logging are done</h3>
+      <ul>
+        <li><a href="https://www.cedd.gov.hk/eng/publications/geo/geoguides/geo-g2/index.html" target="_blank" rel="noopener">Geoguide 2: Guide to Site Investigation</a> (GEO). How boreholes are planned, drilled, sampled and reported.</li>
+        <li><a href="https://www.cedd.gov.hk/eng/publications/geo/geoguides/geo-g3/index.html" target="_blank" rel="noopener">Geoguide 3: Guide to Rock and Soil Descriptions</a> (GEO). The decomposition grades I to VI and the naming used on this site.</li>
+        <li><a href="https://www.cedd.gov.hk/eng/publications/geo/geoguides/index.html" target="_blank" rel="noopener">All Geoguides</a>, including Geoguide 1 (retaining walls) and Geoguide 7 (soil nailing).</li>
+        <li><a href="https://www.ags.org.uk/data-format/" target="_blank" rel="noopener">AGS data format</a> (Association of Geotechnical and Geoenvironmental Specialists). The file format the borehole records are published in.</li>
+      </ul>
+      <h3>How Hong Kong's geological maps are made</h3>
+      <ul>
+        <li><a href="https://www.cedd.gov.hk/eng/publications/geo/hong-kong-geological-survey/index.html" target="_blank" rel="noopener">Hong Kong Geological Survey</a> (GEO). The published geological maps, sheet reports and memoirs.</li>
+        <li><a href="https://www.cedd.gov.hk/eng/about-us/organisation/geo/pub_info/memoirs/geology/index.html" target="_blank" rel="noopener">The Geology of Hong Kong (interactive on-line)</a> (GEO). The rocks, superficial deposits and geological history of the territory.</li>
+        <li><a href="https://www.cedd.gov.hk/eng/publications/geo/geo-reports/index.html" target="_blank" rel="noopener">GEO Reports</a>. Technical reports on weathering, landslides, rockhead and ground models.</li>
+        <li><a href="https://ginfo.cedd.gov.hk/" target="_blank" rel="noopener">GInfo</a>. GEO's map viewer for boreholes, geology and slope records.</li>
+      </ul>
+      <h3>How the terrain data is made</h3>
+      <ul>
+        <li><a href="https://www.ginfo.cedd.gov.hk/GEOOpenData/eng/LIDAR.aspx" target="_blank" rel="noopener">LiDAR data, GEO open data</a>. The 2010 and 2020 territory-wide airborne LiDAR surveys and how to obtain them.</li>
+        <li><a href="https://data.gov.hk/en-data/dataset/hk-landsd-openmap-5m-grid-dtm" target="_blank" rel="noopener">Digital Terrain Model, 5 m grid</a> (Lands Department). What it contains and its stated accuracy.</li>
+        <li><a href="https://www.geodetic.gov.hk/en/index.htm" target="_blank" rel="noopener">Hong Kong Geodetic Survey Services</a> (Lands Department). The Hong Kong 1980 Grid and the Principal Datum.</li>
+      </ul>
+      <h3>How the building, road and 3D map data is made</h3>
+      <ul>
+        <li><a href="https://www.landsd.gov.hk/en/spatial-data/open-data.html" target="_blank" rel="noopener">Lands Department open geospatial data</a>. The digital topographic maps, the 3D digital map and the 3D spatial data, with notes on each.</li>
+        <li><a href="https://data.gov.hk/en-data/dataset/hk-landsd-openmap-development-hkms-digital-b1k" target="_blank" rel="noopener">Digital Topographic Map iB1000</a> (Lands Department). The 1:1,000 base map that buildings and roads are drawn from.</li>
+        <li><a href="https://3d.map.gov.hk/" target="_blank" rel="noopener">3D map viewer</a> (Lands Department). The photo-realistic 3D model of Hong Kong.</li>
+        <li><a href="https://portal.csdi.gov.hk/" target="_blank" rel="noopener">CSDI portal</a>. The government's shared map-data portal, where the building, road and structure layers are published.</li>
+      </ul>
+      <h3>The analysis software mentioned above</h3>
+      <ul>
+        <li><a href="https://www.seequent.com/products-solutions/geostudio/slope-w/" target="_blank" rel="noopener">GeoStudio SLOPE/W</a> (Seequent). Slope stability analysis.</li>
+        <li><a href="https://www.bentley.com/software/plaxis-2d/" target="_blank" rel="noopener">PLAXIS 2D</a> (Bentley). Finite-element analysis of soil and rock.</li>
+      </ul>
+    </section>
+
+    <footer>GeoVisualise is an independent visualisation tool. Concept models only · not for construction.</footer>
+  </main>
+</body>
+</html>

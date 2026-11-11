@@ -56,7 +56,10 @@ let O = null;           // {e,n,z} scene origin (E0, N0, ZREF)
 function note(id, msg, cls){
   const el=$(id); if (!el) return;
   el.style.display=msg?'block':'none'; el.className='status '+(cls||''); el.textContent=msg||'';
+  tellHeight();
 }
+// Embedded in the 2D builder: say how tall this page now is, so its frame can match (set in boot()).
+let tellHeight=()=>{};
 const topMode = () => document.querySelector('input[name=top]:checked').value;
 const vex = () => +$('vex').value;
 
@@ -1007,6 +1010,7 @@ function lookAtCut(){
 
 // ---- section tab ------------------------------------------------------------------------------------------------
 function renderSection(){
+  setTimeout(tellHeight, 0);                      // the section appearing or going changes the page height
   const svg=$('sec-svg');
   const has=runs.length>0;
   svg.style.display=has?'':'none'; $('sec-empty').style.display=has?'none':'';
@@ -1147,18 +1151,19 @@ $('save-cloud').addEventListener('click', saveCloud);
           proj=null; boundary=null; model=block=null; runs=[]; clearScene();
           try { drawMap(false); updateBoundaryInfo(); } catch {}
           note('build-note','No boreholes yet. Load or enter boreholes in tabs 1 and 2 first, then come back to this tab.','err');
-          this.tellHeight(); return;
+          tellHeight(); return;
         }
         if (!boundary && usedHoles().length) fitBoundary();
         if (boundary) await build();
-        this.tellHeight();
+        tellHeight();
       },
       settings: ()=>proj ? block3dSettings() : null,
     };
     // the frame is sized to this page, so there is one scrollbar (the 2D builder's), not two
-    const tellHeight=()=>parent.postMessage({ geo3d:'height', h:document.body.scrollHeight }, location.origin);
+    // A ResizeObserver alone is not enough: it only reports when the browser paints, and a frame that
+    // is off screen is not painted. So the height is also sent after every status note and section redraw.
+    tellHeight=()=>parent.postMessage({ geo3d:'height', h:document.body.scrollHeight }, location.origin);
     new ResizeObserver(tellHeight).observe(document.body);
-    window.geo3d.tellHeight=tellHeight;        // the observer's first call can be skipped while the frame is settling: also said after each open
     parent.postMessage({ geo3d:'ready' }, location.origin);
     return;
   }

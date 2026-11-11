@@ -4,6 +4,24 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 19:00 — Solid cut faces, one 3D tab, roads and bridges, "How It's Done" page
+**Goal:** remove the inner tab row and put the 3D section under the 3D block; add a "How It's Done" page; add roads and bridges as white models trimmed to the block; show a solid white face where a section cuts a building.
+**Changed:**
+- `web/builder3d.js`: `addPrism` (shared by buildings and bridge decks, levels given by function), `prismCaps` (white panel where the cut line crosses an outline, even-odd pairs), the grey back-face mesh removed. `setInfra`, `deckLevel`, `esriQuery`, `dtm5At`, `viewNote`, `ROAD_W`, new `infraG` group and `infraOn` option. Embed mode: no inner tabs, `showTab` scrolls instead, `tellHeight` after notes and section redraws; `geo3d.show` removed.
+- `web/block3d.js`: `ribbon` (centre line to strip). `web/test_block3d.mjs`: check for it.
+- `web/builder3d.html`: "Roads & bridges (white)" checkbox; embed layout stacks block, section, map with fixed heights; header link to the new page.
+- `web/builder.html` / `web/builder.js`: one tab "5 · 3D Terrain Block & Section"; `open3d` simplified; frame height and scroll messages; header link.
+- `web/how.html` (new): seven parts, three CSS/SVG animations, verified source and reference links. `web/index.html`: nav link.
+- `docs/qa/3D_BUILDER_QA.md`: follow-up section, 5 pictures. `docs/DECISIONS.md`: ADR-19.
+**Worked:** urban test site near Sha Tin: 42 roads, 9 bridge pieces, 49 buildings; sliced towers show white faces; frame height follows the section on and off. All 9 web self-checks pass. Every link on the new page returned 200 except seequent.com (403 to scripts, a bot block).
+**Dead ends:**
+- A `ResizeObserver` alone did not report the embedded page's height: it only fires when the browser paints, and the frame was off screen during the test. Height is now also sent explicitly.
+- A flyover looked wrongly tilted in one view; its deck levels (-0.6 to 19.8 m) showed it is a real ramp.
+- CSDI has no road polygons and no deck levels as a queryable layer; the iB1000 road polygons are file downloads only.
+**Open:** road widths are assumed by road type. Deck levels come from the 5 m model (about +/-5 m) and footbridges were not checked. No piers. Roads are flat strips with a ~0.6 m depth margin, so a road across very rough LiDAR ground can still show small breaks. Live 3D tab is admin-only; tested on localhost.
+
+---
+
 ### 2026-11-12 00:00 — Feature video delivered into the deck (supersedes the "Open" line of the 23:50 entry)
 **Goal:** finish the video and put it in the presentation.
 **Changed:** `videos/feature-video/renders/features.mp4` rendered (1920×1080, 30 fps, 122.8 s, 49 MB), copied to `videos/presentation/assets/features.mp4`. `videos/presentation/index.html`: video box resized to 16:9 (1422×800) so it has no side bars.

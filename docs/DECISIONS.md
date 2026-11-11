@@ -355,3 +355,12 @@ Option 3. Either pinger alone keeps the project awake, so one failing (or being 
 - *Embed `builder3d.html?embed=1` in an iframe under tabs 5 and 6, same origin, talking through `window.geo3d` and `postMessage`.* Drawback: the 3D page keeps its own inner tab row and side panel, so the page is nested rather than fully unified.
 **Chosen + why:** iframe. The tested 3D page runs unchanged, the 2D builder stays the single owner of the dataset and saving, and the standalone page still works.
 **Reversible?** Cheap — the embed hooks are ~40 lines on each side.
+
+### ADR-19: Roads from centre lines at assumed widths; bridge decks levelled from the 5 m model
+**Context:** the user wants roads and bridges in the 3D block, white and trimmed like the buildings. The queryable government layers give bridge outlines without levels and road centre lines without widths.
+**Options considered:**
+- *Lands Dept 3D-BIT00 infrastructure models.* Real 3D shapes. Drawback: file downloads by map tile, not a service the page can query per site; needs hosting and a packing step like the LiDAR.
+- *iB1000 road polygons.* Real kerb lines. Drawback: also file downloads only.
+- *Highways Dept structure outlines + deck level from the Lands Dept 5 m model; Lands Dept centre lines widened by road type.* Works live for any site. Drawback: deck level is good to a few metres, road width is a guess, no piers.
+**Chosen + why:** the third. No new hosting, works everywhere at once, and the checks showed the 5 m model does hold the decks (about 16 m above LiDAR on nine flyovers). The assumptions are stated in the checkbox tooltip and on the "How It's Done" page.
+**Reversible?** Cheap — `setInfra` is self-contained; a better source can replace `deckLevel` or `ROAD_W` alone.

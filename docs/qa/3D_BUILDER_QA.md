@@ -182,3 +182,44 @@ Checked:
 - Drawing a boundary by hand on the map (boundaries were supplied to the page instead).
 - "Save changes" to a cloud dataset (needs a signed-in account).
 - The live website's 3D pages: they are admin-only. The same code was tested on a local copy.
+
+---
+
+## Follow-up round (same day)
+
+### Sliced buildings now show a solid white face
+
+The earlier fix (grey inside faces) still let you see the far inside wall. Now, where the cut
+line crosses a building's outline, a white panel is drawn on the cut plane from the building's
+foot to its roof.
+
+![solid white cut faces](img/32_building_cut_solid_white.png)
+![oblique view of an urban cut](img/33_cut_urban_oblique.png)
+
+### Roads and bridges
+
+Tested on a 440 x 440 m urban site near Sha Tin: 42 roads, 9 bridge pieces, 49 buildings.
+
+![roads and bridges overview](img/30_roads_bridges_overview.jpg)
+
+Buildings switched off, to show the roads (white strips on the ground) and a flyover that
+climbs from ground level to about 20 m:
+
+![roads and flyover](img/31_roads_bridges_close.png)
+
+Check on the deck levels: on nine flyover outlines the 5 m ground model sits about 16 m above
+the bare-earth LiDAR, which confirms the 5 m model contains the bridge decks.
+
+### One 3D tab
+
+Tab 6 is gone. Tab 5 holds the 3D block, with the section and export below it and the boundary
+map below that. The inner tab row is removed, and the frame grows and shrinks with its content
+(checked: 1376 px, 2161 px with a section, back to 1376 px).
+
+![one 3D tab](img/34_one_3d_tab.jpg)
+
+### Not covered in this round
+
+- Footbridge deck levels were not checked against a known footbridge. They are narrow compared
+  with the 5 m ground model, so expect them to be rougher than flyovers.
+- Road widths are assumed per road type; they were not compared with real kerb lines.
