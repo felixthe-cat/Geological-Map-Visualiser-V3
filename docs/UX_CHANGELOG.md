@@ -106,3 +106,4 @@ What changed for you, newest at the bottom of each day. Append only.
 - 2026-11-11 — The 2D Builder no longer has the "3D via Hugging Face" tab. Use the
   "3D Block ↗" link in its header to see the same boreholes in 3D.
 - 2026-11-11 — The 3D builder now uses the 0.5 m LiDAR ground by itself wherever there are AGS boreholes (once the tiles are uploaded); elsewhere it still uses the 5 m model, and you can still load your own .tif tiles.
+- 2026-11-11 — The 3D block now shows existing buildings as plain white blocks on the site and up to 100 m around it, standing on the real ground level.

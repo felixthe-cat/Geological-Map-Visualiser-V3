@@ -4,6 +4,14 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-11 — Existing buildings around the 3D block
+**Goal:** show existing buildings as plain white blocks in the 3D model.
+**Found:** white blocks already existed, but only for buildings whose centre is inside the boundary. "Box around boreholes" hugs the holes, so the hillside example showed none (19 buildings lie within 100 m).
+**Changed:** `web/builder3d.js` `setBuildings` now asks the Lands Dept building layer for the boundary box + 100 m (`CONTEXT_M`). Outside buildings stand on `dtmAt` ground (LiDAR, else 5 m); a faint see-through ground sheet (`contextGround`) sits under them so the block's coloured sides stay visible. `prefetchDtm(pad)` fetches the 5 m tiles for the ring. Checkbox label updated in `builder3d.html`.
+**Worked:** hillside example draws 13 buildings (was 0), no new console errors; all 9 web self-checks pass.
+
+---
+
 ### 2026-11-11 — Keep LiDAR out of Vercel deploys
 **Goal:** deploy the hosted-LiDAR change without uploading the 21 GB download folder.
 **Changed:**
