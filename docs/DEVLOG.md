@@ -13,6 +13,22 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-12 20:45 — Talk deck and feature video update (part-way checkpoint)
+**Goal:** audit the talk deck and feature video against the site as it is now, add the finished 3D tab and "how it was built", restyle both in the website's light theme.
+**Changed (all under git-ignored `videos/`):**
+- `videos/presentation/index.html`: rewritten, 13 → 20 slides, light theme (cream, forest green, gold; site fonts). New slides: the site today (one builder, five tabs), software used (Claude Code and the libraries), LiDAR hosting, 3D method, 3D block, slice + proposed structure, exports. New assets `terrain_light.jpg`, `qr_dark.svg`, `shot_*.jpg` (crops of real screens).
+- `videos/shots/record_app.py`: records all five tabs on the local `web3d` server (real Sham Shui Po site, 171 boreholes), takes stills, squeezes slow 3D drags, encodes `rec.mp4`.
+- `videos/shots/gen_demo.py`: light-theme labels and chips, tab names as on the site, writes `feature-video/index.html` too.
+- `videos/feature-video/compositions/title.html`, `endcard.html`, `BRIEF.md`: light theme.
+- `videos/_old_2026-11-11/`: the previous deck, scripts, compositions and MP4.
+**Worked:** 17 of 20 slides checked at 1920×1080 by screenshot (no overflow, no missing image). AGS logs loaded locally in about 4 s.
+**Dead ends:**
+- Chrome's screencast returns 1920 px frames whatever scale factor is set (headless, new headless and headed all tried); camera zoom is capped at 1.4× instead.
+- The default headless browser draws WebGL in software: one 3D drag took 3 minutes. Launch flag `--use-angle=d3d11` uses the real graphics card.
+**Open:** recording take 2 running; 3D pictures not yet in slides 13–14; video not yet rebuilt, checked or rendered.
+
+---
+
 ### 2026-11-12 06:30 — Whole-site audit finished: section labels, "stopped early" rule, landing page
 **Goal:** audit the whole website from the landing page through every tab and export, fix what is wrong, and record before/after pictures.
 **Changed:**

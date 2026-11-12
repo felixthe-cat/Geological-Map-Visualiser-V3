@@ -6,6 +6,7 @@ then open the note in the newest relevant row. One row per session, newest first
 
 | Date | Session | Topic | State | Note |
 |---|---|---|---|---|
+| 2026-11-12 | 6374345f | Talk deck + feature video updated: light theme, 3D tab, how it was built (20 slides) | continue here | [note](handovers/2026-11-12_6374345f_deck-video-light-3d.md) |
 | 2026-11-12 | c079ecc2 | Hosted LiDAR, 3D fixes, roads + bridges, 3D merged into the builder, "How It's Done" page, proposed structure with dig/fill, whole-site audit | waiting on user | [note](handovers/2026-11-11_c079ecc2_lidar-hosting-3d-merge.md) |
 | 2026-11-11 | 3ba3d1c2 | Talk presentation (13-slide offline HTML deck) + 2-min HyperFrames feature video; 3D held back | waiting on user | [note](handovers/2026-11-11_3ba3d1c2_talk-presentation-video.md) |
 | 2026-11-11 | c779fc23 | 3D white model (contours, white buildings, slice handles), 0.5 m LiDAR tile loader, 3D off Hugging Face | waiting on user | [note](handovers/2026-11-11_c779fc23_white-model-lidar.md) |
