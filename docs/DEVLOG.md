@@ -4,6 +4,17 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-12 21:40 — Talk deck and feature video finished (supersedes the "Open" line of the 20:45 entry)
+**Goal:** finish the deck and video update: 3D tab in both, light site theme, video re-rendered and put in the deck.
+**Changed (git-ignored `videos/`):** `presentation/index.html` slides 13–14 now use real 3D screens and the real structure figures (90 × 45 m, founding −12 mPD, 73,617 m³ to dig, 92% of the base on Grade V); `presentation/assets/shot_3d_*.jpg`; `feature-video/renders/features.mp4` and `presentation/assets/features.mp4` (1920×1080, 30 fps, 234 s, silent); `shots/gen_demo.py` end card 8 s.
+**Worked:** recording take 2 ran end to end on localhost with the real AGS logs (171 boreholes) and the graphics card. `hyperframes check` passes (0 errors; warnings: silent film on purpose, dense label track). 20 review frames read. Render exit 0. All 20 slides screenshotted at 1920×1080: no overflow, no missing image, no console errors. Video loads and plays on slide 16.
+**Dead ends:**
+- Seeking the video mid-way fails through `python -m http.server` (no partial-file support); it plays from the start, which is how the talk uses it.
+- A 3D drag on the software renderer took ~3 min; recorded slow steps are now squeezed back to their intended length.
+**Open:** video is 3 min 54 s, longer than the old 2 min; not rehearsed on the projector. `web/how.html` station counts (330,000 / 190,000) differ from the index (80,000 / 35,326); left for Felix.
+
+---
+
 ### 2026-11-12 19:00 — Handover note updated for session c079ecc2
 **Goal:** record the 12 Nov work (proposed structure, site audit) so the next session can continue.
 **Changed:** `handovers/2026-11-11_c079ecc2_lidar-hosting-3d-merge.md` (update section added), `HANDOVER.md` (this session's row only). Learning log outside the repo.
