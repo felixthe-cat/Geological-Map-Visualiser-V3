@@ -4,6 +4,15 @@ Newest entry at the top. Append only — never rewrite or reorder earlier entrie
 
 ---
 
+### 2026-11-12 19:00 — Handover note updated for session c079ecc2
+**Goal:** record the 12 Nov work (proposed structure, site audit) so the next session can continue.
+**Changed:** `handovers/2026-11-11_c079ecc2_lidar-hosting-3d-merge.md` (update section added), `HANDOVER.md` (this session's row only). Learning log outside the repo.
+**Worked:** note lists commits `487cdfe` and `31d09a7`, what is live, and what was only tested on localhost.
+**Dead ends:** the session-offer card ended this session twice before its result was recorded; the presentation job was proposed as a plain task card instead.
+**Open:** the presentation and video update has not started.
+
+---
+
 ### 2026-11-12 06:30 — Whole-site audit finished: section labels, "stopped early" rule, landing page
 **Goal:** audit the whole website from the landing page through every tab and export, fix what is wrong, and record before/after pictures.
 **Changed:**

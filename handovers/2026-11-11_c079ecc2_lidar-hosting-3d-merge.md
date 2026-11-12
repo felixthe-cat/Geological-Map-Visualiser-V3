@@ -79,6 +79,39 @@ Last feature commit: `68475ea`. Everything is pushed to `origin/main`.
 4. Test data lives in the browser's localStorage on localhost (`qa_csv`, `qa_plain`,
    `qa_road`); it is throwaway and can be regenerated (30 made-up holes, seed 7).
 
+---
+
+## Update — 2026-11-12 (same session, later work)
+
+### What was added
+- **Proposed structure** (tab 5, "Proposed structure" panel): `web/structure.js` (`footprint`, `lineSpans`, `earthworks`) + `web/test_structure.mjs`; wired in `web/builder3d.js` (`structure`, `drawStructureOnMap`, `drawStructure3D`, `structureReport`, `updateStructure`). Shows on the map, 3D block, cut face, section SVG and DXF (`PROPOSED_STRUCTURE` layer); saved in the project settings under `structure`. ADR-21.
+- **3D exports:** `exportView` (PNG with solid background) and `exportGLB` (GLTFExporter).
+- **"Stopped early" rule** (ADR-20): `interpolateHorizons(..., last)` in `web/section_geom.js` and `makeModel` in `web/block3d.js`. A borehole only counts for layers it drilled through.
+- **`isMaterial`** in `web/strata.js`: "No Recovery", "Wash Boring" etc. stay on the log but are not joined up as layers.
+- **2D section:** label rows with leader lines, legend clear of the B end (`web/builder.js`).
+- **Rock contour:** interval picks itself until the user chooses; 10 m option.
+- **Site map:** typed HK1980 or lat/lng box sets the search area (`typedBbox` in `web/sitemap.js`); dead "Send to 3D Builder" button removed.
+- **Landing page:** one builder link, accurate text, third card, honest footer; 17 dead CSS rules removed from `web/style.css`.
+- **Docs:** `docs/qa/SITE_AUDIT.md` + `docs/qa/img2/`; `web/how.html` updated for the new features.
+
+Commits: `487cdfe` (structure, exports, site-map fix), `31d09a7` (audit fixes and report). Both pushed.
+
+### Deploy / run state (12 Nov)
+- Vercel production deployed after `31d09a7`; live files checked by fetch (`isMaterial`, `last=null`, `typedBbox`, `LANES=6`, new landing text, no `viewer-iframe` CSS).
+- The Hugging Face log helper worked on 12 Nov: 171 boreholes loaded in 12 s for E 833300-833700, N 820800-821200.
+- Live 3D tab still not clicked through (admin-only). All testing on `localhost:5510`.
+- All 10 web self-checks pass.
+
+### Open / waiting on the user
+- **Presentation + video update is NOT started.** A task card "Update talk deck + feature video for 3D" (task_bf90d048) was proposed with a full brief; it expires about 19 Nov if not started. The "offer" card type ended this session twice, so do not use it here.
+- Not exercised: mouse dragging (section line ends, slice handle, structure pin), phone-width builder layout, saving to an account.
+- Left as they are: "Unclassified" AGS layers; one site-wide layer order; one very deep borehole sets the block base unless a base level is typed.
+- Dig/fill volumes assume vertical sides; no batter or working space.
+
+### Good first moves (added)
+- Read `docs/qa/SITE_AUDIT.md` before touching the 2D section or the layer model.
+- For the presentation job, start from the task card's brief or from `handovers/2026-11-11_3ba3d1c2_talk-presentation-video.md`.
+
 ## Related sessions
 
 - [c779fc23 — white model + LiDAR tile loader](2026-11-11_c779fc23_white-model-lidar.md) (this session continued from it)
